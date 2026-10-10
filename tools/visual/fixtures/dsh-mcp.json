@@ -1,0 +1,13 @@
+{
+ "/dsh-mcp/api/mcp": {
+  "ok": true,
+  "servers": [
+   { "id": "playwright", "serverName": "playwright", "transport": "stdio", "summary": "cmd /c npx @playwright/mcp@latest", "enabled": true },
+   { "id": "context7", "serverName": "context7", "transport": "stdio", "summary": "cmd /c npx -y @upstash/context7-mcp", "enabled": true },
+   { "id": "filesystem", "serverName": "filesystem", "transport": "stdio", "summary": "npx -y @modelcontextprotocol/server-filesystem H:/My_Software", "enabled": false }
+  ],
+  "sources": [{ "id": "codex", "label": "Codex", "path": "~/.codex/config.toml" }],
+  "patchPath": "C:/Users/<user>/.dsh/profiles/desktop/cordis.patch.yml"
+ },
+ "default": { "ok": true }
+}

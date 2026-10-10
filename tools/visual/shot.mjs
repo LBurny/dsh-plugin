@@ -16,6 +16,8 @@
  *   --sizes <list>     WxH pairs, default 1280x900
  *   --zooms <list>     css zoom levels, default 1
  *   --titlebar <on|off|keep>  toggles html[data-windows-titlebar] (default keep)
+ *   --theme <dark|light|keep>  toggles body[data-ds-dark-theme] (default keep)
+ *   --panel <pkg>      renders that package's panel inside a copy of the hub page
  *   --click <text>     click the element whose trimmed text equals it, before shooting
  *   --eval <js>        run raw JS after the size/zoom/attribute step
  *   --css <file>       inject a stylesheet (repeatable) to preview a fix live
@@ -64,12 +66,14 @@ const zooms = String(arg("zooms", "1"))
 	.map(Number)
 	.filter((z) => Number.isFinite(z) && z > 0);
 const titlebar = String(arg("titlebar", "keep"));
+const theme = String(arg("theme", "keep"));
 const clickText = arg("click", null);
 const evalScript = arg("eval", null);
 const cssFiles = all("css").map(String);
 const settle = Number(arg("settle", 500));
 const browserPort = Number(arg("port", 9400));
 const name = String(arg("name", "shot"));
+const panelName = arg("panel", null);
 const quiet = flag("json");
 
 /* -------------------------------------------------------------- the browser */
@@ -165,12 +169,84 @@ if (titlebar === "on" || titlebar === "off") {
 		`document.documentElement.${titlebar === "on" ? "setAttribute" : "removeAttribute"}("data-windows-titlebar","")`
 	);
 }
+if (theme === "dark") await evaluate('document.body.setAttribute("data-ds-dark-theme","")');
+if (theme === "light") await evaluate('document.body.removeAttribute("data-ds-dark-theme")');
 for (const file of cssFiles) {
 	await evaluate(
 		`(() => { const s = document.createElement("style"); s.textContent = ${JSON.stringify(
 			readFileSync(String(file), "utf8")
 		)}; document.head.append(s); })()`
 	);
+}
+
+/* ------------------------------------------------------------- panel preview */
+
+/**
+ * `--panel <pkg>` renders that package's panel the way the 功能管理 hub shows it:
+ * the hub's own stylesheet, its head (back / title / package chip / refresh) and a
+ * `hub-stage[data-view="feature"]`, into which the panel mounts itself. The panel's
+ * routes are answered from `fixtures/<pkg>.json`, so a list has rows to look at.
+ * This is how to see a panel change without installing anything.
+ */
+let injected = evalScript;
+if (typeof panelName === "string") {
+	const dir = resolve(here, "..", "..", String(panelName));
+	const fixtures = JSON.parse(readFileSync(join(here, "fixtures", `${String(panelName)}.json`), "utf8"));
+	const hubSource = readFileSync(join(here, "..", "..", "dsh-features", "lib", "client.js"), "utf8");
+	const skinAt = hubSource.indexOf("const SKIN = `");
+	const hubSkin = hubSource.slice(skinAt + "const SKIN = `".length, hubSource.indexOf("`;", skinAt));
+	// The hub's stylesheet, then the panel's own: in a real shell a plugin's CSS ships
+	// with its client bundle, so a preview has to inject it by hand.
+	const previewCss = `${hubSkin}
+${readFileSync(join(dir, "lib", "client.css"), "utf8")}`;
+	const head = `<div class="hub-head">`
+		+ `<button class="hub-icon-btn" type="button" title="返回" aria-label="返回"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5 8l5 5"/></svg></button>`
+		+ `<div class="hub-titles"><div class="hub-line"><h1>预览</h1><span class="hub-pkg">${String(panelName)}</span></div><p>panel preview</p></div>`
+		+ `<button class="hub-icon-btn" type="button" title="刷新" aria-label="刷新"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 11-1.6-3.7M13 2.5V5h-2.5"/></svg></button>`
+		+ `</div><div class="hub-stage" data-view="feature"></div>`;
+	const scenario = `(async () => {
+	const FIXTURES = ${JSON.stringify(fixtures)};
+	const reply = (body) => Promise.resolve({ ok: true, status: 200, json: async () => body });
+	const real = window.fetch.bind(window);
+	window.fetch = (url, init) => {
+		const path = String(url);
+		for (const key of Object.keys(FIXTURES)) if (key !== "default" && path.includes(key)) return reply(FIXTURES[key]);
+		// The hub probe must fail, or the panel stands down expecting the hub to mount it.
+		if (path.includes("/dsh-features/api/status")) return reply({ ok: false, error: "preview" });
+		if (FIXTURES.default !== undefined) return reply(FIXTURES.default);
+		return real(url, init);
+	};
+	// Get the onboarding dialog out of the way: it is modal, so it would cover the page.
+	for (const button of document.querySelectorAll("button")) {
+		if ((button.textContent || "").trim() === "继续" || (button.textContent || "").trim() === "Continue") button.click();
+	}
+	const style = document.createElement("style");
+	style.textContent = ${JSON.stringify(previewCss)};
+	document.head.append(style);
+	// The page fills the window: the harness shoots this overlay, not the app behind it,
+	// so the review is of the panel page at a known size rather than of the whole shell.
+	const stage = document.createElement("div");
+	stage.style.cssText = "position:fixed;inset:0;z-index:2147483000;background:var(--dsw-alias-bg-base,#1e2126);display:flex;flex-direction:column";
+	const root = document.createElement("div");
+	root.id = "dsh-features-root";
+	root.innerHTML = ${JSON.stringify(head)};
+	stage.append(root);
+	document.body.append(stage);
+	const panelSource = ${JSON.stringify(readFileSync(join(dir, "lib", "client.js"), "utf8"))};
+	// The panel is an IIFE that expects to be injected as one: run it, then let the hub
+	// do what it does on a visit — mount the published feature into the stage.
+	new Function(panelSource)();
+	// Boot is async (it probes the host first), so wait for the feature to be published.
+	for (let i = 0; i < 40 && Object.keys(window.__dshFeatures ?? {}).length === 0; i++) {
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	const keys = Object.keys(window.__dshFeatures ?? {});
+	if (keys.length === 0) throw new Error("panel published no feature");
+	window.__dshFeatures[keys[0]].mount(root.querySelector(".hub-stage"));
+	// ...and for the mount's own round trip to paint the list.
+	await new Promise((resolve) => setTimeout(resolve, 600));
+})()`;
+	injected = scenario;
 }
 
 /* --------------------------------------------------------------- measurement */
@@ -302,8 +378,8 @@ for (const [width, height] of sizes) {
 		await evaluate(`document.documentElement.style.zoom = ${JSON.stringify(String(zoom))}`);
 		await sleep(settle);
 		if (typeof clickText === "string") await clickByText(clickText);
-		if (typeof evalScript === "string") await evaluate(evalScript);
-		if (typeof clickText === "string" || typeof evalScript === "string") await sleep(300);
+		if (typeof injected === "string") await evaluate(injected);
+		if (typeof clickText === "string" || typeof injected === "string") await sleep(300);
 
 		const shot = await send("Page.captureScreenshot", { format: "png" });
 		const label = `${name}-z${zoom}-${width}x${height}${typeof clickText === "string" ? "-click" : ""}`;

@@ -1,0 +1,15 @@
+{
+ "/dsh-notify/api/settings": {
+  "ok": true,
+  "config": {
+   "approval": { "enabled": true, "timing": "background" },
+   "question": { "enabled": true, "timing": "background" },
+   "turn_done": { "enabled": true, "timing": "background" },
+   "answer_done": { "enabled": false, "timing": "background" },
+   "sound": "staplebops-02", "volume": 0.7, "toast": true, "browser": false
+  },
+  "sounds": ["staplebops-01", "staplebops-02", "staplebops-03", "nope-01"],
+  "configPath": "profiles/desktop/cordis.patch.yml"
+ },
+ "default": { "ok": true }
+}

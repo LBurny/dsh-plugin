@@ -200,6 +200,11 @@
 	accent-color: var(--dsh-accent);
 }
 
+/* A slider is a full-width control, and it takes the brand fill like the switch. */
+#dsh-skills-root input[type="range"] {
+	accent-color: var(--dsh-accent);
+}
+
 /* The panel sits above the launcher stack, whose height varies with how many
    packages are installed; the scripts publish it as --dsh-launcher-stack. */
 #dsh-skills-root .panel {
@@ -241,16 +246,19 @@
 	flex: 1;
 }
 
-/* A row is one flat line like the official plugin list: no card box, a 2px
-   rhythm between rows, and no horizontal bleed of its own, so a row's text and
-   its controls sit on the same gutter as the panel's own buttons. */
+/* A row is one card, the same one the 功能管理 hub uses for its own list: hairline
+   l2 stroke, 12px radius, 12/14 padding and an 8px rhythm. Cards are inset by the
+   body's 22px gutter, which lines their edges up with the page head's title and its
+   refresh control, and a long description can no longer run an entry into the next
+   one. */
 #dsh-skills-root .row {
 	display: flex;
 	align-items: center;
 	gap: 14px;
-	padding: 8px 0;
-	margin: 0 0 2px;
-	border-radius: var(--dsw-radius-xl, 20px);
+	padding: 12px 14px;
+	margin: 0 0 8px;
+	border: 1px solid var(--dsh-border);
+	border-radius: var(--dsw-radius-md, 12px);
 }
 
 #dsh-skills-root label.row {
@@ -289,6 +297,12 @@
 	-webkit-box-orient: vertical;
 	-webkit-line-clamp: 2;
 	overflow-wrap: break-word;
+}
+
+/* A two-line slot, so every card is the same height whatever the description's
+   length. Uneven boxes are what a list of bare rows looked like in the first place. */
+#dsh-skills-root .row .row-sub {
+	min-height: 36px;
 }
 
 #dsh-skills-root .row-actions {

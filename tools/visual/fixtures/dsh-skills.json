@@ -1,0 +1,18 @@
+{
+ "/dsh-skills/api/skills": {
+  "ok": true,
+  "skills": [
+   { "name": "brainstorming", "description": "You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation.", "enabled": true },
+   { "name": "skill-creator", "description": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for reliable triggering.", "enabled": true },
+   { "name": "systematic-debugging", "description": "Use when encountering any bug, test failure, or unexpected behavior, before proposing fixes", "enabled": true },
+   { "name": "test-driven-development", "description": "Use when implementing any feature or bugfix, before writing implementation code", "enabled": true },
+   { "name": "using-superpowers", "description": "Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions", "enabled": true },
+   { "name": "verification-before-completion", "description": "Use when about to claim work is complete, fixed, or passing, before committing or creating PRs - requires running verification commands and confirming output before making any success claims; evidence before assertions always", "enabled": true },
+   { "name": "writing-plans", "description": "Use when you have a spec or requirements for a multi-step task, before touching code", "enabled": false }
+  ],
+  "sources": [{ "id": "dsh", "label": "dsh", "dir": "~/.dsh/skills" }],
+  "counts": { "enabled": 6, "total": 7 },
+  "plugin": { "name": "dsh-skills", "version": "0.2.0" }
+ },
+ "default": { "ok": true }
+}

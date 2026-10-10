@@ -102,6 +102,10 @@ both source and published artifact, and `main` points straight at `lib/index.js`
     (14px/500 row titles, 13px/18px tertiary subtitles, hairline `0.5px` outlines, 32px buttons,
     the 36×20 switch, brand-token accent). Row text never breaks mid-word (`overflow-wrap: anywhere`
     is banned): subtitles clamp to two lines and keep the full string on the row's `title` tooltip.
+    A list row is **one card per entry** — the same hairline stroke, `12px` radius, `12px 14px` padding
+    and 8px rhythm the hub draws for its own rows — and `.row .row-sub` holds a two-line slot, so every
+    entry in a list is one height whatever each description's length.
+    `tests/hub-contract.test.mjs` pins the card's metrics and the hub's, so the two cannot drift apart.
   - `tests/panel-embed.test.mjs` boots every panel's script in a DOM stub for both directions (hub
     present and absent). Its stubs are load-bearing: panels append with `child instanceof Node`, read
     `panel.hidden`/`element.id` as *properties* (the `hidden` and `id` attributes are reflected), and
@@ -122,7 +126,8 @@ both source and published artifact, and `main` points straight at `lib/index.js`
     stylesheet and fails on one that is neither an exemption (`#dsh-launchers`, the root itself) nor
     carries a `hub-` class. Corollary for both sides: a row sits on the same gutter as its page's own
     buttons — no negative horizontal margin, which is what pushed panel rows 8px outside the hub's head
-    controls.
+    controls — and since a row is a card, its stroke is what the eye lines up against the head's back and
+    refresh controls. Card geometry lives in the shared block, so all six panels move together.
 - **The hub's client half is served from the row, not from a route.** `dsh.client` + `exports["./client"]`
   is the whole wiring; the bundle URL, its revision and the boot-graph row are dsh's business. If the
   entry does not appear, check `node --dump-config | grep features` (the row must be mounted) before
@@ -179,6 +184,12 @@ It never touches a running app: the sandbox instance above answers with dsh's ow
 most of these bugs are about. `--eval` injects the state you need to reproduce (extra footer rows, a
 dialog, a collapsed sidebar), `--css` previews a fix before it is written, `--tree` prints the sidebar's
 subtree with layout heights.
+
+For a panel there is nothing to install either: `--panel dsh-skills` (any package in this repo) renders it
+*inside a copy of the hub page* — the hub's own stylesheet, its head with back / title / package chip /
+refresh, and a `hub-stage[data-view="feature"]` for the panel to mount into — with its routes answered
+from `tools/visual/fixtures/<pkg>.json` and `--theme dark|light`. That is how to see a list's look, its
+gutter against the head's controls, and whether every row is the same height, before touching an install.
 
 Two numbers decide most zoom work, and both are easy to misread: `getBoundingClientRect` reports
 **viewport** px while `scrollHeight`/`clientHeight` report **layout** px (at zoom 2 a 50 px row reports

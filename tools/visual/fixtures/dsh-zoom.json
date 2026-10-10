@@ -1,0 +1,12 @@
+{
+ "/dsh-zoom/api/settings": {
+  "ok": true,
+  "config": {
+   "level": 1, "step": 0.02, "min": 0.25, "max": 5, "launcher": true,
+   "in": { "ctrl": true, "shift": true, "alt": false, "code": "Equal", "key": "+" },
+   "out": { "ctrl": true, "shift": true, "alt": false, "code": "Minus", "key": "_" }
+  },
+  "configPath": "profiles/desktop/cordis.patch.yml"
+ },
+ "default": { "ok": true }
+}

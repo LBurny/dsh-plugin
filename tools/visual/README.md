@@ -38,8 +38,27 @@ sidebar's bottom block still fits. `FOOTER CLIPPED` means it does not.
 | `--eval <js>` | run raw JS after the size/zoom step — the hook for reproducing a specific state |
 | `--css <file>` | inject a stylesheet, to preview a fix live (repeatable) |
 | `--tree` | print the sidebar column's subtree with layout heights and `flex-grow` |
+| `--panel <pkg>` | render that package's panel **inside a copy of the hub page** (see below) |
+| `--theme dark\|light\|keep` | toggles `body[data-ds-dark-theme]` (default keep) |
 | `--settle <ms>` | wait after each change (default 500) |
 | `--keep` | leave the browser running for a follow-up run |
+
+## Reviewing a panel
+
+`--panel dsh-skills` needs no install: it puts the panel *inside a copy of the 功能管理 page* — the hub's
+own stylesheet, its head (back / title / package chip / refresh) and a `hub-stage[data-view="feature"]`
+for the panel to mount into — answers the panel's routes from `fixtures/<pkg>.json`, and fills the window
+with it. The preview paints over the app behind it on purpose, so what is reviewed is the panel page at a
+known size:
+
+```bash
+node tools/visual/shot.mjs --url "$URL" --sizes 1080x900 --panel dsh-skills --theme dark
+```
+
+Fixtures are per package and per route (`{"/dsh-skills/api/skills": {…}, "default": {"ok": true}}`); add a
+key for a route a panel needs. What this buys: a list's row heights, its gutter against the head's own
+back and refresh controls, and how a long description or a wrapped command reads — none of which a
+dom-stub assertion can see.
 
 ## Facts worth knowing before reading a shot
 

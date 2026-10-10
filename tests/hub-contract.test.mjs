@@ -179,13 +179,33 @@ for (const pkg of FEATURES) {
 	const panelSource = read(join(pkg, "lib", "client.js")) + read(join(pkg, "lib", "client.css"));
 	check(!/\bhub-[a-z-]+/u.test(panelSource), `${pkg}: uses no \`hub-\` class (the hub owns that prefix)`, "");
 }
-// A row must sit on the panel's own gutter: a negative horizontal margin would
-// put its box outside the panel's buttons, which is what broke the alignment.
+// A row is one card, and it must be the same card the hub draws for its own list:
+// same hairline stroke, same radius, same 8px rhythm, inset by the body's own gutter
+// rather than bleeding past it. One panel drifting from that reads as an untidy list
+// beside every other page in the hub.
+const hubRowBlock = client.slice(
+	client.indexOf("#dsh-features-root .hub-row {"),
+	client.indexOf("}", client.indexOf("#dsh-features-root .hub-row {"))
+);
+check(
+	/border: 1px solid var\(--dsh-border\);/u.test(hubRowBlock) && /border-radius: 12px;/u.test(hubRowBlock),
+	"dsh-features: the hub's own rows are 1px stroke cards at a 12px radius",
+	hubRowBlock.replace(/\s+/gu, " ").slice(0, 72)
+);
 for (const pkg of FEATURES) {
 	const style = read(join(pkg, "lib", "client.css"));
 	const at = style.indexOf(`#${pkg}-root .row {`);
 	const rowBlock = style.slice(at, style.indexOf("}", at));
-	check(/\tpadding: 8px 0;/u.test(rowBlock) && /\tmargin: 0 0 2px;/u.test(rowBlock), `${pkg}: a row shares the panel's gutter instead of bleeding past it`, rowBlock.replace(/\s+/gu, " ").slice(0, 64));
+	// dsh's own --dsw-radius-md is 12px, so the token's fallback and the hub's
+	// literal are the same radius.
+	check(
+		/border: 1px solid var\(--dsh-border\);/u.test(rowBlock) &&
+			/border-radius: var\(--dsw-radius-md, 12px\);/u.test(rowBlock) &&
+			/\tpadding: 12px 14px;/u.test(rowBlock) &&
+			/\tmargin: 0 0 8px;/u.test(rowBlock),
+		`${pkg}: a row is a card on the hub's own rhythm, not a bare line`,
+		rowBlock.replace(/\s+/gu, " ").slice(0, 96)
+	);
 }
 // ...and the head's controls, the page's own content and an embedded panel's
 // content must all be on ONE gutter, or the back/refresh controls of a sub-page

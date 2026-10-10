@@ -1,0 +1,23 @@
+{
+ "/dsh-doctor/api/diagnostics": {
+  "ok": true,
+  "status": {
+   "state": "ready", "version": "0.2.0", "node": "v24.19.0", "pid": 22976, "uptimeSeconds": 754, "memoryMb": 214,
+   "port": 7411, "host": "127.0.0.1", "profile": "desktop", "profileDir": "profiles/desktop",
+   "dshHome": "C:/Users/<user>/.dsh", "patchPath": "C:/Users/<user>/.dsh/profiles/desktop/cordis.patch.yml",
+   "sessions": 3, "platform": "win32", "arch": "x64"
+  }
+ },
+ "/dsh-doctor/api/logs": {
+  "ok": true,
+  "lines": [
+   "2026-10-10 14:38:59 dsh web: applying 9 patch layers",
+   "2026-10-10 14:39:02 dsh web: ready on 127.0.0.1:7411",
+   "2026-10-10 14:39:04 plugin dsh-mcp: connection ready",
+   "2026-10-10 14:52:11 turn/end reason=completed (turns=1, tools=4)"
+  ],
+  "source": "events",
+  "path": "events.log"
+ },
+ "default": { "ok": true }
+}
