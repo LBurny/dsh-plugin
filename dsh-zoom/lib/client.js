@@ -197,15 +197,50 @@
 	let recordTarget;
 
 	/**
-	 * How much taller the harness's own chrome is than the window can shrink to:
-	 * the sidebar's brand row, its nav entries, the workspace section and the
-	 * account block at the bottom. `zoom` on `<html>` divides the layout viewport
-	 * by the factor, so past `window height / this` the sidebar's own content no
-	 * longer fits and its bottom block — 设置, 意见反馈, 退出登录 — is clipped with
-	 * nothing to scroll: the app shell sets `overflow: hidden` and the document
-	 * never scrolls. Measured at ~360 CSS px for a stock dsh at 13px.
+	 * The harness's own chrome is what limits zoom, not the content: `zoom` on
+	 * `<html>` divides the layout viewport by the factor, and past
+	 * `window height / chrome` the sidebar's stack no longer fits. The app shell
+	 * clips it (`overflow: hidden`) and the document never scrolls, so its bottom
+	 * block — 设置, 意见反馈, 退出登录 — and the avatar menu hanging off it become
+	 * unreachable, with no way to scroll to them.
+	 *
+	 * What that stack needs is measured from the page instead of assumed: the
+	 * sidebar column is the shell's only non-shrinkable stack (each child is
+	 * `flex: none` except the session region, which collapses to zero), so forcing a
+	 * deliberately oversized zoom makes `scrollHeight` report exactly the height the
+	 * column requires. That reading is in layout px — which the factor does not
+	 * scale — so it stays valid at any zoom, for any sidebar contents: extra plugins
+	 * add nav rows, a signed-in profile adds footer rows, and both raise the floor.
 	 */
-	const APP_CHROME_PX = 360;
+	const SIDEBAR_COLUMN = '[class*="_sidebarCol"]';
+	/** Used until the shell's sidebar exists, and in a host that has none. */
+	const FALLBACK_CHROME_PX = 360;
+	/** Big enough to overflow any real window, so `scrollHeight` reports the need. */
+	const SAMPLE_ZOOM = 6;
+	/** Keeps the cap strictly below the physical limit, so rounding cannot clip. */
+	const SLACK = 0.98;
+
+	/**
+	 * How tall the harness's sidebar needs to be, in layout px. The zoom used to
+	 * measure is restored in the same task: no frame is painted oversized, and the
+	 * shell's own width watcher — which reads a viewport-space rect on the next
+	 * animation frame — never sees it either.
+	 * @returns the requirement, or the fallback when there is no sidebar to ask.
+	 */
+	function sidebarMinHeight() {
+		const column = document.querySelector(SIDEBAR_COLUMN);
+		if (column === null) return FALLBACK_CHROME_PX;
+		const html = document.documentElement;
+		const applied = html.style.zoom;
+		let required;
+		try {
+			html.style.zoom = String(SAMPLE_ZOOM);
+			required = column.scrollHeight;
+		} finally {
+			html.style.zoom = applied;
+		}
+		return Number.isFinite(required) && required > 0 ? required : FALLBACK_CHROME_PX;
+	}
 
 	/**
 	 * The largest level this window can render with the harness still usable. Not
@@ -218,8 +253,10 @@
 		// A hidden or not-yet-laid-out window reports 0 (or nothing): that is not a
 		// small window, it is no answer, so keep the user's own maximum.
 		if (!Number.isFinite(height) || height <= 0) return config.max;
-		const bounded = Math.min(config.max, Math.max(config.min, height / APP_CHROME_PX));
-		return Math.round(bounded * 100) / 100;
+		// Never shrink the page on the user's behalf: 100% is the floor of what a cap
+		// may impose, so a short window cannot be talked into a smaller level.
+		const bounded = Math.max(1, (height * SLACK) / sidebarMinHeight());
+		return Math.floor(Math.min(config.max, Math.max(config.min, bounded)) * 100) / 100;
 	}
 
 	/** Apply a level to the page and remember it (the write is debounced). */
@@ -236,6 +273,23 @@
 	window.addEventListener("resize", () => {
 		if (config !== undefined) applyLevel(config.level, false);
 	});
+
+	/**
+	 * This script is injected with the page, but the shell mounts its sidebar
+	 * afterwards, and the cap can only be measured once it is there. Until then
+	 * `ceiling` answers with the fallback, so re-apply through the clamp as soon as
+	 * the column appears — otherwise the saved level survives a reload uncapped.
+	 */
+	function watchForSidebar() {
+		if (document.querySelector(SIDEBAR_COLUMN) !== null) return;
+		if (typeof MutationObserver === "undefined") return;
+		const observer = new MutationObserver(() => {
+			if (document.querySelector(SIDEBAR_COLUMN) === null) return;
+			observer.disconnect();
+			if (config !== undefined) applyLevel(config.level, false);
+		});
+		observer.observe(document.documentElement, { childList: true, subtree: true });
+	}
 
 	const persistLevel = debounce(() => {
 		void postJson(`${API}/settings`, { level: config.level });
@@ -400,6 +454,7 @@
 		configPath = data.configPath;
 		applyLevel(config.level, false);
 		installShortcutMatcher();
+		watchForSidebar();
 	};
 
 	/** The launcher is the settings' own on/off switch. */

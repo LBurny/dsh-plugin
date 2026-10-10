@@ -161,10 +161,17 @@ function makeDom() {
 		createTextNode: (text) => ({ nodeType: 3, textContent: String(text), children: [] }),
 		createDocumentFragment: () => makeNode("#fragment"),
 		getElementById: () => null,
+		// The sidebar stub: `sidebarRequired` stands in for the harness's own column,
+		// whose scrollHeight is the height the shell needs in layout px.
+		querySelector: (selector) =>
+			String(selector).includes("_sidebarCol") && typeof dom.sidebarRequired === "number"
+				? { scrollHeight: dom.sidebarRequired }
+				: null,
 		addEventListener() {},
 		execCommand: () => true
 	};
-	return { Node, makeNode, body, document };
+	const dom = { Node, makeNode, body, document, sidebarRequired: undefined };
+	return dom;
 }
 
 /** Every node under a root, the root excluded. */
@@ -181,8 +188,9 @@ function descendants(node, found = []) {
  * that sees it must stay out of the way of the hub page.
  * @returns the booted panel with its sandbox, the DOM stub and the mount point.
  */
-async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900 } = {}) {
+async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sidebarRequired, level } = {}) {
 	const dom = makeDom();
+	dom.sidebarRequired = sidebarRequired;
 	// Window listeners are recorded so a test can fire them the way the browser does.
 	const listeners = {};
 	const sandbox = {
@@ -196,6 +204,15 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900 } = 
 		},
 		document: dom.document,
 		navigator: { language: "zh-CN", clipboard: { writeText: async () => {} } },
+		// The boot-order guard waits for the shell's sidebar with an observer; the
+		// callback is captured so a test can play the sidebar appearing late.
+		MutationObserver: class {
+			constructor(callback) {
+				sandbox.sidebarAppeared = callback;
+			}
+			observe() {}
+			disconnect() {}
+		},
 		localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
 		fetch: async (url) => {
 			const path = String(url);
@@ -204,6 +221,7 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900 } = 
 				return { ok: true, status: 200, json: async () => ({ ok: true, hub: "dsh-features" }) };
 			}
 			const payload = { ok: true, ...PAYLOADS[pkg] };
+			if (level !== undefined && payload.config !== undefined) payload.config = { ...payload.config, level };
 			if (path.includes("/api/logs") || path.includes("/diagnostics")) return { ok: true, status: 200, json: async () => payload };
 			return { ok: true, status: 200, json: async () => payload };
 		}
@@ -320,31 +338,95 @@ check(stripSource.includes("[data-dsh-refresh]"), "dsh-features: a marked refres
 // CSS `zoom` on <html> divides the layout viewport by the factor, so a large
 // enough level makes the harness's own sidebar taller than its box; the shell
 // clips it (`overflow: hidden`) and the document never scrolls, which puts
-// 设置 / 意见反馈 / 退出登录 out of reach. dsh-zoom therefore bounds the level by
-// what the window can render. These three cases boot the real panel, so the
-// bound is observed rather than re-derived.
+// 设置 / 意见反馈 / 退出登录 — and the avatar menu hanging off them — out of reach.
+// dsh-zoom therefore bounds the level by what the window can render, measured
+// from the sidebar column itself. These cases boot the real panel at a saved
+// level of 300%, so what is observed is the clamp the page really receives.
 const zoomedTo = (booted) => Number(booted.dom.document.documentElement.style.zoom);
-const zoomWithHeight = async (innerHeight) => {
-	const booted = await bootPanel("dsh-zoom", { innerHeight });
+/** The cap the shipped code should reach for a given window and sidebar. */
+const expectedCap = (innerHeight, sidebarRequired) =>
+	Math.floor(Math.max(1, Math.min(5, (innerHeight * 0.98) / sidebarRequired)) * 100) / 100;
+/** The slider's own maximum: the cap as the panel reports it. */
+const capOf = (booted) => {
+	const slider = descendants(booted.host).find((node) => node.attrs?.type === "range");
+	return slider === undefined ? undefined : Number(slider.attrs.max);
+};
+const zoomWith = async (innerHeight, sidebarRequired) => {
+	const booted = await bootPanel("dsh-zoom", { innerHeight, sidebarRequired, level: 3 });
 	await booted.sandbox.__dshFeatures.zoom.mount(booted.host);
 	await new Promise((resolve) => setTimeout(resolve, 30));
 	return booted;
 };
 
-const shortWindow = await zoomWithHeight(400);
+// A sidebar that needs 450 layout px in a 900 px window: 900 * 0.98 / 450 = 1.96.
+const measured = await zoomWith(900, 450);
 check(
-	zoomedTo(shortWindow) <= 400 / 360 + 0.001,
-	"dsh-zoom: a short window caps the level at what it can render",
-	String(zoomedTo(shortWindow))
+	zoomedTo(measured) === expectedCap(900, 450) && zoomedTo(measured) < 900 / 450,
+	"dsh-zoom: the cap is measured from the sidebar column, not assumed",
+	`${zoomedTo(measured)} vs ${expectedCap(900, 450)}`
 );
 check(
-	textOf(shortWindow.host).includes("已按窗口高度封顶"),
+	capOf(measured) === expectedCap(900, 450),
+	"dsh-zoom: the slider stops at the measured cap",
+	`${capOf(measured)} vs ${expectedCap(900, 450)}`
+);
+check(
+	textOf(measured.host).includes("已按窗口高度封顶"),
 	"dsh-zoom: the panel says the ceiling comes from the window",
-	textOf(shortWindow.host).slice(0, 140)
+	textOf(measured.host).slice(0, 140)
 );
-const tallWindow = await zoomWithHeight(4000);
 check(
-	zoomedTo(tallWindow) === 1,
+	zoomedTo(measured) !== 6,
+	"dsh-zoom: the sampling zoom used to measure is not left applied",
+	String(zoomedTo(measured))
+);
+
+// A rail (narrow window) and an expanded sidebar with more footer rows differ by
+// hundreds of px; the cap has to follow the one that is mounted, not a constant.
+const rail = await zoomWith(900, 216);
+check(
+	capOf(rail) === expectedCap(900, 216) && capOf(rail) > capOf(measured),
+	"dsh-zoom: a lighter sidebar allows a higher cap than a heavier one",
+	`${capOf(rail)} vs ${capOf(measured)}`
+);
+
+// No sidebar at all (a host without one, or the shell has not mounted it yet):
+// fall back to the stock measurement rather than not capping at all.
+const noSidebar = await zoomWith(1200, undefined);
+check(
+	capOf(noSidebar) === expectedCap(1200, 360) && zoomedTo(noSidebar) === 3,
+	"dsh-zoom: without a sidebar column the stock floor still caps the level",
+	`cap ${capOf(noSidebar)} vs ${expectedCap(1200, 360)}`
+);
+// A hidden or not-yet-laid-out window reports 0. Reading that as "a very short
+// window" would slam the zoom to the minimum; it must simply not cap anything.
+const noWindow = await zoomWith(0, 450);
+check(
+	zoomedTo(noWindow) === 3,
+	"dsh-zoom: a window height of 0 is not treated as a tiny window",
+	String(zoomedTo(noWindow))
+);
+// A window too short for the sidebar even at 100% must not be shrunk on the
+// user's behalf: the cap never drops below 1.
+const tiny = await zoomWith(200, 900);
+check(zoomedTo(tiny) === 1, "dsh-zoom: the cap never forces the page below 100%", String(zoomedTo(tiny)));
+
+// The shell mounts its sidebar after this script runs, so the first measurement
+// answers with the fallback; the level must be re-clamped once it appears, or a
+// saved 300% would survive a reload uncapped.
+const late = await bootPanel("dsh-zoom", { innerHeight: 900, level: 3, mount: false });
+check(zoomedTo(late) === expectedCap(900, 360), "dsh-zoom: before the sidebar exists the stock floor caps", String(zoomedTo(late)));
+late.dom.sidebarRequired = 450;
+late.sandbox.sidebarAppeared?.();
+check(
+	zoomedTo(late) === expectedCap(900, 450),
+	"dsh-zoom: a sidebar that mounts late is measured and the level re-clamped",
+	`${zoomedTo(late)} vs ${expectedCap(900, 450)}`
+);
+
+const tallWindow = await zoomWith(4000, 360);
+check(
+	zoomedTo(tallWindow) === 3,
 	"dsh-zoom: a tall window leaves the saved level alone",
 	String(zoomedTo(tallWindow))
 );
@@ -353,29 +435,20 @@ check(
 	"dsh-zoom: no ceiling note when the window is not the limit",
 	""
 );
-// A hidden or not-yet-laid-out window reports 0. Reading that as "a very short
-// window" would slam the zoom to the minimum; it must simply not cap anything.
-const noWindow = await zoomWithHeight(0);
-check(
-	zoomedTo(noWindow) === 1,
-	"dsh-zoom: a window height of 0 is not treated as a tiny window",
-	String(zoomedTo(noWindow))
-);
+
 // Shrinking the window after zooming in is the other way to end up stranded, so
 // the resize handler re-applies the level through the clamp.
-const resized = await zoomWithHeight(4000);
-check(zoomedTo(resized) === 1, "dsh-zoom: starts at the saved level in a tall window", String(zoomedTo(resized)));
 check(
-	(resized.listeners.resize ?? []).length === 1,
+	(tallWindow.listeners.resize ?? []).length === 1,
 	"dsh-zoom: listens for a window resize",
-	String((resized.listeners.resize ?? []).length)
+	String((tallWindow.listeners.resize ?? []).length)
 );
-resized.sandbox.innerHeight = 400;
-for (const handler of resized.listeners.resize ?? []) handler();
+tallWindow.sandbox.innerHeight = 500;
+for (const handler of tallWindow.listeners.resize ?? []) handler();
 check(
-	zoomedTo(resized) <= 400 / 360 + 0.001,
+	zoomedTo(tallWindow) === expectedCap(500, 360),
 	"dsh-zoom: shrinking the window pulls the level back inside the new ceiling",
-	String(zoomedTo(resized))
+	`${zoomedTo(tallWindow)} vs ${expectedCap(500, 360)}`
 );
 
 /* ----------------------------------------------------------------- report */

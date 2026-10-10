@@ -54,6 +54,17 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   `body[data-ds-dark-theme]` (dark) by `@deepseek-ai/dsh-client-ui-theme`, so `var(--dsw-…, <hardcoded
   fallback>)` follows dsh's own light/dark setting. Keep the fallback, and keep the
   `prefers-color-scheme` block beside it: a shell without those tokens must still look right.
+- **`zoom` on `<html>` is capped by dsh's own chrome, and the cap is measured, not assumed.**
+  The factor divides the layout viewport, so past `window height / sidebar requirement` the sidebar's
+  stack no longer fits: the shell clips it (`overflow: hidden` on the sidebar column) and the document
+  never scrolls, which puts 设置 / 意见反馈 / 退出登录 and the avatar menu off it out of reach. A constant
+  cannot express the requirement — plugins add nav rows, a signed-in profile adds footer rows, and the
+  stock rail needs a different height from the expanded sidebar. `dsh-zoom/lib/client.js` therefore
+  samples it: forcing a deliberately oversized zoom makes the sidebar column's `scrollHeight` report
+  exactly what the stack needs in layout px (its children are all `flex: none` except the session
+  region). Restore the sampling zoom in the same task — no frame is painted oversized, and the shell's
+  width watcher reads a viewport-space rect on the next animation frame, so it never sees it either.
+  Re-measure on resize, and once more when the sidebar mounts, since the cap is read before it exists.
 - **The browser halves share exactly two things, both DOM-level:** the `#dsh-launchers` corner
   container and the `--dsh-launcher-stack` custom property, plus the `.dsh-launch` button class whose
   styles are duplicated identically in every `client.css`. Panel styles are scoped under
@@ -150,6 +161,29 @@ Verification is per package and the totals are in the root README. Two things ar
 after any change: all six installed **together** still boot (`--dump-config` then `web --port N
 --no-open`, and look for the ready line), and dsh-remote's live suite
 (`node tests/remote-live.mjs <baseUrl> <proxyPort> <token>` against a sandbox with remote access on).
+
+## Look at the UI, do not infer it
+
+`tools/visual/shot.mjs` screenshots the real dsh web UI (headless Edge over CDP) at any combination of
+viewport size, `zoom` and host attribute, next to a geometry report — see `tools/visual/README.md`.
+Use it for anything a stylesheet can get wrong; a computed style that looks right on a panel that
+renders wrong is the normal failure here, and it is invisible in the suites.
+
+```bash
+RT=/f/DSHDesktop/runtime/windows-x64
+"$RT/node.exe" "$RT/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js" web --port 7411 --no-open   # token on stdout
+"$RT/node.exe" tools/visual/shot.mjs --url "http://127.0.0.1:7411/?token=<t>" --sizes 1400x900 --zooms 1,2
+```
+
+It never touches a running app: the sandbox instance above answers with dsh's own chrome, which is what
+most of these bugs are about. `--eval` injects the state you need to reproduce (extra footer rows, a
+dialog, a collapsed sidebar), `--css` previews a fix before it is written, `--tree` prints the sidebar's
+subtree with layout heights.
+
+Two numbers decide most zoom work, and both are easy to misread: `getBoundingClientRect` reports
+**viewport** px while `scrollHeight`/`clientHeight` report **layout** px (at zoom 2 a 50 px row reports
+100), and dsh **auto-collapses the sidebar to a rail below 1024 px of viewport width** — measure the
+expanded sidebar at ≥ 1400 px wide or the answer is about a different sidebar.
 
 ## Not here
 
