@@ -102,11 +102,12 @@ node tests/hub-contract.test.mjs          # repo-wide: the hub agreement, from t
 node tests/panel-embed.test.mjs           # repo-wide: every panel boots without the hub
 node tests/mobile-layer.test.mjs          # repo-wide: the phone layer's DOM behaviour
 node tests/manifest.test.mjs              # repo-wide: the directory name, and every import declared
+node tests/host-half.test.mjs             # repo-wide: every host half mounts, and its routes and command
 ```
 
 Offline suites: 88 (dsh-features) / 60 / 20 / 63 / 23 / 38 / 99 checks, plus 49 (dsh-init) and 279
-repo-wide contract checks, 78 cross-package panel checks, 7 mobile-layer checks and 17 manifest
-checks.
+repo-wide contract checks, 78 cross-package panel checks, 7 mobile-layer checks, 17 manifest checks
+and 125 host-half checks.
 
 `dsh-features`' suite evaluates its browser half for real (a vm with a minimal React), so the
 sidebar slot, its order, the list, the drill-down and the mount hand-off are asserted without a

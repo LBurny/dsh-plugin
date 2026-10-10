@@ -285,7 +285,20 @@ repository root:
 ```bash
 node tests/hub-contract.test.mjs
 node tests/manifest.test.mjs
+node tests/host-half.test.mjs
 ```
+
+`tests/host-half.test.mjs` mounts every `lib/index.js` against a fake context the way dsh would, then
+calls what it registered: the `commands` definition (legal name, description, handler, no name two
+packages share), the single `webServer` prefix (it must equal `/<package>`), the `webserver/index-inject`
+entries (one script in the body and one stylesheet in the head, both served by that prefix), those
+assets fetched back byte-for-byte against `lib/`, and the two negative cases (a path it does not know
+under its own prefix answers its own JSON 404, a path outside it is not answered at all). This is the
+layer no package suite touched, and the layer where a mistake is silent: a wrong prefix or a
+half-registered row only costs that plugin's features, and dsh still boots. Its fake must expose
+services as context **properties** as well as through `ctx.get()`, because that is how every host half
+calls them (`ctx.commands.register`). A negative fixture is built into the suite's history: changing
+one package's `ROUTE_PREFIX` makes exactly three checks fail.
 
 `tests/manifest.test.mjs` is the one that reads the manifests: the directory name must equal the package
 name, and every bare import in a host half must be declared in `dependencies` or `peerDependencies`. A
