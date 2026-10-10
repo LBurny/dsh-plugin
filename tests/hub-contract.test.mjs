@@ -54,7 +54,7 @@ check(client.includes("order: ORDER,"), "dsh-features: the sidebar entry uses th
 check(client.includes('ctx.slots.inject("main"'), "dsh-features: registers the page it opens", "");
 check(client.includes('"dsh-features:nav-order"'), "dsh-features: the reader's drag order persists in localStorage", "");
 check(client.includes("draggable:") && client.includes("onDragStart:") && client.includes("onDrop:"), "dsh-features: list rows are draggable", "");
-check(client.includes('className: "row"') && client.includes('className: "tile"'), "dsh-features: the page is a list of rows, not a nav rail", "");
+check(client.includes('className: "hub-row"') && client.includes('className: "hub-tile"'), "dsh-features: the page is a list of rows, not a nav rail", "");
 check(client.includes('"aria-label": t("back")'), "dsh-features: an opened feature can be left again", "");
 check(client.includes("function stripDuplicateRefresh(node)"), "dsh-features: a duplicate refresh in an embedded panel is swept away", "");
 // Nothing a reader sees may use an em dash: it reads as a typo in a UI. Only the
@@ -146,6 +146,64 @@ for (const pkg of FEATURES) {
 /* ------------------------------------------------------------- the skin */
 
 check(client.includes("var(--dsw-alias-bg-base, #ffffff)") && client.includes("var(--dsw-alias-bg-base, #1e2126)"), "dsh-features: the hub skin follows the shell theme tokens too, with fallbacks", "");
+
+/* --------------------------------- the hub's page styles stay out of a panel */
+
+// A feature is mounted INSIDE `#dsh-features-root`, so a hub rule scoped by that
+// root also matches the mounted panel's own class names. The hub's page classes
+// are therefore all prefixed `hub-`, which no panel uses: without this the hub's
+// `.row` (a bordered card with `user-select: none`) landed on a panel's rows and
+// pushed them off the gutter. Both halves of the agreement are asserted, because
+// either one alone silently reintroduces the leak.
+const hubClasses = new Set([...client.matchAll(/^#dsh-features-root\s+\.([a-z-]+)/gmu)].map((m) => m[1]));
+check(hubClasses.size > 10, "dsh-features: its page stylesheet declares the page classes", String(hubClasses.size));
+check([...hubClasses].every((name) => name.startsWith("hub-")), "dsh-features: every page class is namespaced `hub-`, so no panel class can collide", [...hubClasses].filter((n) => !n.startsWith("hub-")).join(", "));
+// Classes are not the whole story: `#dsh-features-root h1` or `#dsh-features-root *`
+// would reach panel content just as well. Every selector must therefore be one of
+// the two exemptions, or carry a `hub-` class of its own.
+const skin = client.slice(client.indexOf("const SKIN = `") + "const SKIN = `".length, client.indexOf("`;", client.indexOf("const SKIN = `")));
+const selectors = [];
+for (const match of skin.replace(/\/\*[\s\S]*?\*\//gu, "").matchAll(/([^{}]*)\{/gu)) {
+	// Text before `{`, minus anything the previous rule left behind.
+	const lead = match[1].slice(Math.max(match[1].lastIndexOf("}"), match[1].lastIndexOf(";")) + 1);
+	for (const one of lead.split(",")) {
+		const selector = one.trim().replace(/\s+/gu, " ");
+		if (selector === "" || selector.startsWith("@")) continue;
+		selectors.push(selector);
+	}
+}
+const loose = selectors.filter((s) => s !== "#dsh-launchers" && s !== "#dsh-features-root" && !s.includes(".hub-"));
+check(selectors.length > 25, "dsh-features: the stylesheet's selectors were all read", String(selectors.length));
+check(loose.length === 0, "dsh-features: no hub selector can reach a mounted panel's content", loose.join(" | "));
+for (const pkg of FEATURES) {
+	const panelSource = read(join(pkg, "lib", "client.js")) + read(join(pkg, "lib", "client.css"));
+	check(!/\bhub-[a-z-]+/u.test(panelSource), `${pkg}: uses no \`hub-\` class (the hub owns that prefix)`, "");
+}
+// A row must sit on the panel's own gutter: a negative horizontal margin would
+// put its box outside the panel's buttons, which is what broke the alignment.
+for (const pkg of FEATURES) {
+	const style = read(join(pkg, "lib", "client.css"));
+	const at = style.indexOf(`#${pkg}-root .row {`);
+	const rowBlock = style.slice(at, style.indexOf("}", at));
+	check(/\tpadding: 8px 0;/u.test(rowBlock) && /\tmargin: 0 0 2px;/u.test(rowBlock), `${pkg}: a row shares the panel's gutter instead of bleeding past it`, rowBlock.replace(/\s+/gu, " ").slice(0, 64));
+}
+// ...and the head's controls, the page's own content and an embedded panel's
+// content must all be on ONE gutter, or the back/refresh controls of a sub-page
+// stop lining up with the buttons and rows underneath them.
+const horizontalPadding = (source, rule) => {
+	const at = source.indexOf(rule);
+	if (at < 0) return undefined;
+	const block = source.slice(at, source.indexOf("}", at));
+	const match = /padding:\s*([^;]+);/u.exec(block);
+	return match === null ? undefined : match[1].trim().split(/\s+/u)[1] ?? match[1].trim().split(/\s+/u)[0];
+};
+const headGutter = horizontalPadding(client, "#dsh-features-root .hub-head {");
+const listGutter = horizontalPadding(client, "#dsh-features-root .hub-stage[data-view=\"list\"] {");
+check(headGutter !== undefined && headGutter === listGutter, "dsh-features: the page head and the list share one gutter", `${headGutter} vs ${listGutter}`);
+for (const pkg of FEATURES) {
+	const style = read(join(pkg, "lib", "client.css"));
+	check(horizontalPadding(style, `#${pkg}-root .body {`) === headGutter, `${pkg}: an embedded panel's content lands on the hub's gutter`, String(horizontalPadding(style, `#${pkg}-root .body {`)));
+}
 
 /* -------------------------------------------------------------- the tab set */
 

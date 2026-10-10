@@ -101,6 +101,17 @@ both source and published artifact, and `main` points straight at `lib/index.js`
     hub answers**. Without the hub (bare dsh, or the package uninstalled) the launcher must still be
     built exactly as before — that path is what the panels were originally written for.
   - The hub hides `#dsh-launchers` from its own stylesheet. Do not "fix" a feature by re-showing it.
+  - **Every hub page class is prefixed `hub-`, and no panel may use that prefix.** A feature is mounted
+    *inside* `#dsh-features-root`, so the scope id on the hub's rules does not keep them out of the
+    mounted panel: a hub `#dsh-features-root .row` matched a panel's `.row` and handed it the hub's card
+    border, `padding: 12px 14px` and `user-select: none` (the panel's own `.row` overrode only the
+    padding, so the border stayed and the sub-page looked boxed and misaligned). Same for `head`,
+    `row-name` and `note`, and for a bare element selector such as `#dsh-features-root h1` or
+    `#dsh-features-root *`. `tests/hub-contract.test.mjs` now reads every selector in the hub's
+    stylesheet and fails on one that is neither an exemption (`#dsh-launchers`, the root itself) nor
+    carries a `hub-` class. Corollary for both sides: a row sits on the same gutter as its page's own
+    buttons — no negative horizontal margin, which is what pushed panel rows 8px outside the hub's head
+    controls.
 - **The hub's client half is served from the row, not from a route.** `dsh.client` + `exports["./client"]`
   is the whole wiring; the bundle URL, its revision and the boot-graph row are dsh's business. If the
   entry does not appear, check `node --dump-config | grep features` (the row must be mounted) before

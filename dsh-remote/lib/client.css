@@ -242,14 +242,14 @@
 }
 
 /* A row is one flat line like the official plugin list: no card box, a 2px
-   rhythm between rows, and an -8px bleed so the hover surface of tappable rows
-   extends past the text while the text stays on the shared gutter. */
+   rhythm between rows, and no horizontal bleed of its own, so a row's text and
+   its controls sit on the same gutter as the panel's own buttons. */
 #dsh-remote-root .row {
 	display: flex;
 	align-items: center;
 	gap: 14px;
-	padding: 8px;
-	margin: 0 -8px 2px;
+	padding: 8px 0;
+	margin: 0 0 2px;
 	border-radius: var(--dsw-radius-xl, 20px);
 }
 

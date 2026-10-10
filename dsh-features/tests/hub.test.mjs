@@ -417,16 +417,16 @@ const T = (key) => ({
 
 let element = await browser.render(main.component, { t: T });
 /** The row for one feature, in the list view. */
-const rows = () => findAll(element, (node) => node.props?.className === "row");
+const rows = () => findAll(element, (node) => node.props?.className === "hub-row");
 const rowName = (row) => row.props.children[1]?.props.children[0]?.props.children?.join("") ?? "";
 const rowNames = () => rows().map(rowName).join(",");
 /** The glyph path a row leads with: row > tile span > svg > path. */
 const rowGlyph = (row) => row.props.children[0]?.props.children[0]?.props.children[0]?.props.d;
 const rowNote = (row) => row.props.children[1]?.props.children[1]?.props.children?.join("") ?? "";
-const endPad = () => findAll(element, (node) => node.props?.className === "list-end")[0];
+const endPad = () => findAll(element, (node) => node.props?.className === "hub-list-end")[0];
 const headRefresh = () => findAll(element, (node) => node.props?.["aria-label"] === T("refresh"));
 const headBack = () => findAll(element, (node) => node.props?.["aria-label"] === T("back"));
-const stage = () => findAll(element, (node) => node.props?.className === "stage")[0];
+const stage = () => findAll(element, (node) => node.props?.className === "hub-stage")[0];
 const stageHost = () => findAll(element, (node) => node.props?.ref !== undefined)[0]?.props.ref.current;
 
 check(rows().length === 3, "a row per feature: two registered plus one installed-only", String(rows().length));
@@ -449,8 +449,8 @@ check(browser.mounted.at(-1)?.key === "mcp", "clicking a row opens that feature'
 check(headBack().length === 1, "the detail view offers a way back", String(headBack().length));
 check(headRefresh().length === 1, "the detail view still has exactly one refresh control", String(headRefresh().length));
 check(stage().props["data-view"] === "feature", "the stage switches to the feature view", String(stage().props["data-view"]));
-check(findAll(element, (node) => node.props?.className === "rows").length === 0, "the list is gone while a feature is open", "");
-const title = findAll(element, (node) => node.props?.className === "line")[0];
+check(findAll(element, (node) => node.props?.className === "hub-rows").length === 0, "the list is gone while a feature is open", "");
+const title = findAll(element, (node) => node.props?.className === "hub-line")[0];
 console.log('DEBUG line children:', title.props.children.map((c) => JSON.stringify([c?.props?.className, c?.props?.children])).join(' | '));
 check(title?.props.children[0]?.props.children?.join("") === "MCP", "the head names the open feature", String(title?.props.children[0]?.props.children));
 check(title?.props.children[1]?.props.children?.join("") === "dsh-mcp", "the head names the package it came from", String(title?.props.children[1]?.props.children));
@@ -527,7 +527,7 @@ const sweeper = createBrowser({
 const sweeperWired = sweeper.wire(sweeper.registrations[0]);
 const sweeperPage = sweeperWired.slots.find((item) => item.slot === "main").component;
 let swept = await sweeper.render(sweeperPage, { t: T });
-findAll(swept, (node) => node.props?.className === "row")[0].props.onClick();
+findAll(swept, (node) => node.props?.className === "hub-row")[0].props.onClick();
 swept = await sweeper.render(sweeperPage, { t: T });
 await new Promise((resolve) => setTimeout(resolve, 5));
 const sweptHost = findAll(swept, (node) => node.props?.ref !== undefined)[0].props.ref.current;
@@ -543,7 +543,7 @@ check(
 // the list first: the open feature is what the page is showing.
 findAll(swept, (node) => node.props?.["aria-label"] === T("back"))[0].props.onClick();
 swept = await sweeper.render(sweeperPage, { t: T });
-findAll(swept, (node) => node.props?.className === "row")[1].props.onClick();
+findAll(swept, (node) => node.props?.className === "hub-row")[1].props.onClick();
 swept = await sweeper.render(sweeperPage, { t: T });
 const markedHost = findAll(swept, (node) => node.props?.ref !== undefined)[0].props.ref.current;
 check(markedHost.children.length === 0, "a marked refresh control never survives either", String(markedHost.children.length));
@@ -555,7 +555,7 @@ const broken = createBrowser({
 });
 const brokenWired = broken.wire(broken.registrations[0]);
 let brokenElement = await broken.render(brokenWired.slots.find((item) => item.slot === "main").component, { t: T });
-findAll(brokenElement, (node) => node.props?.className === "row")[0].props.onClick();
+findAll(brokenElement, (node) => node.props?.className === "hub-row")[0].props.onClick();
 brokenElement = await broken.render(brokenWired.slots.find((item) => item.slot === "main").component, { t: T });
 const brokenHost = findAll(brokenElement, (node) => node.props?.ref !== undefined)[0].props.ref.current;
 check(brokenHost.children[0]?.textContent === `${T("failed")}: nope`, "a throwing feature is reported in place", brokenHost.children[0]?.textContent);
@@ -565,8 +565,8 @@ check(brokenHost.children[0]?.textContent === `${T("failed")}: nope`, "a throwin
 const empty = createBrowser({ language: "en", registry: {}, fetchImpl: async () => ({ json: async () => ({ ok: true, features: [] }) }) });
 const emptyWired = empty.wire(empty.registrations[0]);
 const emptyElement = await empty.render(emptyWired.slots.find((item) => item.slot === "main").component, { t: (key) => `en:${key}` });
-check(findAll(emptyElement, (node) => node.props?.className === "rows").length === 0, "an empty inventory renders no list");
-check(findAll(emptyElement, (node) => node.props?.className === "empty").length === 1, "an empty inventory renders the hint block");
+check(findAll(emptyElement, (node) => node.props?.className === "hub-rows").length === 0, "an empty inventory renders no list");
+check(findAll(emptyElement, (node) => node.props?.className === "hub-empty").length === 1, "an empty inventory renders the hint block");
 check(findAll(emptyElement, (node) => node.props?.["aria-label"] === "en:refresh").length === 1, "an empty inventory keeps its one refresh, so the list can be rescanned");
 check(emptyWired.dictionaries[0].dict.en.panel === "Features", "the English dictionary is registered too", emptyWired.dictionaries[0].dict.en.panel);
 check(emptyWired.slots.find((item) => item.slot === "sidebar.panellist").options.label() === "Features", "the sidebar label follows the language");
@@ -582,9 +582,9 @@ const offlineWired = offline.wire(offline.registrations[0]);
 const offlineElement = await offline.render(offlineWired.slots.find((item) => item.slot === "main").component, { t: T });
 check(offlineWired.slots.length === 2, "a failing inventory request still registers both slots", String(offlineWired.slots.length));
 check(
-	findAll(offlineElement, (node) => node.props?.className === "row").length === 1,
+	findAll(offlineElement, (node) => node.props?.className === "hub-row").length === 1,
 	"the page still lists what the registry registered",
-	String(findAll(offlineElement, (node) => node.props?.className === "row").length)
+	String(findAll(offlineElement, (node) => node.props?.className === "hub-row").length)
 );
 
 /* ----------------------------------------------------------------- report */

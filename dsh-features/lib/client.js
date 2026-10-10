@@ -131,32 +131,35 @@ window.__ModuleLoader__.load({
 }
 
 #dsh-features-root,
-#dsh-features-root * {
+#dsh-features-root .hub-head,
+#dsh-features-root .hub-head *,
+#dsh-features-root .hub-rows,
+#dsh-features-root .hub-rows * {
 	box-sizing: border-box;
 }
 
 /* ---------------------------------------------------------------- the head */
 
-#dsh-features-root .head {
+#dsh-features-root .hub-head {
 	display: flex;
 	align-items: center;
 	gap: 12px;
 	padding: 18px 22px 14px;
 }
 
-#dsh-features-root .titles {
+#dsh-features-root .hub-titles {
 	flex: 1;
 	min-width: 0;
 }
 
-#dsh-features-root .line {
+#dsh-features-root .hub-line {
 	display: flex;
 	align-items: baseline;
 	gap: 8px;
 	min-width: 0;
 }
 
-#dsh-features-root h1 {
+#dsh-features-root .hub-titles h1 {
 	font-size: 15px;
 	font-weight: 600;
 	line-height: 1.4;
@@ -166,7 +169,7 @@ window.__ModuleLoader__.load({
 	white-space: nowrap;
 }
 
-#dsh-features-root .head p {
+#dsh-features-root .hub-head p {
 	color: var(--dsh-muted);
 	font-size: 12px;
 	line-height: 1.6;
@@ -176,7 +179,7 @@ window.__ModuleLoader__.load({
 	white-space: nowrap;
 }
 
-#dsh-features-root .pkg {
+#dsh-features-root .hub-pkg {
 	flex: none;
 	color: var(--dsh-muted);
 	font-size: 11px;
@@ -186,7 +189,7 @@ window.__ModuleLoader__.load({
 }
 
 /* Back and refresh are the same quiet square, so they line up on the grid. */
-#dsh-features-root .icon-btn {
+#dsh-features-root .hub-icon-btn {
 	flex: none;
 	display: flex;
 	align-items: center;
@@ -201,36 +204,36 @@ window.__ModuleLoader__.load({
 	cursor: pointer;
 }
 
-#dsh-features-root .icon-btn:hover {
+#dsh-features-root .hub-icon-btn:hover {
 	background: var(--dsh-hover);
 	color: var(--dsh-fg);
 }
 
 /* ----------------------------------------------------------------- the list */
 
-#dsh-features-root .stage {
+#dsh-features-root .hub-stage {
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
 	overflow: auto;
 }
 
-#dsh-features-root .stage[data-view="list"] {
+#dsh-features-root .hub-stage[data-view="list"] {
 	padding: 2px 22px 28px;
 }
 
 /* An embedded panel brings its own padding, so the detail view adds none. */
-#dsh-features-root .stage[data-view="feature"] {
+#dsh-features-root .hub-stage[data-view="feature"] {
 	padding: 0;
 }
 
-#dsh-features-root .rows {
+#dsh-features-root .hub-rows {
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 }
 
-#dsh-features-root .row {
+#dsh-features-root .hub-row {
 	display: flex;
 	align-items: center;
 	gap: 12px;
@@ -246,16 +249,16 @@ window.__ModuleLoader__.load({
 	user-select: none;
 }
 
-#dsh-features-root .row:hover {
+#dsh-features-root .hub-row:hover {
 	background: var(--dsh-hover);
 }
 
-#dsh-features-root .row[data-drop="true"] {
+#dsh-features-root .hub-row[data-drop="true"] {
 	border-color: var(--dsh-accent);
 	box-shadow: 0 0 0 1px var(--dsh-accent);
 }
 
-#dsh-features-root .tile {
+#dsh-features-root .hub-tile {
 	flex: none;
 	display: flex;
 	align-items: center;
@@ -267,7 +270,7 @@ window.__ModuleLoader__.load({
 	color: var(--dsh-fg);
 }
 
-#dsh-features-root .row .text {
+#dsh-features-root .hub-row .hub-text {
 	flex: 1;
 	min-width: 0;
 	display: flex;
@@ -275,7 +278,7 @@ window.__ModuleLoader__.load({
 	gap: 3px;
 }
 
-#dsh-features-root .row-name {
+#dsh-features-root .hub-row-name {
 	font-weight: 600;
 	line-height: 1.4;
 	overflow: hidden;
@@ -283,7 +286,7 @@ window.__ModuleLoader__.load({
 	white-space: nowrap;
 }
 
-#dsh-features-root .row-note {
+#dsh-features-root .hub-row-note {
 	color: var(--dsh-muted);
 	font-size: 12px;
 	line-height: 1.6;
@@ -292,23 +295,23 @@ window.__ModuleLoader__.load({
 	white-space: nowrap;
 }
 
-#dsh-features-root .go {
+#dsh-features-root .hub-go {
 	flex: none;
 	display: flex;
 	align-items: center;
 	color: var(--dsh-muted);
 }
 
-#dsh-features-root .list-end {
+#dsh-features-root .hub-list-end {
 	height: 16px;
 	border-radius: 8px;
 }
 
-#dsh-features-root .list-end[data-drop="true"] {
+#dsh-features-root .hub-list-end[data-drop="true"] {
 	box-shadow: inset 0 0 0 1px var(--dsh-accent);
 }
 
-#dsh-features-root .empty {
+#dsh-features-root .hub-empty {
 	border: 1px dashed var(--dsh-border);
 	border-radius: 12px;
 	padding: 18px;
@@ -317,15 +320,15 @@ window.__ModuleLoader__.load({
 	line-height: 1.7;
 }
 
-#dsh-features-root .empty p {
+#dsh-features-root .hub-empty p {
 	margin: 0 0 6px;
 }
 
-#dsh-features-root .empty p:last-child {
+#dsh-features-root .hub-empty p:last-child {
 	margin-bottom: 0;
 }
 
-#dsh-features-root .note {
+#dsh-features-root .hub-note {
 	color: var(--dsh-muted);
 	font-size: 12px;
 	line-height: 1.7;
@@ -333,17 +336,17 @@ window.__ModuleLoader__.load({
 }
 
 /* A feature mounted here never keeps a second refresh control. */
-#dsh-features-root .stage [data-dsh-refresh] {
+#dsh-features-root .hub-stage [data-dsh-refresh] {
 	display: none !important;
 }
 
 /* Narrow screens (the phone remote view) tighten the gutters. */
 @media (max-width: 620px) {
-	#dsh-features-root .head {
+	#dsh-features-root .hub-head {
 		padding: 14px 14px 10px;
 	}
 
-	#dsh-features-root .stage[data-view="list"] {
+	#dsh-features-root .hub-stage[data-view="list"] {
 		padding: 2px 14px 20px;
 	}
 }
@@ -642,42 +645,42 @@ window.__ModuleLoader__.load({
 			});
 
 			/** The list view: one card per feature, in the reader's order. */
-			const list = () => React.createElement("div", { className: "rows" },
+			const list = () => React.createElement("div", { className: "hub-rows" },
 				...features.map((feature) => React.createElement("button", {
 					key: feature.key,
 					type: "button",
-					className: "row",
+					className: "hub-row",
 					"data-drop": String(dropKey === feature.key),
 					title: `${feature.package ?? feature.key} · ${t("dragHint")}`,
 					onClick: () => setActive(feature.key),
 					...dragHandlers(feature.key)
 				},
-					React.createElement("span", { className: "tile" }, featureGlyph(feature.icon, 17)),
-					React.createElement("span", { className: "text" },
-						React.createElement("span", { className: "row-name" }, feature.title ?? feature.key),
-						feature.summary === undefined ? null : React.createElement("span", { className: "row-note" }, feature.summary)),
-					React.createElement("span", { className: "go" }, chevronGlyph()))),
+					React.createElement("span", { className: "hub-tile" }, featureGlyph(feature.icon, 17)),
+					React.createElement("span", { className: "hub-text" },
+						React.createElement("span", { className: "hub-row-name" }, feature.title ?? feature.key),
+						feature.summary === undefined ? null : React.createElement("span", { className: "hub-row-note" }, feature.summary)),
+					React.createElement("span", { className: "hub-go" }, chevronGlyph()))),
 				React.createElement("div", {
-					className: "list-end",
+					className: "hub-list-end",
 					"data-drop": String(dropKey === "end"),
 					onDragOver: dragHandlers(undefined).onDragOver,
 					onDrop: dragHandlers(undefined).onDrop
 				}));
 
 			const titles = open === undefined
-				? React.createElement("div", { className: "titles" },
+				? React.createElement("div", { className: "hub-titles" },
 					React.createElement("h1", null, t("panel")),
 					React.createElement("p", null, t("subtitle")))
-				: React.createElement("div", { className: "titles" },
-					React.createElement("div", { className: "line" },
+				: React.createElement("div", { className: "hub-titles" },
+					React.createElement("div", { className: "hub-line" },
 						React.createElement("h1", null, open.title ?? open.key),
-						open.package === undefined ? null : React.createElement("span", { className: "pkg" }, open.package)),
+						open.package === undefined ? null : React.createElement("span", { className: "hub-pkg" }, open.package)),
 					React.createElement("p", null, open.summary ?? ""));
 
 			return React.createElement("div", { id: "dsh-features-root" },
-				React.createElement("div", { className: "head" },
+				React.createElement("div", { className: "hub-head" },
 					open === undefined ? null : React.createElement("button", {
-						className: "icon-btn",
+						className: "hub-icon-btn",
 						type: "button",
 						title: t("back"),
 						"aria-label": t("back"),
@@ -685,15 +688,15 @@ window.__ModuleLoader__.load({
 					}, backGlyph()),
 					titles,
 					React.createElement("button", {
-						className: "icon-btn",
+						className: "hub-icon-btn",
 						type: "button",
 						title: t("refresh"),
 						"aria-label": t("refresh"),
 						onClick: reload
 					}, refreshGlyph())),
-				React.createElement("div", { className: "stage", "data-view": open === undefined ? "list" : "feature" },
+				React.createElement("div", { className: "hub-stage", "data-view": open === undefined ? "list" : "feature" },
 					features.length === 0
-						? React.createElement("div", { className: "empty" },
+						? React.createElement("div", { className: "hub-empty" },
 							React.createElement("p", null, snapshot.loading ? t("loading") : t("empty")),
 							snapshot.loading ? null : React.createElement("p", null, t("emptyHint")))
 						: open === undefined
