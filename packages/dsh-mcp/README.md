@@ -9,6 +9,13 @@ Ported from DSHDesktop's MCP page. It edits the active profile's `cordis.patch.y
 does not own (`toolCallTimeoutMs`, `reconnect`, …). Writes go through `writeFileAtomic` with the
 package's file lock, serialized against the loader's hot reload.
 
+## Placement
+
+With **[dsh-features](../dsh-features)** (功能管理) installed, this panel appears on that hub's single
+page and no longer docks its own corner button; without the hub — a bare dsh, or a profile where it is
+not installed — the floating panel is built exactly as before. The coupling is two DOM-level
+conventions (`window.__dshFeatures`, `#dsh-launchers`), described in the repository's AGENTS.md.
+
 ## Install
 
 ```bash

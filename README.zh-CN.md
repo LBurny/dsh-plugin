@@ -8,6 +8,7 @@
 
 | 包 | 做什么 | 命令 |
 | --- | ------ | ---- |
+| `dsh-features` | 功能管理：基座插件——侧栏一项（在「插件」与「自动化任务」之间），用一个页面统一承载下面所有已安装的功能插件；装上它，浮动按钮就没了 | — |
 | `dsh-skills` | 技能管理：启停 / 删除 / 导入，含本地 ZIP 压缩包 | `/skills` |
 | `dsh-mcp` | 管理当前 profile 补丁层里的 MCP 服务：增删改 / 启停 / 导入 | `/mcp` |
 | `dsh-doctor` | 诊断：版本、端口、PID、profile、日志尾部 | `/doctor` |
@@ -16,6 +17,8 @@
 | `dsh-remote` | 手机远程访问：带鉴权的反向代理、二维码链接、可选 Cloudflare 隧道、移动端界面改写、「项目」浏览 | `/remote` |
 
 每个包都是标准 dsh 插件：声明了 `dsh.bundle.patch`，所以 `dsh plugin add` 会自动挂上它那一层。它们互不 import，装哪个、装几个都行。
+
+`dsh-features` 不是功能，而是其余包挂靠的**基座**：也是唯一带浏览器端的包（`dsh.client` → `assets/client.js`），因为真正的导航入口只能由 dsh 的客户端插件加。装了它，功能面板搬进基座的页面、浮动按钮消失；卸载它，按钮原样回来。
 
 ## 安装
 
@@ -35,7 +38,8 @@ dsh plugin --profile web remove dsh-skills
 ## 约定
 
 - **从一开始就独立。** 任何包都不 import 别的包，各自复制所需的那点 layout/HTTP 辅助代码——某个包缺席、落后版本或未安装，都不会影响别人。
-- **唯一的跨包约定在 DOM 层。** 各插件的入口停靠进共用的 `#dsh-launchers` 角落容器，面板通过发布的 `--dsh-launcher-stack` 高度避开它。
+- **跨包约定都在 DOM 层。** 各插件的入口停靠进共用的 `#dsh-launchers` 角落容器，面板通过发布的 `--dsh-launcher-stack` 高度避开它。
+- **基座约定。** 功能插件把自己的 `{ title, order, mount(host) }` 发布到 `window.__dshFeatures`，并在 package.json 里声明 `dsh.ui.feature`；基座据此就地挂载它，并隐藏 `#dsh-launchers`。双向都没有 import。
 - **面板双语、跟随配色方案。** 语言取自 `navigator.language`，配色跟随 `prefers-color-scheme`——刻意**不**读 dsh 的 `locale` / `ui-theme`，那要求每个包都去解析 profile patch。
 - **相比单包的 `dsh-desktop-kit`：** 没有页面错误上报，也没有兜底 `/init`。
 
@@ -45,9 +49,12 @@ dsh plugin --profile web remove dsh-skills
 
 ```bash
 cd packages/<包名> && node test/<包名>.test.mjs
+node test/hub-contract.test.mjs          # 仓级：基座约定，在仓根跑
 ```
 
-离线检查分别为 47 / 20 / 23 / 23 / 38 / 73 项。`dsh-remote` 另有实时套件（`test/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
+离线检查分别为 54（dsh-features）/ 47 / 20 / 23 / 23 / 38 / 73 项，另有 143 项仓级契约检查。
+`dsh-features` 的套件会**真跑**它的浏览器端（vm + 极简 React 打桩），所以侧栏槽位、顺序与挂载交接
+不用浏览器也能断言。`dsh-remote` 另有实时套件（`test/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
 
 ## License
 

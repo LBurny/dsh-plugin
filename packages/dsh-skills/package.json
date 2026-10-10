@@ -21,6 +21,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "ui": {
+      "feature": {
+        "key": "skills",
+        "order": 10,
+        "title": {
+          "zh": "技能管理",
+          "en": "Skills"
+        },
+        "summary": {
+          "zh": "技能的列表、启停、删除与导入",
+          "en": "List, enable, disable and import skills"
+        }
+      }
     }
   },
   "keywords": [

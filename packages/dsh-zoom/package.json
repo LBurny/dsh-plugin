@@ -21,6 +21,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "ui": {
+      "feature": {
+        "key": "zoom",
+        "order": 40,
+        "title": {
+          "zh": "页面缩放",
+          "en": "Zoom"
+        },
+        "summary": {
+          "zh": "界面缩放与快捷键",
+          "en": "UI scale and shortcuts"
+        }
+      }
     }
   },
   "keywords": [

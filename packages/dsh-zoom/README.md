@@ -7,6 +7,13 @@ Inside dsh there is no native window, so the zoom is CSS `zoom` on the page's do
 shortcuts are a capture-phase `keydown` listener. For dsh's own UI the result is the same; it just
 cannot affect native window chrome (which does not exist here).
 
+## Placement
+
+With **[dsh-features](../dsh-features)** (功能管理) installed, this panel appears on that hub's single
+page and no longer docks its own corner button; without the hub — a bare dsh, or a profile where it is
+not installed — the floating panel is built exactly as before. The coupling is two DOM-level
+conventions (`window.__dshFeatures`, `#dsh-launchers`), described in the repository's AGENTS.md.
+
 ## Install
 
 ```bash

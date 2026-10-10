@@ -22,6 +22,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "ui": {
+      "feature": {
+        "key": "notify",
+        "order": 50,
+        "title": {
+          "zh": "任务提醒",
+          "en": "Reminders"
+        },
+        "summary": {
+          "zh": "回合完成的提醒与提示音",
+          "en": "Turn reminders and sounds"
+        }
+      }
     }
   },
   "keywords": [

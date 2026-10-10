@@ -1,0 +1,8 @@
+# dsh-features layer: one row, mounting this package as a plugin.
+# Row ids are first-come, first-served across the whole tree — keep it specific.
+# The row is what makes the client half reachable: dsh's client module registry
+# walks the mounted rows, finds this package's `dsh.client` declaration and serves
+# `exports["./client"]` (assets/client.js) as a browser bundle.
+- insert:
+    - id: features
+      name: dsh-features

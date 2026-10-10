@@ -8,6 +8,7 @@ Small, independent [deepseek-harness](https://github.com/deepseek-ai/deepseek-ha
 
 | Package | What it does | Command |
 | ------- | ------------ | ------- |
+| `dsh-features` | 功能管理: the hub — one sidebar entry (between 插件 and 自动化任务) listing every installed feature plugin below, in one page and one skin. Install it to lose the floating corner buttons | — |
 | `dsh-skills` | Manage skills: enable / disable / delete / import, including local ZIP archives | `/skills` |
 | `dsh-mcp` | Manage MCP servers in the active profile's patch layer: add / edit / delete / enable / import | `/mcp` |
 | `dsh-doctor` | Harness diagnostics: version, port, pid, profile, log tail | `/doctor` |
@@ -16,6 +17,11 @@ Small, independent [deepseek-harness](https://github.com/deepseek-ai/deepseek-ha
 | `dsh-remote` | Phone remote access: authenticated reverse proxy, QR link, optional Cloudflare tunnel, mobile UI rewrite, project browser | `/remote` |
 
 Each one is a normal dsh plugin: it declares `dsh.bundle.patch`, so `dsh plugin add` mounts its layer automatically. They never import each other, so any subset works.
+
+`dsh-features` is not a feature: it is the hub the other packages plug into. It is the only one with a
+browser half (`dsh.client` → `assets/client.js`), because a real navigation entry can only be added by
+a dsh client plugin. With it installed, a feature panel moves onto the hub's page and its floating
+corner button disappears; uninstall it and the buttons come back, unchanged.
 
 ## Install
 
@@ -36,6 +42,7 @@ Restart dsh afterwards — plugins have no HMR.
 
 - **Independent by construction.** No package imports another; each duplicates the small layout and HTTP helpers it needs, so nothing breaks because a sibling is missing, drifted or uninstalled.
 - **One DOM-level agreement.** Launchers dock into a shared `#dsh-launchers` corner container and panels clear it via the published `--dsh-launcher-stack` height.
+- **The hub agreement.** A feature publishes `{ title, order, mount(host) }` to `window.__dshFeatures` and declares `dsh.ui.feature` in its package.json; the hub mounts it inline and hides `#dsh-launchers`. Nothing is imported in either direction.
 - **Bilingual, scheme-aware panels.** Language from `navigator.language`, colours from `prefers-color-scheme` — deliberately *not* dsh's `locale` / `ui-theme`, which would mean parsing the profile patch from every package.
 - **Compared to the single-package `dsh-desktop-kit`:** no page-error reporting, no fallback `/init`.
 
@@ -45,9 +52,13 @@ Development notes and the traps worth knowing live in [AGENTS.md](AGENTS.md).
 
 ```bash
 cd packages/<name> && node test/<name>.test.mjs
+node test/hub-contract.test.mjs          # repo-wide: the hub agreement, from the root
 ```
 
-Offline suites: 47 / 20 / 23 / 23 / 38 / 73 checks. `dsh-remote` also ships a live suite (`test/remote-live.mjs`) that needs a sandbox instance with remote access enabled.
+Offline suites: 54 (dsh-features) / 47 / 20 / 23 / 23 / 38 / 73 checks, plus 143 repo-wide contract
+checks. `dsh-features`' suite evaluates its browser half for real (a vm with a minimal React), so the
+sidebar slot, its order and the mount hand-off are asserted without a browser. `dsh-remote` also ships
+a live suite (`test/remote-live.mjs`) that needs a sandbox instance with remote access enabled.
 
 ## License
 

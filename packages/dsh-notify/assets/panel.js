@@ -9,11 +9,14 @@
  * on dsh's internal client bundle format or slot names, both of which are
  * undocumented outside the tree and change between releases.
  *
- * Two cross-package conventions, both DOM-level (no module coupling):
+ * Three cross-package conventions, all DOM-level (no module coupling):
  *   `#dsh-launchers`   the corner container every plugin's button docks into,
  *                      created on demand by whichever plugin loads first
  *   `.dsh-launch`      the shared button style, so several plugins look alike
  *   `--dsh-launcher-stack`  its measured height, so panels clear the dock
+ *   `window.__dshFeatures`  the 功能管理 hub's registry — this panel publishes its
+ *                      `mount` there, and docks no button while the hub is
+ *                      installed (`/dsh-features/api/status` answers)
  */
 (() => {
 	"use strict";
@@ -134,6 +137,11 @@
 	let body;
 	let toasts;
 	let launcher;
+	/**
+	 * True while this panel is mounted inside the 功能管理 hub's page instead of
+	 * its own floating panel.
+	 */
+	let inHub = false;
 
 	/** In-page toast for local feedback. */
 	function toast(title, message) {
@@ -257,7 +265,7 @@
 			}
 		}
 		pulseLauncher();
-		if (panel !== undefined && !panel.hidden) void render();
+		if (inHub || (panel !== undefined && !panel.hidden)) void render();
 	}
 
 	/** Open the SSE stream. */
@@ -402,24 +410,83 @@
 		publishStackHeight(dock);
 	}
 
-	function buildChrome() {
+	/**
+	 * Build the panel's DOM. `inline` mounts it into a container the 功能管理 hub
+	 * owns; the hub then provides the frame, the title and the close control, and
+	 * this panel contributes its body only.
+	 * @param host - element to append to (the document body by default).
+	 * @param inline - true when the hub page is mounting this panel.
+	 */
+	function buildChrome(host = document.body, inline = false) {
+		inHub = inline;
 		const root = el("div", { id: "dsh-notify-root" });
 		toasts = el("div", { class: "toasts" });
 		body = el("div", { class: "body" });
+		if (inline) {
+			root.append(toasts, body);
+			host.append(root);
+			return;
+		}
 		panel = el("div", { class: "panel", hidden: true },
 			el("div", { class: "head" },
 				el("div", { class: "title", text: T("title") }),
 				el("button", { text: T("close"), onclick: toggle })),
 			body);
 		root.append(toasts, panel);
-		document.body.append(root);
+		host.append(root);
 		if (showLauncher()) buildLauncher();
+	}
+
+	/**
+	 * Render this panel inside a container owned by the 功能管理 hub. The hub calls
+	 * this on every visit and drops the DOM when the page is left, so it discards
+	 * whatever the previous visit (or the floating panel) left behind first.
+	 * @param host - the hub page's container element.
+	 */
+	function mountInline(host) {
+		if (panel !== undefined) {
+			panel.remove();
+			panel = undefined;
+			launcher?.remove();
+			launcher = undefined;
+		}
+		buildChrome(host, true);
+		void render();
+	}
+
+	/**
+	 * Publish this panel to the 功能管理 hub (`window.__dshFeatures`). That registry
+	 * is this package's only coupling to the hub: with no hub installed nothing
+	 * reads it, and this plugin keeps its standalone floating panel.
+	 */
+	function registerWithHub() {
+		window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
+			notify: {
+				title: T("title"),
+				order: 50,
+				mount: mountInline
+			}
+		});
 	}
 
 	/** True when the host half answers — the panel is useless without it. */
 	async function reachable() {
 		try {
 			const data = await getJson("/dsh-notify/api/settings");
+			return data?.ok === true;
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * True when the 功能管理 hub is installed. Its page lists this plugin beside
+	 * every other feature, so the floating panel — and its corner button — is not
+	 * built; the route is absent in a bare dsh or a profile without the hub.
+	 */
+	async function hubInstalled() {
+		try {
+			const data = await getJson("/dsh-features/api/status");
 			return data?.ok === true;
 		} catch {
 			return false;
@@ -433,6 +500,8 @@
 		} catch {
 			/* a settings read that fails must not hide the panel */
 		}
+		registerWithHub();
+		if (await hubInstalled()) return;
 		buildChrome();
 	}
 

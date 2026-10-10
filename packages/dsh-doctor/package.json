@@ -21,6 +21,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "ui": {
+      "feature": {
+        "key": "doctor",
+        "order": 30,
+        "title": {
+          "zh": "诊断",
+          "en": "Doctor"
+        },
+        "summary": {
+          "zh": "运行状态与日志尾部",
+          "en": "Status and log tail"
+        }
+      }
     }
   },
   "keywords": [

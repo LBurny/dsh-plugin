@@ -21,6 +21,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "ui": {
+      "feature": {
+        "key": "mcp",
+        "order": 20,
+        "title": {
+          "zh": "MCP 服务管理",
+          "en": "MCP"
+        },
+        "summary": {
+          "zh": "MCP 服务的增删改与状态",
+          "en": "Add, edit and inspect MCP servers"
+        }
+      }
     }
   },
   "keywords": [

@@ -12,6 +12,11 @@ anything here; it is short and most of it is a trap someone already walked into.
   `locale/` (bilingual name/description for dsh's plugin management page) and `test/`.
 - The package name is the npm name; the module's exported `name` and the patch row `id` are the short
   name (`dsh-skills` → `skills`). Row ids are first-come, first-served across the whole plugin tree.
+- `packages/dsh-features/` is the exception in shape, not in independence: it is the **hub** (功能管理)
+  and the only package with a browser *client* half (`dsh.client` + `exports["./client"]` →
+  `assets/client.js`, a `__ModuleLoader__.load({id, factory})` classic script, not a module). A real
+  sidebar entry can only be added by a dsh client plugin, which is why the hub cannot be an injected
+  script like the rest. It imports no sibling and needs none.
 
 ## Rules that are easy to get wrong
 
@@ -29,6 +34,21 @@ anything here; it is short and most of it is a trap someone already walked into.
   forwards a request to dsh unless it claims it, so anything under the proxy's project prefixes is
   invisible to the page. That is why the project browser lives under
   `/dsh-remote/project/api/*` while this plugin's own API is `/dsh-remote/api/*`.
+- **The hub contract is two DOM-level facts, and both directions must stay optional** — no package
+  may assume the other exists.
+  - A feature publishes itself to `window.__dshFeatures[key] = { title, order, mount(host) }` and
+    declares `dsh.ui.feature` in its package.json (`key`, `order`, bilingual `title`/`summary`). The
+    key and the order must match in both places; `test/hub-contract.test.mjs` fails if they drift.
+  - `mount(host)` is called again on every visit and the hub drops the DOM when you leave the page, so
+    it must rebuild from scratch (see `mountInline` in any feature's `panel.js`).
+  - A feature probes `GET /dsh-features/api/status` at boot and **skips its floating panel when the
+    hub answers**. Without the hub (bare dsh, or the package uninstalled) the launcher must still be
+    built exactly as before — that path is what the panels were originally written for.
+  - The hub hides `#dsh-launchers` from its own stylesheet. Do not "fix" a feature by re-showing it.
+- **The hub's client half is served from the row, not from a route.** `dsh.client` + `exports["./client"]`
+  is the whole wiring; the bundle URL, its revision and the boot-graph row are dsh's business. If the
+  entry does not appear, check `node --dump-config | grep features` (the row must be mounted) before
+  touching the bundle.
 - **Command registration is guarded** (a name clash degrades to a warning). Do not "fix" that by
   registering unguarded: an exception during `apply` kills dsh.
 - Never log a remote link or token; `/dsh-remote/api/status` exists precisely so there is a
@@ -42,6 +62,15 @@ packages. Then:
 
 ```bash
 cd packages/<name> && node test/<name>.test.mjs
+```
+
+`packages/dsh-features` needs no runtime at all: its suite evaluates the browser bundle in a `vm` with a
+minimal React (state/effect/ref), so the sidebar slot, its order, the skin and the `mount` hand-off are
+asserted without a browser. The cross-package agreement cannot live in a package suite (an installed
+copy has no siblings), so it is checked from the repository root:
+
+```bash
+node test/hub-contract.test.mjs
 ```
 
 Verification is per package and the totals are in the root README. Two things are worth re-checking

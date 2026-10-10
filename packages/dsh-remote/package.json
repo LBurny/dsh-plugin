@@ -21,6 +21,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "ui": {
+      "feature": {
+        "key": "remote",
+        "order": 60,
+        "title": {
+          "zh": "手机远程访问",
+          "en": "Remote"
+        },
+        "summary": {
+          "zh": "手机访问与二维码",
+          "en": "Phone access and QR code"
+        }
+      }
     }
   },
   "keywords": [

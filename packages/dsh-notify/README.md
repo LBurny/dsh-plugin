@@ -12,6 +12,13 @@ to replay the frame protocol (stream ids, `$events` waterflow acks, per-session 
 that the desktop shell implements in Rust. `ctx.on(...)` host-side is far less code and far less
 likely to break on a dsh upgrade — and SSE reconnects on its own.
 
+## Placement
+
+With **[dsh-features](../dsh-features)** (功能管理) installed, this panel appears on that hub's single
+page and no longer docks its own corner button; without the hub — a bare dsh, or a profile where it is
+not installed — the floating panel is built exactly as before. The coupling is two DOM-level
+conventions (`window.__dshFeatures`, `#dsh-launchers`), described in the repository's AGENTS.md.
+
 ## Install
 
 ```bash
