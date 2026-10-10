@@ -262,7 +262,13 @@
 	/** Apply a level to the page and remember it (the write is debounced). */
 	function applyLevel(level, persist) {
 		const next = Math.min(ceiling(), Math.max(config.min, level));
-		document.documentElement.style.zoom = String(next);
+		const html = document.documentElement;
+		html.style.zoom = String(next);
+		// The factor, published for the `data-menu-material` rules in the stylesheet:
+		// dsh's portaled menus have to cancel it on themselves and take it back on
+		// their contents, or the zoom lands on their inline coordinates a second time.
+		html.style.setProperty("--dsh-zoom", String(next));
+		html.style.setProperty("--dsh-zoom-inverse", String(1 / next));
 		config.level = next;
 		if (persist) persistLevel();
 		return next;
