@@ -442,3 +442,139 @@
 	overflow: auto;
 	margin: 6px 0 0;
 }
+
+/* The plugin tree. A row is one line of a three-column grid, and the state column
+   carries the answer this panel exists for: active, failed, disabled. A real profile
+   has around two hundred rows, hence the scroll box. */
+#dsh-doctor-root .table {
+	display: flex;
+	flex-direction: column;
+	font-size: 12px;
+	/* A whole number of rows, so the scroll box does not cut one in half. */
+	max-height: 216px;
+	overflow: auto;
+}
+
+#dsh-doctor-root .tr {
+	display: grid;
+	grid-template-columns: minmax(90px, 1fr) minmax(80px, 1fr) auto;
+	gap: 8px;
+	align-items: baseline;
+	padding: 4px 0;
+	border-top: 1px solid var(--dsh-border);
+}
+
+#dsh-doctor-root .tr.head {
+	border-top: 0;
+	color: var(--dsh-muted);
+}
+
+#dsh-doctor-root .td {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#dsh-doctor-root .td.id {
+	font-family: ui-monospace, Consolas, monospace;
+}
+
+#dsh-doctor-root .td.state {
+	color: var(--dsh-muted);
+}
+
+#dsh-doctor-root .tr[data-state="failed"] .td.state {
+	color: var(--dsh-danger);
+}
+
+/* The log view: filters above one scrolling list, one line per record. The shared
+   block gives every control `width: 100%`, so each one that must not grow says so. */
+#dsh-doctor-root .filters {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 6px 0;
+	font-size: 12px;
+}
+
+#dsh-doctor-root .filters select,
+#dsh-doctor-root .filters button {
+	flex: none;
+	width: auto;
+	white-space: nowrap;
+}
+
+#dsh-doctor-root .filters .check {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--dsh-muted);
+	white-space: nowrap;
+}
+
+#dsh-doctor-root .filters .match {
+	flex: 1;
+	width: auto;
+	min-width: 120px;
+}
+
+#dsh-doctor-root .loglines {
+	font: 11px/1.5 ui-monospace, Consolas, monospace;
+	background: var(--dsh-hover);
+	border-radius: 8px;
+	padding: 6px 8px;
+	max-height: 320px;
+	overflow: auto;
+}
+
+#dsh-doctor-root .logline {
+	display: flex;
+	gap: 6px;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+#dsh-doctor-root .log-when {
+	flex: none;
+	color: var(--dsh-tertiary);
+}
+
+#dsh-doctor-root .log-tag {
+	flex: none;
+	width: 30px;
+	color: var(--dsh-muted);
+}
+
+#dsh-doctor-root .log-name {
+	flex: none;
+	max-width: 90px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--dsh-accent);
+}
+
+#dsh-doctor-root .log-text {
+	flex: 1;
+	min-width: 0;
+}
+
+#dsh-doctor-root .logline[data-type="warn"] .log-tag {
+	color: var(--dsw-alias-state-warning-primary, #b7791f);
+}
+
+#dsh-doctor-root .logline[data-type="error"] .log-tag,
+#dsh-doctor-root .logline[data-type="error"] .log-text {
+	color: var(--dsh-danger);
+}
+
+/* The log files that do exist, folded away: they are a fallback, not the view. */
+#dsh-doctor-root details {
+	font-size: 12px;
+	margin-top: 4px;
+}
+
+#dsh-doctor-root summary {
+	cursor: pointer;
+	color: var(--dsh-muted);
+	word-break: break-all;
+}

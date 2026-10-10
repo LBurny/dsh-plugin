@@ -1,9 +1,11 @@
 /**
  * dsh-doctor — harness diagnostics, inside dsh.
  *
- * Ported from DSHDesktop's diagnostics page. Two log sources, best effort: the
- * desktop shell's unified `events.log` when this dsh runs under DSHDesktop, and
- * otherwise this plugin's own ring.
+ * Built to debug this repository's plugins and anything else installed beside them: it
+ * captures the harness's own log records in-process (there is no log file to tail on
+ * the official desktop app), lists every row of the plugin tree with its activation
+ * state (a green boot does not mean a row loaded), and tails whichever log files do
+ * exist. Panel plus `/doctor`.
  *
  * @module dsh-doctor/index
  */
@@ -11,14 +13,15 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { collectDiagnostics, createLogRing, readLogs } from "./diagnostics.js";
+import { attachLogger, createRecordStore } from "./capture.js";
+import { collectDiagnostics, createLogRing, readLogFiles } from "./diagnostics.js";
 import { guard, sendJson, sendText } from "./http.js";
 import { resolveLayout } from "./layout.js";
 
 const name = "doctor";
 const inject = ["commands"];
 /** Shown in the panel and /api/diagnostics; bump alongside package.json. */
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 /** Every route this plugin owns hangs off this prefix. */
 const ROUTE_PREFIX = "/dsh-doctor";
@@ -30,13 +33,17 @@ const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Create the plugin state: layout resolution (lazy — the config-editor service
- * may not be mounted yet when `apply` runs) plus this plugin's log ring.
+ * may not be mounted yet when `apply` runs), this plugin's log ring, and the
+ * in-process capture.
  * @param ctx - plugin context.
  */
 function createState(ctx) {
 	const ring = createLogRing();
+	const store = createRecordStore();
 	return {
 		ring,
+		/** `{ attached, boot, reason, store }`, filled in by `attachCapture`. */
+		capture: { attached: false, boot: 0, reason: "not attached yet", store },
 		layout() {
 			const configEditor = ctx.get("configEditor");
 			if (configEditor === undefined) throw new Error("config-editor service is not available in this profile");
@@ -44,6 +51,8 @@ function createState(ctx) {
 		},
 		webServer: () => ctx.get("webServer"),
 		sessions: () => ctx.get("sessions"),
+		/** The loader service, which owns the plugin tree. Absent only outside a profile. */
+		loader: () => ctx.get("loader"),
 		log(message) {
 			ring.add(message);
 			ctx.logger.info(`[dsh-doctor] ${message}`);
@@ -51,26 +60,85 @@ function createState(ctx) {
 	};
 }
 
+/**
+ * Start capturing the harness's log records. The disposer is tied to this plugin's
+ * fiber through `ctx.effect`, so a reload takes the exporter with it.
+ * @param ctx - plugin context.
+ * @param state - plugin state.
+ */
+function attachCapture(ctx, state) {
+	ctx.effect(() => {
+		const result = attachLogger(ctx.logger, state.capture.store);
+		state.capture.attached = result.attached;
+		state.capture.boot = result.boot;
+		state.capture.reason = result.reason;
+		if (result.attached) state.log(`log capture attached, ${String(result.boot)} boot record(s) replayed`);
+		else ctx.logger.warn(`[dsh-doctor] log capture unavailable: ${String(result.reason)}`);
+		return () => {
+			try {
+				result.dispose?.();
+			} catch {
+				/* the service tearing down is allowed to have removed it already */
+			}
+		};
+	}, "dsh-doctor log capture");
+}
+
 /** Collect the status document both the command and the route return. */
 async function status(state) {
 	return collectDiagnostics({
 		webServer: state.webServer(),
 		sessions: state.sessions(),
-		layout: state.layout()
+		layout: state.layout(),
+		loader: state.loader(),
+		capture: state.capture
 	});
 }
 
+/**
+ * The log payload. Records are the primary view; the log files are only re-read on a
+ * full fetch, since a live poll asks for new records alone.
+ * @param state - plugin state.
+ * @param since - the newest record `sn` the caller already holds, or undefined.
+ */
+async function logs(state, since) {
+	const captured = state.capture;
+	const numeric = since === null || since === undefined || since === "" ? undefined : Number(since);
+	if (!captured.attached) {
+		// Without a capture the ring is all there is. Its lines shift as it trims, so
+		// there is no stable `sn` to resume from: every read is a full one.
+		const records = state.ring.snapshot().map((text, index) => ({ sn: index + 1, name, type: "info", level: 1, text }));
+		return { ok: true, source: "plugin", reason: captured.reason, reset: true, records, files: await readLogFiles(state.layout()) };
+	}
+	const selection = captured.store.select(Number.isFinite(numeric) ? numeric : undefined);
+	const files = Number.isFinite(numeric) ? [] : await readLogFiles(state.layout());
+	return { ok: true, source: "capture", reason: undefined, reset: selection.reset, records: selection.records, files };
+}
+
+/** One row of the plugin tree, as `/doctor` prints it. */
+function renderRow(row) {
+	const marks = [row.state];
+	if (row.disabled) marks.push("disabled");
+	if (row.required) marks.push("required");
+	return `  ${row.id} [${marks.join(", ")}] ${row.package}`;
+}
+
 /** The multi-line text `/doctor` answers with. */
-function renderStatus(document, logs) {
+function renderStatus(document, log) {
 	const lines = [
 		`dsh ${document.version} on node ${document.node}`,
 		`state=${document.state} port=${document.port} pid=${document.pid} uptime=${document.uptimeSeconds}s rss=${document.memoryMb}MB`,
 		`profile=${document.profile} sessions=${document.sessions ?? "?"}`,
 		`dsh home: ${document.dshHome}`,
-		`patch: ${document.patchPath}`
+		`patch: ${document.patchPath}`,
+		`rows: ${document.rowsSummary ?? "unavailable"}`,
+		`capture: ${document.capture?.attached === true ? `${String(document.capture.records)} record(s), ${String(document.capture.boot)} from boot` : `unavailable (${String(document.capture?.reason ?? "?")})`}`
 	];
-	const tail = logs.lines.slice(-10);
-	if (tail.length > 0) lines.push("", `recent log (${logs.source}):`, ...tail);
+	const noteworthy = (document.rows ?? []).filter((row) => row.state === "failed" || (row.required && row.state !== "active"));
+	if (noteworthy.length > 0) lines.push("rows to look at:", ...noteworthy.slice(0, 12).map(renderRow));
+	if ((document.logFiles ?? []).length > 0) lines.push("log files:", ...document.logFiles.map((file) => `  ${file.source}: ${file.path} (${String(file.lines)} lines)`));
+	const tail = (log.records ?? []).slice(-10).map((record) => `${record.name} ${record.type}: ${record.text}`);
+	if (tail.length > 0) lines.push("", `recent log (${log.source}):`, ...tail);
 	return lines.join("\n");
 }
 
@@ -97,10 +165,11 @@ function registerCommands(ctx, state) {
 	try {
 		ctx.commands.register({
 			name: "doctor",
-			description: "Show harness diagnostics: version, port, pid, profile and log tail",
+			description: "Show harness diagnostics: version, port, pid, plugin rows and recent log",
 			handler: command(async () => {
-				const [document, logs] = await Promise.all([status(state), readLogs(state.layout(), state.ring)]);
-				return { kind: "success", text: renderStatus(document, logs) };
+				const document = await status(state);
+				const log = await logs(state, undefined);
+				return { kind: "success", text: renderStatus(document, log) };
 			})
 		});
 	} catch (error) {
@@ -125,16 +194,16 @@ function mount(ready, state) {
 		}
 	};
 
-	const handle = async (req, res, path) => {
+	const handle = async (req, res, url) => {
+		// The prefix is this plugin's mount point, not part of its own route names.
+		const path = url.pathname.slice(ROUTE_PREFIX.length);
 		const method = req.method ?? "GET";
 		if (path === "/api/diagnostics" && method === "GET") {
 			const document = await status(state);
-			const logs = await readLogs(state.layout(), state.ring);
-			return sendJson(res, 200, { ok: true, status: document, logs: { source: logs.source, path: logs.path }, plugin: { name, version: VERSION } });
+			return sendJson(res, 200, { ok: true, status: document, plugin: { name, version: VERSION } });
 		}
 		if (path === "/api/logs" && method === "GET") {
-			const logs = await readLogs(state.layout(), state.ring);
-			return sendJson(res, 200, { ok: true, ...logs });
+			return sendJson(res, 200, await logs(state, url.searchParams.get("since")));
 		}
 		return sendJson(res, 404, { ok: false, error: `no dsh-doctor route for ${method} ${path}` });
 	};
@@ -143,11 +212,11 @@ function mount(ready, state) {
 		kind: "prefix",
 		path: ROUTE_PREFIX,
 		handler: guard(async (req, res) => {
-			const path = new URL(req.url ?? "/", "http://x").pathname;
-			if (path === SCRIPT_PATH) return asset(res, "client.js", "text/javascript; charset=utf-8");
-			if (path === STYLE_PATH) return asset(res, "client.css", "text/css; charset=utf-8");
-			if (path.startsWith(`${ROUTE_PREFIX}/api/`)) return handle(req, res, path.slice(ROUTE_PREFIX.length));
-			return sendJson(res, 404, { ok: false, error: `no dsh-doctor route for ${path}` });
+			const url = new URL(req.url ?? "/", "http://x");
+			if (url.pathname === SCRIPT_PATH) return asset(res, "client.js", "text/javascript; charset=utf-8");
+			if (url.pathname === STYLE_PATH) return asset(res, "client.css", "text/css; charset=utf-8");
+			if (url.pathname.startsWith(`${ROUTE_PREFIX}/api/`)) return handle(req, res, url);
+			return sendJson(res, 404, { ok: false, error: `no dsh-doctor route for ${url.pathname}` });
 		})
 	}), "dsh-doctor http routes");
 
@@ -165,6 +234,7 @@ function mount(ready, state) {
  */
 function apply(ctx) {
 	const state = createState(ctx);
+	attachCapture(ctx, state);
 	registerCommands(ctx, state);
 	ctx.inject(["webServer", "configEditor"], (ready) => {
 		mount(ready, state);

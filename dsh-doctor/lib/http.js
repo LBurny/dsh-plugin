@@ -1,12 +1,12 @@
 /**
- * Tiny helpers for the kit's own HTTP surface. The dsh web server hands route
- * handlers full response ownership, so these keep the ownership rules in one
- * place: every helper ends the response exactly once.
+ * Tiny helpers for this plugin's own HTTP surface. The dsh web server hands route
+ * handlers full response ownership, so these keep the ownership rules in one place:
+ * every helper ends the response exactly once.
  *
- * @module dsh-desktop-kit/lib/http
+ * @module dsh-doctor/lib/http
  */
 
-/** Body cap for kit API requests; the payloads are small settings documents. */
+/** Body cap for API requests; the payloads are small documents. */
 const MAX_BODY_BYTES = 1 << 20;
 
 /** Send a JSON response. */

@@ -5,19 +5,41 @@
    "state": "ready", "version": "0.2.0", "node": "v24.19.0", "pid": 22976, "uptimeSeconds": 754, "memoryMb": 214,
    "port": 7411, "host": "127.0.0.1", "profile": "desktop", "profileDir": "profiles/desktop",
    "dshHome": "C:/Users/<user>/.dsh", "patchPath": "C:/Users/<user>/.dsh/profiles/desktop/cordis.patch.yml",
-   "sessions": 3, "platform": "win32", "arch": "x64"
-  }
+   "sessions": 3, "platform": "win32", "arch": "x64",
+   "rows": [
+    { "id": "agent-loop", "module": "@deepseek-ai/dsh-agent-loop", "package": "@deepseek-ai/dsh-agent-loop", "group": false, "disabled": false, "state": "active", "required": true },
+    { "id": "webserver", "module": "@deepseek-ai/dsh-webserver", "package": "@deepseek-ai/dsh-webserver", "group": false, "disabled": false, "state": "active", "required": true },
+    { "id": "features", "module": "dsh-features", "package": "dsh-features", "group": false, "disabled": false, "state": "active", "required": false },
+    { "id": "skills", "module": "dsh-skills", "package": "dsh-skills", "group": false, "disabled": false, "state": "active", "required": false },
+    { "id": "mcp", "module": "dsh-mcp", "package": "dsh-mcp", "group": false, "disabled": false, "state": "active", "required": false },
+    { "id": "doctor", "module": "dsh-doctor", "package": "dsh-doctor", "group": false, "disabled": false, "state": "active", "required": false },
+    { "id": "remote", "module": "dsh-remote", "package": "dsh-remote", "group": false, "disabled": false, "state": "failed", "required": false },
+    { "id": "legacy", "module": "dsh-legacy", "package": "dsh-legacy", "group": false, "disabled": true, "state": "pending", "required": false }
+   ],
+   "rowsAvailable": true,
+   "rowsSummary": "6/8 rows active; failed: remote",
+   "rowsActive": 6, "rowsTotal": 8, "rowsFailed": ["remote"],
+   "requiredRowIds": ["agent-loop", "webserver", "modules", "connection", "headless-runner", "acp", "sdk-jsonrpc-server"],
+   "logFiles": [{ "source": "tunnel", "path": "C:/Users/<user>/.dsh/dsh-remote-tunnel.log", "lines": 40 }],
+   "capture": { "attached": true, "boot": 214, "records": 6 }
+  },
+  "plugin": { "name": "doctor", "version": "0.2.0" }
  },
  "/dsh-doctor/api/logs": {
   "ok": true,
-  "lines": [
-   "2026-10-10 14:38:59 dsh web: applying 9 patch layers",
-   "2026-10-10 14:39:02 dsh web: ready on 127.0.0.1:7411",
-   "2026-10-10 14:39:04 plugin dsh-mcp: connection ready",
-   "2026-10-10 14:52:11 turn/end reason=completed (turns=1, tools=4)"
+  "source": "capture",
+  "reset": true,
+  "records": [
+   { "sn": 1, "ts": 1786000000000, "name": "loader", "type": "info", "level": 1, "text": "apply plugin dsh-features" },
+   { "sn": 2, "ts": 1786000000200, "name": "loader", "type": "info", "level": 1, "text": "apply plugin dsh-skills" },
+   { "sn": 3, "ts": 1786000000400, "name": "loader", "type": "warn", "level": 2, "text": "1 entry did not activate" },
+   { "sn": 4, "ts": 1786000100000, "name": "doctor", "type": "info", "level": 1, "text": "log capture attached, 214 boot record(s) replayed" },
+   { "sn": 5, "ts": 1786000200000, "name": "remote", "type": "error", "level": 0, "text": "proxy listen failed: EADDRINUSE 29274" },
+   { "sn": 6, "ts": 1786000300000, "name": "mcp", "type": "info", "level": 1, "text": "patch document written" }
   ],
-  "source": "events",
-  "path": "events.log"
+  "files": [
+   { "source": "tunnel", "path": "C:/Users/<user>/.dsh/dsh-remote-tunnel.log", "lines": ["INF Thank you for trying Cloudflare Tunnel", "ERR failed to serve incoming request"] }
+  ]
  },
  "default": { "ok": true }
 }

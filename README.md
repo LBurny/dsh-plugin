@@ -11,7 +11,7 @@ Small independent [deepseek-harness](https://github.com/deepseek-ai/deepseek-har
 | `dsh-features` | The hub (Features): one sidebar entry between Plugins and Scheduled tasks, lists every installed feature plugin as a row like dsh's own Plugins page, opens one on click, reorders by drag. Install it to lose the floating corner buttons | |
 | `dsh-skills` | Manage skills: enable / disable / delete / import, including local ZIP archives | `/skills` |
 | `dsh-mcp` | Manage MCP servers in the active profile's patch layer: add / edit / delete / enable / import | `/mcp` |
-| `dsh-doctor` | Harness diagnostics: version, port, pid, profile, log tail | `/doctor` |
+| `dsh-doctor` | Debug this set of plugins: the harness's own log records read in-process, every row of the plugin tree with its activation state, and whichever log files exist | `/doctor` |
 | `dsh-zoom` | Page zoom with rebindable shortcuts | `/zoom` |
 | `dsh-notify` | Task reminders: in-page popup, bundled sounds, browser notification | `/notify` |
 | `dsh-remote` | Phone remote access: authenticated reverse proxy, QR link, optional Cloudflare tunnel, mobile UI rewrite, project browser | `/remote` |
@@ -104,7 +104,7 @@ node tests/mobile-layer.test.mjs          # repo-wide: the phone layer's DOM beh
 node tests/manifest.test.mjs              # repo-wide: the directory name, and every import declared
 ```
 
-Offline suites: 88 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 99 checks, plus 49 (dsh-init) and 279
+Offline suites: 88 (dsh-features) / 60 / 20 / 63 / 23 / 38 / 99 checks, plus 49 (dsh-init) and 279
 repo-wide contract checks, 78 cross-package panel checks, 7 mobile-layer checks and 17 manifest
 checks.
 

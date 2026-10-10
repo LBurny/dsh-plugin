@@ -34,9 +34,20 @@ const PAYLOADS = {
 		status: {
 			state: "ready", version: "0.2.0", node: "v24.0.0", pid: 1, uptimeSeconds: 5, memoryMb: 120,
 			port: 1234, host: "127.0.0.1", profile: "desktop", profileDir: "/tmp/p", dshHome: "/tmp",
-			patchPath: "cordis.patch.yml", sessions: 0, platform: "win32", arch: "x64"
+			patchPath: "cordis.patch.yml", sessions: 0, platform: "win32", arch: "x64",
+			rows: [
+				{ id: "webserver", module: "@deepseek-ai/dsh-webserver", package: "@deepseek-ai/dsh-webserver", group: false, disabled: false, state: "active", required: true },
+				{ id: "doctor", module: "dsh-doctor", package: "dsh-doctor", group: false, disabled: false, state: "active", required: false }
+			],
+			rowsAvailable: true, rowsSummary: "2/2 rows active", rowsActive: 2, rowsTotal: 2, rowsFailed: [],
+			requiredRowIds: ["webserver"], logFiles: [],
+			capture: { attached: true, boot: 12, records: 2 }
 		},
-		lines: [], source: "events", path: "events.log"
+		records: [
+			{ sn: 1, ts: 1700000000000, name: "loader", type: "info", level: 1, text: "apply plugin dsh-doctor" },
+			{ sn: 2, ts: 1700000001000, name: "doctor", type: "warn", level: 2, text: "panel served" }
+		],
+		source: "capture", reset: true, files: []
 	},
 	"dsh-zoom": {
 		config: {

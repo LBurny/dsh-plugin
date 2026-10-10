@@ -236,6 +236,23 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   skills dialog report that it found no skills while `~/.codex/skills` held ten skills.
 - Never log a remote link or token; `/dsh-remote/api/status` exists precisely so there is a
   credential-free status.
+- **A plugin can read the harness's own logs in-process, and that is the only way on the official
+  app.** `ctx.logger` is cordis's logger service; `ctx.logger.exporter({ levels: { default: 3 },
+  export })` registers a sink that receives every record from every module (`dsh-app-boot` registers
+  one itself for its startup audit), and `ctx.logger.buffer` holds the service's own last 1000
+  records, which is the boot history if it is snapshotted at attach time. `dsh-doctor` is built on
+  this. Two limits worth knowing before designing around it: the loader logs each row's
+  `apply`/`unload` and import/config errors through the logger (name `loader`), but the
+  `N entries did not activate`, `startup failed` and `skipping profile bundle` lines are
+  `process.stderr.write` calls and a thrown `StartupError` inside `dsh-app-boot`, so no exporter sees
+  them; and the official app writes no log file at all (only `~/.dsh/logs/startup-*.log` when a
+  required row fails, and a crash report under `%APPDATA%\@deepseek-ai\dsh-desktop\logs\`).
+- **"Did my row load?" is answerable in-process**: `ctx.get("loader").entries()` yields every row
+  with its `id`, `options` (the module `name`), `disabled`, and `fiber.state` — the numeric
+  `FiberState` (`0 pending, 1 loading, 2 active, 3 failed, 4 disposed, 5 unloading`, from
+  `cordis/src/fiber.ts`). A disabled row has no fiber at all, so its state cannot be read the same
+  way. This is the half of the picture the ready line cannot give, and it is what `dsh-doctor`'s row
+  table shows.
 
 ## Test
 
