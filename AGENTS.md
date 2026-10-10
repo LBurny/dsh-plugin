@@ -257,7 +257,15 @@ repository root:
 
 ```bash
 node tests/hub-contract.test.mjs
+node tests/manifest.test.mjs
 ```
+
+`tests/manifest.test.mjs` is the one that reads the manifests: the directory name must equal the package
+name, and every bare import in a host half must be declared in `dependencies` or `peerDependencies`. A
+host module that imports something undeclared still loads here, because the profile's `node_modules` farm
+happens to carry it, and then fails on a user's machine as one missing row. `dsh-features` was importing
+`@deepseek-ai/dsh-atomic-write` with no declaration until this check went in. Browser halves are exempt:
+a client bundle is a classic script that resolves dsh's own seed words, not npm packages.
 
 Verification is per package and the totals are in the root README. Two things are worth re-checking
 after any change: all six installed **together** still boot (`--dump-config` then `web --port N

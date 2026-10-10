@@ -78,9 +78,10 @@ cd <包名> && node tests/<包名>.test.mjs
 node tests/hub-contract.test.mjs          # 仓级：基座约定，在仓根跑
 node tests/panel-embed.test.mjs           # 仓级：装了基座时六个面板的行为
 node tests/mobile-layer.test.mjs          # 仓级：手机增强层的 DOM 行为
+node tests/manifest.test.mjs              # 仓级：目录名即包名，裸导入必须有声明
 ```
 
-离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 99 项，另有 49 项（dsh-init）与 279 项仓级契约检查、78 项跨包面板检查、7 项手机增强层检查。
+离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 99 项，另有 49 项（dsh-init）与 279 项仓级契约检查、78 项跨包面板检查、7 项手机增强层检查、17 项包清单检查。
 
 `dsh-features` 的套件会真跑它的浏览器端（vm 加极简 React 打桩），侧栏槽位、顺序、列表、点进、拖拽排序与挂载交接不用浏览器也能断言。`dsh-init` 的套件把运行时自己的会话格式 V4 准入跑在它注入的那条消息上，并用一个反例证明这个探针能失败，所以"注册成功却什么都不做"这个唯一的坑被钉住了。`panel-embed.test.mjs` 把六个功能面板的浏览器脚本放进 DOM 打桩里跑，证明装了基座时它们不挂浮动按钮，也不多出第二个刷新控件。`mobile-layer.test.mjs` 对手机增强层的浏览器端做同样的事：远端来源的设置页必须让上游那个永远不会成功的重试消失。`tools/visual/` 是截图工具，专看这些数字看不见的排版问题，见其 README。`dsh-remote` 另有实时套件（`tests/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
 
