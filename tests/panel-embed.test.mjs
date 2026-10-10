@@ -181,13 +181,19 @@ function descendants(node, found = []) {
  * that sees it must stay out of the way of the hub page.
  * @returns the booted panel with its sandbox, the DOM stub and the mount point.
  */
-async function bootPanel(pkg, { hub = true, mount = true } = {}) {
+async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900 } = {}) {
 	const dom = makeDom();
+	// Window listeners are recorded so a test can fire them the way the browser does.
+	const listeners = {};
 	const sandbox = {
 		console,
 		setTimeout,
 		clearTimeout,
 		Node: dom.Node,
+		innerHeight,
+		addEventListener(event, handler) {
+			(listeners[event] ??= []).push(handler);
+		},
 		document: dom.document,
 		navigator: { language: "zh-CN", clipboard: { writeText: async () => {} } },
 		localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -217,7 +223,7 @@ async function bootPanel(pkg, { hub = true, mount = true } = {}) {
 		for (const key of keys) await registry[key].mount(host);
 		await new Promise((resolve) => setTimeout(resolve, 30));
 	}
-	return { sandbox, dom, host, keys };
+	return { sandbox, dom, host, keys, listeners };
 }
 
 /** The buttons of a subtree, by their visible text. */
@@ -308,6 +314,69 @@ const stripSource = readFileSync(join(root, "dsh-features", "lib", "client.js"),
 check(stripSource.includes("function stripDuplicateRefresh(node)"), "dsh-features: the hub sweeps a mounted panel for a duplicate refresh", "");
 check(stripSource.includes('new Set(["刷新", "Refresh"])'), "dsh-features: the sweep knows both refresh labels", "");
 check(stripSource.includes("[data-dsh-refresh]"), "dsh-features: a marked refresh is hidden by the skin too", "");
+
+/* --------------------------------------------------- the zoom ceiling */
+
+// CSS `zoom` on <html> divides the layout viewport by the factor, so a large
+// enough level makes the harness's own sidebar taller than its box; the shell
+// clips it (`overflow: hidden`) and the document never scrolls, which puts
+// 设置 / 意见反馈 / 退出登录 out of reach. dsh-zoom therefore bounds the level by
+// what the window can render. These three cases boot the real panel, so the
+// bound is observed rather than re-derived.
+const zoomedTo = (booted) => Number(booted.dom.document.documentElement.style.zoom);
+const zoomWithHeight = async (innerHeight) => {
+	const booted = await bootPanel("dsh-zoom", { innerHeight });
+	await booted.sandbox.__dshFeatures.zoom.mount(booted.host);
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	return booted;
+};
+
+const shortWindow = await zoomWithHeight(400);
+check(
+	zoomedTo(shortWindow) <= 400 / 360 + 0.001,
+	"dsh-zoom: a short window caps the level at what it can render",
+	String(zoomedTo(shortWindow))
+);
+check(
+	textOf(shortWindow.host).includes("已按窗口高度封顶"),
+	"dsh-zoom: the panel says the ceiling comes from the window",
+	textOf(shortWindow.host).slice(0, 140)
+);
+const tallWindow = await zoomWithHeight(4000);
+check(
+	zoomedTo(tallWindow) === 1,
+	"dsh-zoom: a tall window leaves the saved level alone",
+	String(zoomedTo(tallWindow))
+);
+check(
+	!textOf(tallWindow.host).includes("已按窗口高度封顶"),
+	"dsh-zoom: no ceiling note when the window is not the limit",
+	""
+);
+// A hidden or not-yet-laid-out window reports 0. Reading that as "a very short
+// window" would slam the zoom to the minimum; it must simply not cap anything.
+const noWindow = await zoomWithHeight(0);
+check(
+	zoomedTo(noWindow) === 1,
+	"dsh-zoom: a window height of 0 is not treated as a tiny window",
+	String(zoomedTo(noWindow))
+);
+// Shrinking the window after zooming in is the other way to end up stranded, so
+// the resize handler re-applies the level through the clamp.
+const resized = await zoomWithHeight(4000);
+check(zoomedTo(resized) === 1, "dsh-zoom: starts at the saved level in a tall window", String(zoomedTo(resized)));
+check(
+	(resized.listeners.resize ?? []).length === 1,
+	"dsh-zoom: listens for a window resize",
+	String((resized.listeners.resize ?? []).length)
+);
+resized.sandbox.innerHeight = 400;
+for (const handler of resized.listeners.resize ?? []) handler();
+check(
+	zoomedTo(resized) <= 400 / 360 + 0.001,
+	"dsh-zoom: shrinking the window pulls the level back inside the new ceiling",
+	String(zoomedTo(resized))
+);
 
 /* ----------------------------------------------------------------- report */
 

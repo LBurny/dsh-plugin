@@ -32,6 +32,11 @@ Restart dsh afterwards — plugins have no HMR.
 - **Rebind** either shortcut by pressing a key: click the keycap (or *Record*) and press the
   combination you want. Escape cancels a recording. A recording stays armed until a key arrives.
 - **`/zoom`** prints the current level, the range and both shortcuts.
+- **The level is capped by the window height.** `zoom` on `<html>` divides the layout viewport by the
+  factor, so past `window height / ~360px` the harness's own sidebar is taller than its box and its
+  bottom block — 设置, 意见反馈, 退出登录 — is clipped with nothing to scroll: the shell sets
+  `overflow: hidden` and the document never scrolls. The panel shows the cap and the level is re-clamped
+  when the window shrinks. `max` stays your preference; this bound is derived per window.
 
 Shortcut matching prefers `event.code` and falls back to `event.key`, so synthesized and
 remote-desktop key events still work.

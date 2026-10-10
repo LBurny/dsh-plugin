@@ -45,6 +45,7 @@
 		record: ["Record", "录制"],
 		recording: ["Press the shortcut…", "请按下快捷键…"],
 		reset: ["Reset to 100%", "重置为 100%"],
+		ceiling: ["capped by the window height", "已按窗口高度封顶"],
 		shortcutHint: ["Shortcuts work anywhere in the dsh web UI; a recording stays open until you press a key.", "快捷键在 dsh 界面任意位置生效；录制状态下按任意键即完成。"],
 		configAt: ["Settings file", "设置文件"],
 		percent: ["%", "%"]
@@ -195,14 +196,46 @@
 	/** Set while the recorder is armed, so the matcher stands down. */
 	let recordTarget;
 
+	/**
+	 * How much taller the harness's own chrome is than the window can shrink to:
+	 * the sidebar's brand row, its nav entries, the workspace section and the
+	 * account block at the bottom. `zoom` on `<html>` divides the layout viewport
+	 * by the factor, so past `window height / this` the sidebar's own content no
+	 * longer fits and its bottom block — 设置, 意见反馈, 退出登录 — is clipped with
+	 * nothing to scroll: the app shell sets `overflow: hidden` and the document
+	 * never scrolls. Measured at ~360 CSS px for a stock dsh at 13px.
+	 */
+	const APP_CHROME_PX = 360;
+
+	/**
+	 * The largest level this window can render with the harness still usable. Not
+	 * a policy limit but a physical one, which is why it is derived per apply
+	 * rather than written into the settings: `max` stays the preference.
+	 * @returns the effective maximum, in the configured range.
+	 */
+	function ceiling() {
+		const height = window.innerHeight;
+		// A hidden or not-yet-laid-out window reports 0 (or nothing): that is not a
+		// small window, it is no answer, so keep the user's own maximum.
+		if (!Number.isFinite(height) || height <= 0) return config.max;
+		const bounded = Math.min(config.max, Math.max(config.min, height / APP_CHROME_PX));
+		return Math.round(bounded * 100) / 100;
+	}
+
 	/** Apply a level to the page and remember it (the write is debounced). */
 	function applyLevel(level, persist) {
-		const next = Math.min(config.max, Math.max(config.min, level));
+		const next = Math.min(ceiling(), Math.max(config.min, level));
 		document.documentElement.style.zoom = String(next);
 		config.level = next;
 		if (persist) persistLevel();
 		return next;
 	}
+
+	// A shorter window lowers the ceiling. Re-apply through the clamp so resizing
+	// after zooming in cannot strand the harness's bottom block out of reach.
+	window.addEventListener("resize", () => {
+		if (config !== undefined) applyLevel(config.level, false);
+	});
 
 	const persistLevel = debounce(() => {
 		void postJson(`${API}/settings`, { level: config.level });
@@ -325,11 +358,12 @@
 	}
 
 	function renderSettings() {
+		const top = ceiling();
 		const levelLabel = el("span", { class: "muted", text: `${Math.round(config.level * 100)}${T("percent")}` });
 		const slider = el("input", {
 			type: "range",
 			min: String(config.min),
-			max: String(config.max),
+			max: String(top),
 			step: String(config.step),
 			value: String(config.level)
 		});
@@ -344,7 +378,10 @@
 		}
 		stepSelect.addEventListener("change", () => void patchConfig({ step: Number(stepSelect.value) }));
 		return el("div", {},
-			el("div", { class: "field" }, el("label", { text: `${T("level")} ${T("range")} ${Math.round(config.min * 100)}–${Math.round(config.max * 100)}${T("percent")}` }), slider),
+			el("div", { class: "field" }, el("label", {
+				text: `${T("level")} ${T("range")} ${Math.round(config.min * 100)}–${Math.round(top * 100)}${T("percent")}`
+					+ (top < config.max ? ` · ${T("ceiling")}` : "")
+			}), slider),
 			el("div", { class: "actions" }, levelLabel,
 				el("button", { text: T("reset"), onclick: () => { applyLevel(1, true); void render(); } })),
 			el("div", { class: "field" }, el("label", { text: T("step") }), stepSelect),

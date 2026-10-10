@@ -60,8 +60,8 @@ node tests/hub-contract.test.mjs          # repo-wide: the hub agreement, from t
 node tests/panel-embed.test.mjs           # repo-wide: every panel boots without the hub
 ```
 
-Offline suites: 75 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 73 checks, plus 246 repo-wide contract
-checks and 63 cross-package panel checks. `dsh-features`' suite evaluates its browser half for real
+Offline suites: 75 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 73 checks, plus 276 repo-wide contract
+checks and 71 cross-package panel checks. `dsh-features`' suite evaluates its browser half for real
 (a vm with a minimal React), so the sidebar slot, its order, the list, the drill-down and the mount
 hand-off are asserted without a browser; `panel-embed.test.mjs` runs all six feature panels' scripts
 in a DOM stub to prove none of them docks a corner button or a second refresh control while the hub

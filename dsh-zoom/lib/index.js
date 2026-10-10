@@ -102,6 +102,10 @@ function registerCommands(ctx, state) {
 					kind: "success",
 					text: [
 						`page zoom ${Math.round(config.level * 100)}% (step ${Math.round(config.step * 100)}%, range ${Math.round(config.min * 100)}–${Math.round(config.max * 100)}%)`,
+						// The browser half caps this at what the window can render: zooming the
+						// whole app shrinks its layout viewport, and past a point the harness's own
+						// bottom block would be pushed out of reach.
+						"above that the window height caps it, so the harness stays reachable",
 						`zoom in: ${describeShortcut(config.in)}   zoom out: ${describeShortcut(config.out)}`,
 						`settings: ${state.layout().configPath}`
 					].join("\n")
