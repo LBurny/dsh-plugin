@@ -55,6 +55,24 @@ await writePackage(join(pluginsDir, "dsh-keyless"), "dsh-keyless", { dsh: { ui: 
 await writePackage(join(pluginsDir, "dsh-odd"), "dsh-odd", {
 	dsh: { ui: { feature: { key: "odd", order: "high", title: "Odd", summary: { note: "nope" } } } }
 });
+// A marked package in the staging directory that the profile never declared. It is
+// not installed, so it must not be reported: a stray copy there used to surface on
+// the hub page as "installed, but its panel did not load".
+await writePackage(join(pluginsDir, "dsh-stray"), "dsh-stray", {
+	dsh: { ui: { feature: { key: "stray", order: 5, title: { zh: "暂存", en: "Stray" } } } }
+});
+
+// The profile's own manifest is the source of truth for "installed".
+await writeFile(join(profileDir, "package.json"), JSON.stringify({
+	name: "dsh-profile-desktop",
+	private: true,
+	dependencies: {
+		"dsh-doctor": "github:LBurny/dsh-plugin#path:/packages/dsh-doctor",
+		"dsh-mcp": "link:C:/elsewhere/dsh-mcp",
+		"dsh-odd": "link:C:/elsewhere/dsh-odd"
+	},
+	dsh: { profile: { bundles: ["@deepseek-ai/dsh-base", "dsh-odd"] } }
+}), "utf8");
 
 const layout = resolveLayout({ documentPath: join(profileDir, "cordis.patch.yml") });
 check(layout.profileName === "desktop", "the layout derives the profile name from the patch document", layout.profileName);
@@ -72,6 +90,9 @@ check(inventory[2].summary === undefined, "a title-shaped value with no zh/en is
 
 const emptyRoot = await readInventory({ pluginsDir: join(root, "absent"), profileDir: join(root, "absent-profile") });
 check(emptyRoot.length === 0, "missing directories degrade to an empty inventory", JSON.stringify(emptyRoot));
+
+// The profile does not declare dsh-stray, so being on disk does not count.
+check(!keys.includes("stray"), "a staged copy the profile never declared is not reported as installed", keys.join(","));
 
 // A symlinked package is a package: that is how pnpm links an installed plugin.
 try {

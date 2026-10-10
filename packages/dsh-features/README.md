@@ -31,15 +31,17 @@ no flag. Restart dsh afterwards — plugins have no HMR.
   it does in its own floating panel. Every colour prefers the shell's own theme token
   (`--dsw-alias-*`, which follows dsh's light/dark setting) and falls back to a hardcoded value, so
   the hub matches dsh's theme instead of guessing from the OS.
-- **Named failures.** A feature that is installed but whose browser half never loaded is listed as
-  *installed, but its panel did not load* rather than silently missing.
+- **Named failures.** A feature the profile declares but whose browser half never loaded is listed as
+  *installed, but its panel did not load* rather than silently missing. Declared is the operative word:
+  a package merely staged in `<DSH_HOME>/profiles/plugins/<name>/` is not installed, and does not
+  appear — that directory is where a manual install is prepared, not evidence of one.
 
 ## Routes
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
 | GET | `/dsh-features/api/status` | `{ ok, hub, route, version }` — the probe feature panels use |
-| GET | `/dsh-features/api/features` | the inventory: installed packages declaring `dsh.ui.feature` |
+| GET | `/dsh-features/api/features` | the inventory: packages *this profile declares* (its `dependencies` / `dsh.profile.bundles`) that declare `dsh.ui.feature` |
 
 Both are read-only, credential-free, and same-origin with the page.
 

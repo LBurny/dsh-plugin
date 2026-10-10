@@ -15,9 +15,10 @@
  *
  * Scanning is directory-name driven: only `dsh-*` entries are opened, so the
  * profile's few-hundred-package dependency farm is never walked. Two roots are
- * read because a plugin can land in either — `<profiles>/plugins/<name>` for a
- * hand-placed or preseeded copy, `<profiles>/<profile>/node_modules/<name>` for
- * anything `dsh plugin add` installed.
+ * read because a plugin can land in either — `<profiles>/<profile>/node_modules`
+ * for anything the plugin manager installed, `<profiles>/plugins/<name>` for a
+ * hand-placed or preseeded copy — but a directory only counts when the profile
+ * declares that package (see `declaredPackages`).
  *
  * @module dsh-features/lib/inventory
  */
@@ -73,12 +74,34 @@ function normalize(marker) {
 }
 
 /**
+ * Packages the profile itself declares. `dependencies` is what the plugin manager
+ * writes when it installs one; `dsh.profile.bundles` is what the loader mounts.
+ *
+ * Everything else found on disk is a staging copy: `profiles/plugins/<name>/` is
+ * where a manual (offline) install is *prepared* before it is added to the
+ * profile, so being in there proves nothing. Reporting such a copy as installed
+ * is exactly how a feature that was never enabled ends up on the page claiming
+ * its panel "did not load".
+ *
+ * @param profile - the profile's package.json.
+ * @returns the declared package names.
+ */
+function declaredPackages(profile) {
+	const names = new Set(Object.keys(profile?.dependencies ?? {}));
+	for (const bundle of profile?.dsh?.profile?.bundles ?? []) {
+		if (typeof bundle === "string") names.add(bundle);
+	}
+	return names;
+}
+
+/**
  * Collect every installed package declaring `dsh.ui.feature`.
  * @param layout - resolved path layout (see lib/layout.js).
  * @returns the inventory entries, ordered.
  */
 export async function readInventory(layout) {
 	const roots = [layout.pluginsDir, join(layout.profileDir, "node_modules")];
+	const declared = declaredPackages(await manifestOf(layout.profileDir));
 	const found = new Map();
 	for (const root of roots) {
 		for (const entry of await entriesOf(root)) {
@@ -86,11 +109,13 @@ export async function readInventory(layout) {
 			if (!entry.name.startsWith(PACKAGE_PREFIX)) continue;
 			const manifest = await manifestOf(join(root, entry.name));
 			if (manifest === undefined) continue;
+			const packageName = typeof manifest.name === "string" ? manifest.name : entry.name;
+			if (!declared.has(packageName)) continue;
 			const marker = normalize(manifest.dsh?.ui?.feature);
 			if (marker === undefined) continue;
 			found.set(marker.key, {
 				...marker,
-				package: typeof manifest.name === "string" ? manifest.name : entry.name,
+				package: packageName,
 				version: typeof manifest.version === "string" ? manifest.version : undefined
 			});
 		}
