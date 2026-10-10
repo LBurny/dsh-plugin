@@ -33,6 +33,9 @@ dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/packages/dsh-s
 dsh plugin --profile web remove dsh-skills
 ```
 
+`--profile web` is DSHDesktop's shell profile; the official dsh desktop app uses `--profile desktop`
+(check `$DSH_HOME/profiles/`). The plugin panel needs no profile flag.
+
 Restart dsh afterwards — plugins have no HMR. Install a few, or all six:
 
 ```bash
@@ -43,8 +46,38 @@ done
 
 **DSHDesktop users:** set `DSH_HOME` first — the desktop shell's home is
 `%LOCALAPPDATA%\DSHDesktop\dsh-home`, not `~/.dsh`, and a plugin installed into the wrong home is
-invisible in the app. Also note the app's plugin panel lists npm search results only; local paths
-and git specs must go through the command line.
+invisible in the app.
+
+### When GitHub is not reachable
+
+A `github:` spec makes pnpm fetch from `github.com` **with its own TLS stack** — it does not use the
+system certificate store, and it does not shell out to `git`. So on a network that intercepts TLS for
+`github.com` (corporate proxy, some antivirus, some ISPs) the install dies with:
+
+```
+TypeError: fetch failed
+    at Object.processResponse (.../pnpm/dist/pnpm.mjs:...)
+```
+
+`git ls-remote` on the same URL still works and `codeload.github.com` may be reachable — both are red
+herrings, pnpm uses neither. Two ways out:
+
+1. **Give pnpm a proxy** — one `.npmrc` next to the profile (`$DSH_HOME/profiles/<profile>/.npmrc`):
+
+   ```
+   https-proxy=http://127.0.0.1:7890
+   proxy=http://127.0.0.1:7890
+   ```
+
+   The registry mirror the panel offers is passed separately (`--registry=`), so dependencies still
+   come from the fast mirror while only the git fetch goes through the proxy.
+2. **Install from a local path — no network at all.** Copy the package into
+   `$DSH_HOME/profiles/plugins/<name>/` (that location is what lets the bare `@deepseek-ai/*` imports
+   resolve, through the profile's `node_modules` farm), then paste the **absolute** path into the
+   panel's add dialog or run `dsh plugin --profile <profile> add <abs path>`. This is also the route
+   for a machine that cannot reach GitHub at all. A local-path install makes a `link:` dependency and
+   pnpm does not install a linked package's own dependencies — for `dsh-remote` that means running
+   `npm install` inside its directory so the QR code has `qrcode`.
 
 ## The one cross-package agreement
 

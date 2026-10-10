@@ -24,7 +24,19 @@ dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/packages/dsh-s
 dsh plugin --profile web remove dsh-skills
 ```
 
+`--profile web` is DSHDesktop's shell profile; the official dsh desktop app uses `--profile desktop`
+(check `$DSH_HOME/profiles/`). The plugin panel needs no profile flag.
+
 Restart dsh afterwards — plugins have no HMR.
+
+### When GitHub is not reachable
+
+A `github:` spec makes pnpm fetch from `github.com` with **its own TLS stack** — not the system
+certificate store, and not the `git` binary. On a network that intercepts TLS for `github.com` the
+install fails with `TypeError: fetch failed` from pnpm, even though `git ls-remote` on the same URL
+works. Either give pnpm a proxy (`.npmrc` next to the profile: `https-proxy=` / `proxy=`), or install
+from a local path: copy the package into `$DSH_HOME/profiles/plugins/<name>/` and paste the absolute
+path into the plugin panel. See the Chinese README for the full explanation.
 
 ## License
 

@@ -18,6 +18,9 @@ dsh plugin --profile web add github:LBurny/dsh-plugin#path:/packages/dsh-doctor
 dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/packages/dsh-doctor
 ```
 
+`--profile web` is DSHDesktop's shell profile; the official dsh desktop app uses `--profile desktop`
+(check `$DSH_HOME/profiles/`). The plugin panel needs no profile flag.
+
 Restart dsh afterwards — plugins have no HMR.
 
 ## What it does
