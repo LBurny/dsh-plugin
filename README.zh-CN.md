@@ -31,6 +31,9 @@ dsh plugin --profile web remove dsh-skills
 
 `--profile web` 是 DSHDesktop 壳的 profile，官方桌面版用 `--profile desktop`。面板「+ 安装」接受同一套规格，一次一条。
 
+**Windows 上钉 commit。** `dsh plugin` 走的是应用自带的 `dsh.cmd` 垫片，cmd.exe 会把 `#<sha>&path:/packages/…`
+里的 `&` 吃掉，pnpm 只拿到 `#<sha>` 就报参数非法。要么在应用的面板里钉（规格直给 pnpm），要么就装上面的分支规格。
+
 装完重启 dsh——插件没有 HMR。
 
 **pnpm 拉不到 github.com 时。** 它用自己的 TLS 栈、也不认系统代理，在拦过 TLS 的网络上会报 `TypeError: fetch failed`。给它一行 `$DSH_HOME/profiles/<profile>/.npmrc`，内容为 `https-proxy=http://127.0.0.1:7890` 与 `proxy=http://127.0.0.1:7890`；或者完全不联网：把包拷到 `$DSH_HOME/profiles/plugins/<包名>/`，再在面板里填绝对路径。

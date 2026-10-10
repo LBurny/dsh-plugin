@@ -34,6 +34,10 @@ dsh plugin --profile web remove dsh-skills
 
 `--profile web` is DSHDesktop's shell profile; the official desktop app uses `--profile desktop`. The plugin panel accepts the same specs, one at a time.
 
+**Pinning a commit on Windows.** `dsh plugin` there runs through the app's `dsh.cmd` shim, and cmd.exe
+eats the `&` in `#<sha>&path:/packages/…`, so pnpm is handed a bare `#<sha>` and refuses it. Pin from
+the app's plugin panel (the spec goes straight to pnpm) or install the branch spec above.
+
 Restart dsh afterwards — plugins have no HMR.
 
 **If pnpm cannot reach github.com.** It fetches with its own TLS stack and ignores the system proxy, so on a network that intercepts TLS it fails with `TypeError: fetch failed`. Give it a `$DSH_HOME/profiles/<profile>/.npmrc` containing `https-proxy=http://127.0.0.1:7890` and `proxy=http://127.0.0.1:7890`, or install with no network at all: copy a package into `$DSH_HOME/profiles/plugins/<name>/` and paste its absolute path into the panel.
