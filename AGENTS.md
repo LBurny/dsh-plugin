@@ -69,6 +69,13 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   container and the `--dsh-launcher-stack` custom property, plus the `.dsh-launch` button class whose
   styles are duplicated identically in every `client.css`. Panel styles are scoped under
   `#<package>-root` so six stylesheets cannot fight. Keep both properties when adding a package.
+- **A feature may need something neither app ships, and the reader must not be sent into a config
+  file.** cloudflared is the case that bit: tunnel mode spawns it, the shell bundles one beside its node,
+  the official desktop app bundles nothing, and it is usually not on PATH either. So `findCloudflared`
+  searches the setting, the running runtime's directory, `<dsh home>/../tunnel/`, every `PATH` entry and
+  the common Windows install locations, the panel names where it looked and takes a path, and the route
+  refuses a path with no file behind it. Keep the candidate list injectable (`cloudflaredCandidates`)
+  so the search is tested without a binary on the machine.
 - **A package's own routes must not collide with the remote proxy's project routes.** The proxy
   forwards a request to dsh unless it claims it, so anything under the proxy's project prefixes is
   invisible to the page. That is why the project browser lives under

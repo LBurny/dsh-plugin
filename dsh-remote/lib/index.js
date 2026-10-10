@@ -168,6 +168,13 @@ async function handleAction(state, body) {
 			const status = await state.remote.resetToken();
 			return { ok: true, remote: status };
 		}
+		case "cloudflared": {
+			// The tunnel needs a binary neither app ships; let the panel point at one
+			// instead of sending the reader into a YAML file.
+			const status = await state.remote.setCloudflaredPath(body.path);
+			state.log("cloudflared path updated");
+			return { ok: true, remote: status, cloudflared: state.remote.cloudflared() ?? null };
+		}
 		default:
 			throw new Error(`unknown remote action: ${JSON.stringify(body.action)}`);
 	}

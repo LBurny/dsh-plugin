@@ -32,7 +32,7 @@ Restart dsh afterwards — plugins have no HMR.
 | Channel | Reaches | Notes |
 | ------- | ------- | ----- |
 | LAN | nothing leaves your network | binds `0.0.0.0`; open `http://<lan-ip>:<port>/?token=…` on the phone; no extra binary |
-| Tunnel | the public internet | also spawns the `cloudflared` next to the dsh runtime (Cloudflare quick tunnel) |
+| Tunnel | the public internet | also spawns `cloudflared` (Cloudflare quick tunnel); see the caveat below about finding it |
 
 **Off by default** — the link is the only credential, and enabling publishes your harness to whoever
 holds it.
@@ -85,6 +85,12 @@ Cloudflare assigns a new hostname each time).
 
 ## Caveats
 
+- **Tunnel mode needs a cloudflared binary, and neither app ships one.** The search is, in order: the
+  `cloudflaredPath` setting, the directory holding the running runtime (`process.execPath`, which is
+  where the shell keeps its own copy), `<dsh home>/../tunnel/`, every `PATH` entry, then the winget shim
+  and the MSI install directory. On a machine with none of those the panel says where it looked and
+  takes a path (saved to `$DSH_HOME/dsh-remote.json`); `winget install Cloudflare.cloudflared` is the
+  one-line fix. LAN mode needs no binary at all.
 - **The tunnel does not survive dsh.** The desktop shell keeps cloudflared outside its Job Object; a
   plugin inside the process cannot, so the tunnel URL changes every restart. Reconnects back off
   500 ms → 30 s, then retry forever.

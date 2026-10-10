@@ -57,7 +57,13 @@
 		remoteLanUrls: ["Local network addresses", "局域网地址"],
 		copy: ["Copy", "复制"],
 		copied: ["Copied", "已复制"],
-		cloudflaredMissing: ["cloudflared was not found next to the dsh runtime, so tunnel mode cannot start. LAN mode still works.", "在 dsh 运行时旁没找到 cloudflared，隧道模式起不来；局域网模式仍可用。"],
+		cloudflaredMissing: ["Tunnel mode needs the cloudflared binary, and neither app ships one. It was not on PATH, next to the dsh runtime, nor in <dsh home>/../tunnel. Install it (winget install Cloudflare.cloudflared), or paste its path below. LAN mode needs nothing and still works.", "隧道模式需要 cloudflared 程序，两个应用都没自带。PATH、dsh 运行时旁、<dsh home>/../tunnel 都没找到。可先安装（winget install Cloudflare.cloudflared），或在下面填上它的路径。局域网模式什么都不需要，仍然可用。"],
+		binary: ["Tunnel binary", "隧道程序"],
+		binaryFound: ["cloudflared found", "已找到 cloudflared"],
+		binaryPath: ["Path to cloudflared", "cloudflared 路径"],
+		binaryPlaceholder: ["C:/path/to/cloudflared.exe", "C:/路径/cloudflared.exe"],
+		binarySave: ["Save path", "保存路径"],
+		binaryClear: ["Search automatically", "自动查找"],
 		hint: ["On the phone, the harness UI is rewritten for a narrow screen, and a Project tab appears for browsing the current workspace.", "手机上 harness 界面会按窄屏改写，并多出一个「项目」标签页，可浏览当前工作区。"]
 	};
 	const T = (key) => STRINGS[key][ZH ? 1 : 0];
@@ -205,6 +211,8 @@
 	let qrPath;
 	let qrAvailable = false;
 	let cloudflared;
+	/** The path the reader configured, if any (empty means "search automatically"). */
+	let cloudflaredPath;
 
 	/** Copy text to the clipboard, with a fallback for non-secure contexts. */
 	async function copy(text) {
@@ -242,6 +250,7 @@
 			qrPath = data.qrPath;
 			qrAvailable = data.qrAvailable === true;
 			cloudflared = data.cloudflared;
+			cloudflaredPath = data.remote?.cloudflaredPath;
 			body.replaceChildren(renderRemote());
 			pollWhileStarting();
 		} catch (error) {
@@ -291,7 +300,24 @@
 			// The hub's own header refreshes an embedded panel, so it hides this one.
 			inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })));
 
-		if (cloudflared === null && remote.mode === "tunnel") fragment.append(el("div", { class: "note", text: T("cloudflaredMissing") }));
+		// The tunnel binary is a prerequisite neither app supplies, so when it is missing
+		// the panel has to say where it looked and take a path — telling the reader to edit
+		// a settings file is what made this a dead end.
+		if (typeof cloudflared === "string") {
+			fragment.append(el("div", { class: "field" }, el("label", { text: T("binary") }),
+				el("div", { class: "row" },
+					el("div", { class: "row-main" },
+						el("div", { class: "row-name", text: T("binaryFound") }),
+						el("div", { class: "row-sub", text: cloudflared, title: cloudflared })),
+					el("div", { class: "row-actions" },
+						cloudflaredPath === "" ? undefined : el("button", { text: T("binaryClear"), onclick: () => void act({ action: "cloudflared", path: "" }) })))));
+		} else if (remote.mode === "tunnel") {
+			fragment.append(el("div", { class: "note", text: T("cloudflaredMissing") }));
+			const field = el("input", { type: "text", value: cloudflaredPath ?? "", placeholder: T("binaryPlaceholder") });
+			fragment.append(el("div", { class: "field" }, el("label", { text: T("binaryPath") }), field,
+				el("div", { class: "actions" },
+					el("button", { text: T("binarySave"), onclick: () => void act({ action: "cloudflared", path: field.value }) }))));
+		}
 
 		const link = remote.link ?? remote.lanUrls?.[0];
 		if (link !== undefined) {

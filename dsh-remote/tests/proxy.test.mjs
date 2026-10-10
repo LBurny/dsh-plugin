@@ -1,7 +1,8 @@
 /**
- * Unit checks for the remote proxy's enhancement pieces: the WebSocket frame
- * bridge (lib/wsbridge.js), the response transforms (lib/enhance.js), the
- * phone project backend (lib/project.js) and the QR token helpers.
+ * Unit checks for the remote proxy's pieces: the WebSocket frame bridge
+ * (lib/wsbridge.js), the response transforms (lib/enhance.js), the phone project
+ * backend (lib/project.js), the cloudflared search (lib/remote.js) and the QR token
+ * helpers.
  *
  * Run from a plugin location where dependencies resolve (the sandbox or the
  * deployed profile copy):
@@ -13,7 +14,7 @@ import { finished } from "node:stream/promises";
 import { gunzipSync } from "node:zlib";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { FrameSplitter, bridgeSockets } from "../lib/wsbridge.js";
 import {
 	clientAcceptsGzip,
@@ -26,6 +27,7 @@ import {
 	wantsHtmlDocument
 } from "../lib/enhance.js";
 import { contained, contentDisposition, handleProjectRoute, listDir, mimeFor, readProjectFile, resolveWorkspace } from "../lib/project.js";
+import { cloudflaredCandidates, findCloudflared } from "../lib/remote.js";
 
 const results = [];
 const check = (ok, label, detail = "") => results.push({ ok, label, detail });
@@ -353,6 +355,55 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	check(String(download.res.headers["content-disposition"]).startsWith("attachment;"), "download sets content-disposition");
 	const outside = await call("/dsh-remote/api/state");
 	check(outside.handled === false, "non-project paths fall through to the proxy");
+}
+
+/* ---------------------------------------------------- the tunnel binary search */
+
+// Tunnel mode dies without cloudflared, and **neither app ships one**: the shell puts it
+// beside its node, the official desktop app bundles nothing, and it is usually not on
+// PATH either. So the search has to reach the user's own install, or the feature is dead
+// on exactly the app that needs it. Paths are written with forward slashes on purpose:
+// `join` normalises them, so these literals need no escaping.
+{
+	const env = {
+		PATH: "C:/tools;C:/Users/me/scoop/shims",
+		LOCALAPPDATA: "C:/Users/me/AppData/Local",
+		ProgramFiles: "C:/Program Files"
+	};
+	const execPath = "F:/Code/dsh/resources/runtime/node.exe";
+	const home = "C:/Users/me/.dsh";
+	const bundled = join("F:/Code/dsh/resources/runtime", "cloudflared.exe");
+	const list = cloudflaredCandidates("", home, env, execPath, "win32");
+	check(list[0] === bundled, "the copy beside the runtime is searched first", list[0]);
+	check(list[1] === join("C:/Users/me", "tunnel", "cloudflared.exe"), "then the copy that outlives the shell", list[1]);
+	check(
+		list.includes(join("C:/tools", "cloudflared.exe")) && list.includes(join("C:/Users/me/scoop/shims", "cloudflared.exe")),
+		"every PATH entry is searched",
+		list.slice(2, 4).join(" | ")
+	);
+	check(
+		list.includes(join("C:/Users/me/AppData/Local", "Microsoft", "WinGet", "Links", "cloudflared.exe")) &&
+			list.includes(join("C:/Program Files", "cloudflared", "cloudflared.exe")),
+		"the winget shim and the MSI install directory are searched too",
+		""
+	);
+	check(
+		cloudflaredCandidates("D:/bins/cf.exe", home, env, execPath, "win32")[0] === "D:/bins/cf.exe",
+		"an explicit setting wins over every guess",
+		""
+	);
+	check(
+		cloudflaredCandidates("", home, { PATH: "" }, execPath, "linux").every((item) => !item.endsWith(".exe")),
+		"the binary name follows the platform",
+		""
+	);
+	// The first candidate that exists wins; a machine with none reads as "not found", which
+	// is what the panel then explains and offers to fix.
+	check(findCloudflared("", home, () => false) === undefined, "nothing found reads as not found", "");
+	// `findCloudflared` reads the real environment, so this asks about the one candidate a
+	// test can name without guessing: the shell's copy, which is second in the list.
+	const shellCopy = join(dirname(home), "tunnel", "cloudflared.exe");
+	check(findCloudflared("", home, (candidate) => candidate === shellCopy) === shellCopy, "the first candidate that exists is the one used", "");
 }
 
 /* -------------------------------------------------------------- reporting */

@@ -35,7 +35,7 @@ import { readFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { connect as netConnect } from "node:net";
 import { networkInterfaces } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { respond as respondEnhanced } from "./enhance.js";
 import { handleProjectRoute, PROJECT_API_PREFIX, PROJECT_PREFIX } from "./project.js";
@@ -138,20 +138,53 @@ export function lanAddresses() {
 }
 
 /**
- * Locate the cloudflared binary the installer ships next to the bundled node.
+ * Where a cloudflared binary may live, most specific first. Neither app ships one:
+ * the shell bundles it beside its node, and the official desktop app bundles nothing
+ * at all, so on that app the answer is the user's own install — which is why the
+ * locations below matter more than the two bundled ones.
  * @param override - explicit path from settings, if any.
  * @param dshHome - active DSH home, used to find the shell's persistent copy.
- * @returns the first candidate that exists.
+ * @param env - environment to read (PATH, LOCALAPPDATA, ProgramFiles).
+ * @param execPath - the runtime's node.exe (or the host binary) to look beside.
+ * @param platform - `process.platform`.
+ * @returns candidates in priority order; the caller takes the first that exists.
  */
-export function findCloudflared(override, dshHome) {
-	const name = process.platform === "win32" ? "cloudflared.exe" : "cloudflared";
+export function cloudflaredCandidates(override, dshHome, env = process.env, execPath = process.execPath, platform = process.platform) {
+	const name = platform === "win32" ? "cloudflared.exe" : "cloudflared";
 	const candidates = [];
 	if (typeof override === "string" && override.length > 0) candidates.push(override);
 	// `process.execPath` is the runtime's node.exe under both the shell and the installer.
-	candidates.push(join(dirname(process.execPath), name));
+	candidates.push(join(dirname(execPath), name));
 	// The shell keeps a copy outside its install dir so a tunnel outlives the app.
-	if (typeof dshHome === "string") candidates.push(join(dirname(dshHome), "tunnel", name));
-	return candidates.find((candidate) => existsSync(candidate));
+	if (typeof dshHome === "string" && dshHome.length > 0) candidates.push(join(dirname(dshHome), "tunnel", name));
+	// `cloudflared` installed by hand is on PATH, which is the only place a user can
+	// reasonably be expected to have put it.
+	for (const dir of String(env.PATH ?? "").split(delimiter)) {
+		if (dir.length > 0) candidates.push(join(dir, name));
+	}
+	if (platform === "win32") {
+		// The winget shim directory and the MSI's install directory; both are real
+		// answers on a machine that has cloudflared but never had either app's copy.
+		if (typeof env.LOCALAPPDATA === "string" && env.LOCALAPPDATA.length > 0) {
+			candidates.push(join(env.LOCALAPPDATA, "Microsoft", "WinGet", "Links", name));
+		}
+		for (const root of [env.ProgramFiles, env["ProgramFiles(x86)"]]) {
+			if (typeof root === "string" && root.length > 0) candidates.push(join(root, "cloudflared", name));
+		}
+	}
+	return candidates;
+}
+
+/**
+ * Locate the cloudflared binary, preferring the explicit setting and then the places
+ * it is actually installed.
+ * @param override - explicit path from settings, if any.
+ * @param dshHome - active DSH home, used to find the shell's persistent copy.
+ * @param exists - existence probe, injectable for tests.
+ * @returns the first candidate that exists.
+ */
+export function findCloudflared(override, dshHome, exists = existsSync) {
+	return cloudflaredCandidates(override, dshHome).find((candidate) => exists(candidate));
 }
 
 /**
@@ -328,8 +361,11 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		lanUrls: lanUrls(),
 		tunnel: tunnel?.status(),
 		// null rather than undefined so the field always survives JSON and the panel
-		// can tell "not found" from "not reported".
+		// can tell "not found" from "not reported". The configured path rides along so
+		// the panel can show what is set, or let the reader set it.
 		cloudflared: findCloudflared(settings().cloudflaredPath, layout().dshHome) ?? null,
+		cloudflaredPath: settings().cloudflaredPath,
+		cloudflaredSearched: cloudflaredCandidates(settings().cloudflaredPath, layout().dshHome).length,
 		error
 	});
 
@@ -606,7 +642,9 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 			const exe = findCloudflared(current.cloudflaredPath, layout().dshHome);
 			if (exe === undefined) {
 				state = "error";
-				error = "cloudflared binary not found — set remote.cloudflaredPath, or switch to LAN mode";
+				// The panel explains where it looked and takes a path; this string is the
+				// short form for the status row, and carries no em dash.
+				error = "cloudflared binary not found";
 				log(error);
 				publish();
 			} else {
@@ -677,6 +715,18 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 			return snapshot();
 		},
 		refresh: refreshAuthCookie,
+		/**
+		 * Point the tunnel at a specific binary. A path that does not exist is refused
+		 * (the caller reports it) instead of being saved and silently ignored later.
+		 * @param path - absolute path, or an empty string to go back to auto-discovery.
+		 */
+		async setCloudflaredPath(path) {
+			const next = typeof path === "string" ? path.trim() : "";
+			if (next !== "" && !existsSync(next)) throw new Error(`no file at ${next}`);
+			await persist({ cloudflaredPath: next });
+			log(next === "" ? "cloudflared path cleared" : `cloudflared path set to ${next}`);
+			return snapshot();
+		},
 		cloudflared: () => findCloudflared(settings().cloudflaredPath, layout().dshHome)
 	};
 }

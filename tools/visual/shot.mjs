@@ -18,6 +18,7 @@
  *   --titlebar <on|off|keep>  toggles html[data-windows-titlebar] (default keep)
  *   --theme <dark|light|keep>  toggles body[data-ds-dark-theme] (default keep)
  *   --panel <pkg>      renders that package's panel inside a copy of the hub page
+ *   --fixture <file>   the route payloads for --panel (default fixtures/<pkg>.json)
  *   --click <text>     click the element whose trimmed text equals it, before shooting
  *   --eval <js>        run raw JS after the size/zoom/attribute step
  *   --css <file>       inject a stylesheet (repeatable) to preview a fix live
@@ -74,6 +75,7 @@ const settle = Number(arg("settle", 500));
 const browserPort = Number(arg("port", 9400));
 const name = String(arg("name", "shot"));
 const panelName = arg("panel", null);
+const fixturePath = arg("fixture", null);
 const quiet = flag("json");
 
 /* -------------------------------------------------------------- the browser */
@@ -191,7 +193,9 @@ for (const file of cssFiles) {
 let injected = evalScript;
 if (typeof panelName === "string") {
 	const dir = resolve(here, "..", "..", String(panelName));
-	const fixtures = JSON.parse(readFileSync(join(here, "fixtures", `${String(panelName)}.json`), "utf8"));
+	const fixtures = JSON.parse(
+		readFileSync(typeof fixturePath === "string" ? resolve(String(fixturePath)) : join(here, "fixtures", `${String(panelName)}.json`), "utf8")
+	);
 	const hubSource = readFileSync(join(here, "..", "..", "dsh-features", "lib", "client.js"), "utf8");
 	const skinAt = hubSource.indexOf("const SKIN = `");
 	const hubSkin = hubSource.slice(skinAt + "const SKIN = `".length, hubSource.indexOf("`;", skinAt));

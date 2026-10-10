@@ -1,9 +1,17 @@
 {
  "/dsh-remote/api/remote": {
   "ok": true,
-  "remote": { "enabled": false, "mode": "lan", "state": "off" },
-  "cloudflared": null,
-  "qrAvailable": false
+  "remote": {
+   "state": "error", "enabled": true, "mode": "tunnel",
+   "link": "http://172.17.153.146:29274/?token=<token>",
+   "proxyPort": 29274,
+   "lanUrls": ["http://172.17.153.146:29274/?token=<token>"],
+   "cloudflaredPath": "",
+   "error": "cloudflared binary not found"
+  },
+  "qrAvailable": false,
+  "qrPath": "/dsh-remote/api/qr.svg",
+  "cloudflared": null
  },
  "default": { "ok": true }
 }
