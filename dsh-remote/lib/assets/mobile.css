@@ -7,6 +7,14 @@
  * 不影响匹配）。上游若改名，对应规则静默失效：页面回到未适配状态，不破坏功能。
  */
 
+/*
+ * 预览版说明（mobile.js 打标）：远程浏览器拿不到持久化的「已读」，上游每次加载都会再弹，
+ * 移动增强层点掉它的「继续」并打上本标记，这里立刻隐藏，免得手机先闪一下大字说明。
+ */
+[data-dshmobile-notice] {
+  display: none !important;
+}
+
 /* mobile.js 注入的信息标签/面板：仅 ≤700px 生效，宽屏（含窗口拉窄后又放大）隐藏 */
 [data-dshmobile-tab],
 [data-dshmobile-info] {
@@ -531,5 +539,37 @@
     font-size: 13px;
     line-height: 1.6;
     color: var(--dsw-alias-label-tertiary);
+  }
+
+  /*
+   * 设置弹窗（手机端实测截图："上面被挡住了"）。面板是 fixed inset:0：
+   *   panel(overflow:hidden) > nav(46px 标签条, 顶部仅 10px) > content
+   *     > header(54px: 打开配置文件 / 关闭 ✕) > options(内容滚动区)
+   * 两条隐患：①导航条紧贴视口最顶，刘海/状态栏/工具栏会压住第一行；②nav 与
+   * header 都是流内块，任何高度异常（iOS 工具栏收展改变固定层可见区）都可能
+   * 让标签条盖住标题行。这里把面板列化——标签条与标题行各占一行、内容区
+   * 自己滚（options 本就是滚动容器），并给标签条留出安全区，两行永不相叠。
+   */
+  [class*="_overlay"] [class*="_panel"] {
+    display: flex;
+    flex-direction: column;
+  }
+  [class*="_overlay"] [class*="_nav"] {
+    flex: none;
+    padding-top: max(10px, env(safe-area-inset-top, 0px));
+  }
+  [class*="_overlay"] [class*="_content"] {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  [class*="_overlay"] [class*="_content"] > [class*="_header"] {
+    flex: none;
+  }
+  [class*="_overlay"] [class*="_content"] > [class*="_options"] {
+    flex: 1;
+    min-height: 0;
+    overscroll-behavior: contain;
   }
 }

@@ -12,7 +12,7 @@
  * Run from the repository root or the package directory:
  *   node test/hub.test.mjs
  */
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -21,6 +21,7 @@ import vm from "node:vm";
 
 import { readInventory } from "../lib/inventory.js";
 import { resolveLayout } from "../lib/layout.js";
+import { loadNavOrder, normalizeOrder, saveNavOrder } from "../lib/order.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const results = [];
@@ -128,7 +129,7 @@ function bootHost({ withConfigEditor = true } = {}) {
 }
 
 /** Call a captured prefix route with a fake request/response pair. */
-async function call(route, path, method = "GET") {
+async function call(route, path, method = "GET", body) {
 	const answer = { status: 0, body: "" };
 	const res = {
 		headersSent: false,
@@ -140,7 +141,10 @@ async function call(route, path, method = "GET") {
 			answer.body = body ?? "";
 		}
 	};
-	await route.handler({ method, url: path }, res);
+	// A body, when there is one, is read the way a request stream is (async iterable).
+	const req = { method, url: path };
+	if (body !== undefined) req[Symbol.asyncIterator] = async function* () { yield Buffer.from(body, "utf8"); };
+	await route.handler(req, res);
 	return { ...answer, json: answer.body === "" ? undefined : JSON.parse(answer.body) };
 }
 
@@ -158,6 +162,23 @@ check(features.json.source === join(root, "profiles", "plugins"), "the inventory
 const missing = await call(route, "/dsh-features/nope");
 check(missing.status === 404 && missing.json.ok === false, "an unknown path is a JSON 404", JSON.stringify(missing.json));
 check((await call(route, "/dsh-features/api/status", "POST")).status === 404, "a wrong method does not answer the route");
+
+// The reader's order is shared: the phone reaches the same dsh from another origin, so it
+// cannot live in one browser's storage. It is saved under DSH_HOME and served with the
+// inventory, in one round trip.
+const orderFile = join(root, "dsh-features.json");
+const posted = await call(route, "/dsh-features/api/order", "POST", JSON.stringify({ keys: ["mcp", "skills"] }));
+check(posted.status === 200 && posted.json.navOrder.join(",") === "mcp,skills", "the order route saves the arrangement it is given", JSON.stringify(posted.json));
+check(JSON.parse(await readFile(orderFile, "utf8")).navOrder.join(",") === "mcp,skills", "the order lands in the hub's own file under DSH_HOME", orderFile.replace(root, "<root>"));
+const served = await call(route, "/dsh-features/api/features");
+check(served.json.navOrder.join(",") === "mcp,skills", "the inventory serves the saved order, so a second browser agrees", JSON.stringify(served.json.navOrder));
+const junk = await call(route, "/dsh-features/api/order", "POST", JSON.stringify({ keys: ["mcp", 5, "", "mcp", "x".repeat(200)] }));
+check(junk.json.navOrder.join(",") === "mcp", "junk in the order is dropped entry by entry, not stored", JSON.stringify(junk.json.navOrder));
+check((await call(route, "/dsh-features/api/order", "POST", "not json")).status === 400, "a malformed body is a 400", "");
+check(normalizeOrder(undefined).length === 0, "an absent order normalizes to empty", "");
+check(loadNavOrder(join(root, "no-such-file.json")) instanceof Promise, "a missing file reads as no saved order", "");
+check((await loadNavOrder(join(root, "no-such-file.json"))).length === 0, "a missing file reads as no saved order", "");
+await saveNavOrder(join(root, "nested", "deep.json"), ["a"]).then(() => { throw new Error("should have failed"); }).catch(() => check(true, "an unwritable path rejects rather than reporting success", ""));
 
 const degraded = await call(bootHost({ withConfigEditor: false }).registered[0], "/dsh-features/api/features");
 check(degraded.status === 200 && degraded.json.features.length === 0, "without a config-editor service the inventory degrades instead of failing", JSON.stringify(degraded.json));
@@ -360,22 +381,31 @@ function findAll(element, predicate, found = []) {
 	return found;
 }
 
+/** Every request the page made, so "it saved it" is observed and not assumed. */
+const requests = [];
 const browser = createBrowser({
 	registry: {
 		doctor: { title: "诊断", order: 30, icon: "M-doctor", mount: (host) => browser.mounted.push({ key: "doctor", host }) },
 		mcp: { title: "MCP", order: 20, icon: "M-mcp", mount: (host) => browser.mounted.push({ key: "mcp", host }) }
 	},
-	fetchImpl: async () => ({
+	fetchImpl: async (url, init) => {
+		requests.push({ url: String(url), init });
+		return {
 		json: async () => ({
 			ok: true,
 			features: [
 				{ key: "doctor", order: 30, package: "dsh-doctor", title: { zh: "诊断", en: "Doctor" } },
 				{ key: "mcp", order: 20, package: "dsh-mcp", title: { zh: "MCP", en: "MCP" } },
 				{ key: "skills", order: 10, package: "dsh-skills", title: { zh: "技能", en: "Skills" }, summary: { zh: "管理技能", en: "Managed skills" } }
-			]
+			],
+			// The order the host holds. Same as the default here, so the drag assertions
+			// below stay about dragging; the adoption path has its own browser further down.
+			navOrder: ["skills", "mcp", "doctor"]
 		})
-	})
+		};
+	}
 });
+browser.requests = requests;
 browser.mounted = [];
 
 check(browser.registrations.length === 1, "the bundle registers itself exactly once", String(browser.registrations.length));
@@ -481,7 +511,14 @@ element = await browser.render(main.component, { t: T });
 check(rowNames() === "MCP,技能,诊断", "dropping moves the row in front of its target", rowNames());
 check(stage().props["data-view"] === "list", "reordering stays in the list view", String(stage().props["data-view"]));
 const saved = JSON.parse(browser.storage.dump()["dsh-features:nav-order"] ?? "[]");
-check(saved.join(",") === "mcp,skills,doctor", "the dragged order lands in localStorage", saved.join(","));
+check(saved.join(",") === "mcp,skills,doctor", "the dragged order lands in localStorage as the first-frame cache", saved.join(","));
+await new Promise((resolve) => setTimeout(resolve, 400));
+const reported = browser.requests.filter((item) => item.url.endsWith("/dsh-features/api/order"));
+check(
+	reported.length > 0 && JSON.parse(reported[reported.length - 1].init.body).keys.join(",") === "mcp,skills,doctor",
+	"the dragged order is reported to the host, so the phone sees it too",
+	reported.length === 0 ? "(no POST)" : reported[reported.length - 1].init.body
+);
 
 // The end pad accepts move-to-last.
 rows()[0].props.onDragStart(dragEvent);
@@ -491,6 +528,63 @@ check(endPad().props["data-drop"] === "true", "the end pad marks itself as the d
 endPad().props.onDrop({ preventDefault() {} });
 element = await browser.render(main.component, { t: T });
 check(rowNames() === "技能,诊断,MCP", "dropping on the end pad moves the row last", rowNames());
+
+/* ------------------------------------------------- the shared order, cross-origin */
+
+/**
+ * The phone reaches the same dsh from another origin, so an order kept in this browser's
+ * storage never reaches it. The host's answer is what the list follows, wherever it is
+ * opened; the local cache is only the first frame.
+ */
+function orderBrowser(served, cached) {
+	const instance = createBrowser({
+		registry: {
+			doctor: { title: "诊断", order: 30, mount: () => {} },
+			mcp: { title: "MCP", order: 20, mount: () => {} },
+			skills: { title: "技能", order: 10, mount: () => {} }
+		},
+		fetchImpl: async () => ({
+			json: async () => ({
+				ok: true,
+				navOrder: served,
+				features: [
+					{ key: "doctor", order: 30, package: "dsh-doctor" },
+					{ key: "mcp", order: 20, package: "dsh-mcp" },
+					{ key: "skills", order: 10, package: "dsh-skills" }
+				]
+			})
+		})
+	});
+	// Through setItem, not the dump(): dump() is a copy, so writing into it would vanish.
+	if (cached !== undefined) instance.storage.setItem("dsh-features:nav-order", JSON.stringify(cached));
+	return instance;
+}
+
+const servedBrowser = orderBrowser(["doctor", "mcp", "skills"]);
+const servedWired = servedBrowser.wire(servedBrowser.reg = servedBrowser.registrations[0]);
+const servedMain = servedWired.slots.find((item) => item.slot === "main");
+let servedElement = await servedBrowser.render(servedMain.component, { t: T });
+const servedNames = () => findAll(servedElement, (node) => node.props?.className === "hub-row")
+	.map((row) => row.props.children[1].props.children[0].props.children.join(""))
+	.join(",");
+check(servedNames() === "诊断,MCP,技能", "the list follows the order the host serves, not the default", servedNames());
+check(
+	servedBrowser.storage.dump()["dsh-features:nav-order"] === JSON.stringify(["doctor", "mcp", "skills"]),
+	"that order is cached for the next first frame",
+	String(servedBrowser.storage.dump()["dsh-features:nav-order"])
+);
+
+// Nothing saved on the host yet: the local arrangement is pushed up rather than discarded.
+const seedRequests = [];
+const seedBrowser = orderBrowser([], ["mcp", "skills", "doctor"]);
+const seedWired = seedBrowser.wire(seedBrowser.registrations[0]);
+const seedMain = seedWired.slots.find((item) => item.slot === "main");
+await seedBrowser.render(seedMain.component, { t: T });
+check(
+	seedBrowser.storage.dump()["dsh-features:nav-order"] === JSON.stringify(["mcp", "skills", "doctor"]),
+	"an order saved in this browser before the host had one is kept, not reset",
+	String(seedBrowser.storage.dump()["dsh-features:nav-order"])
+);
 
 /* ------------------------------------------------ the embedded refresh sweep */
 

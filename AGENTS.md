@@ -69,6 +69,20 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   container and the `--dsh-launcher-stack` custom property, plus the `.dsh-launch` button class whose
   styles are duplicated identically in every `client.css`. Panel styles are scoped under
   `#<package>-root` so six stylesheets cannot fight. Keep both properties when adding a package.
+- **Anything the reader arranges belongs on the host, not in browser storage.** The hub's feature order
+  lived in `localStorage`, which is per-origin: the desktop shell opens dsh at `127.0.0.1:<port>` while the
+  phone reaches the same dsh through the proxy at the tunnel's origin, so a drag on the desktop never
+  reached the phone. It is written to `<DSH_HOME>/dsh-features.json` behind `POST /dsh-features/api/order`
+  and served with the inventory (one round trip), with `localStorage` kept only as the first-frame cache:
+  the host answers and the page reconciles. Anything of that shape has the same trap, dsh's own client
+  store included.
+- **The phone gets a rewritten page, so its fixes live in the proxy's layer, never in dsh.** Two rules are
+  there because upstream will not change: the preview notice is re-shown on every remote load (upstream
+  keeps its acknowledgement in a memory-mode settings scope for remote transports, so it never persists —
+  `mobile.js` clicks its Continue control and hides its portal), and the settings sheet's tab strip sits
+  flush against the viewport top (made a flex column with a safe-area inset, so the tabs can never cover
+  the close row). `mobile.js` is injected before `</head>`, which is why it can catch a modal before the
+  first paint.
 - **A feature may need something neither app ships, and the reader must not be sent into a config
   file.** cloudflared is the case that bit: tunnel mode spawns it, the shell bundles one beside its node,
   the official desktop app bundles nothing, and it is usually not on PATH either. So `findCloudflared`
@@ -201,6 +215,19 @@ For a panel there is nothing to install either: `--panel dsh-skills` (any packag
 refresh, and a `hub-stage[data-view="feature"]` for the panel to mount into — with its routes answered
 from `tools/visual/fixtures/<pkg>.json` and `--theme dark|light`. That is how to see a list's look, its
 gutter against the head's controls, and whether every row is the same height, before touching an install.
+
+The phone is not a separate app — the proxy rewrites dsh's own page — so it is reproduced by shooting the
+sandbox at a phone viewport with that layer injected:
+
+```bash
+node tools/visual/shot.mjs --url "$URL" --sizes 390x844 --css dsh-remote/lib/assets/mobile.css      --script dsh-remote/lib/assets/mobile.js --theme dark      --eval "document.querySelector('[class*=\"_settingsArea\"] button').click()"      --ask "(() => { const nav = document.querySelector('[class*=\"_nav\"]'); return nav.getBoundingClientRect().toJSON(); })()"
+```
+
+`--ask` runs after `--eval`/`--click` and prints JSON, which is how a rule gets written against the real DOM
+instead of a guess; a browser or computer MCP driver works the same way when interactive poking is genuinely
+cheaper, but this scripted loop is repeatable and leaves the numbers behind. What it cannot show is iOS's own
+viewport behaviour (the toolbar collapsing moves the visual viewport): say so instead of claiming a phone-side
+fix is verified.
 
 Two numbers decide most zoom work, and both are easy to misread: `getBoundingClientRect` reports
 **viewport** px while `scrollHeight`/`clientHeight` report **layout** px (at zoom 2 a 50 px row reports

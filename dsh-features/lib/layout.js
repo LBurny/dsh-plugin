@@ -30,6 +30,12 @@ export function resolveLayout(configEditor) {
 		 * installed with `dsh plugin add` lands in the profile's own `node_modules`
 		 * instead, which is why the inventory reads both.
 		 */
-		pluginsDir: join(profilesDir, "plugins")
+		pluginsDir: join(profilesDir, "plugins"),
+		/**
+		 * The hub's own data file. In DSH_HOME, not in the profile, because the
+		 * reader's feature order is theirs, not the profile's — and because the phone
+		 * reaches the same dsh through the proxy and must see the same order.
+		 */
+		orderPath: join(dirname(profilesDir), "dsh-features.json")
 	};
 }

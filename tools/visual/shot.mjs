@@ -22,6 +22,10 @@
  *   --click <text>     click the element whose trimmed text equals it, before shooting
  *   --eval <js>        run raw JS after the size/zoom/attribute step
  *   --css <file>       inject a stylesheet (repeatable) to preview a fix live
+ *   --script <file>    evaluate a script file in the page (repeatable): the proxy's own
+ *                      mobile layer, which on a real phone comes from dsh-remote
+ *   --ask <js>         evaluate an expression and print its JSON value (repeatable): the
+ *                      reconnaissance half of the loop, before writing any rule
  *   --settle <ms>      wait after each change (default 500)
  *   --port <n>         CDP port for the browser it launches (default 9400)
  *   --keep             leave the browser running
@@ -71,6 +75,8 @@ const theme = String(arg("theme", "keep"));
 const clickText = arg("click", null);
 const evalScript = arg("eval", null);
 const cssFiles = all("css").map(String);
+const scriptFiles = all("script").map(String);
+const asks = all("ask").map(String);
 const settle = Number(arg("settle", 500));
 const browserPort = Number(arg("port", 9400));
 const name = String(arg("name", "shot"));
@@ -172,6 +178,15 @@ if (titlebar === "on" || titlebar === "off") {
 	);
 }
 if (theme === "dark") await evaluate('document.body.setAttribute("data-ds-dark-theme","")');
+// The proxy's enhancement layer needs the early slot a real phone gives it, so it is added as
+// an inline script element rather than run through Runtime.evaluate.
+for (const file of scriptFiles) {
+	await evaluate(`(() => {
+		const tag = document.createElement("script");
+		tag.textContent = ${JSON.stringify(readFileSync(String(file), "utf8"))};
+		document.head.append(tag);
+	})()`);
+}
 if (theme === "light") await evaluate('document.body.removeAttribute("data-ds-dark-theme")');
 for (const file of cssFiles) {
 	await evaluate(
@@ -383,14 +398,28 @@ for (const [width, height] of sizes) {
 		await sleep(settle);
 		if (typeof clickText === "string") await clickByText(clickText);
 		if (typeof injected === "string") await evaluate(injected);
-		if (typeof clickText === "string" || typeof injected === "string") await sleep(300);
+		if (typeof clickText === "string" || typeof injected === "string" || asks.length > 0) {
+			await sleep(typeof asks.length === "number" && asks.length > 0 ? Math.max(300, settle) : 300);
+		}
+
 
 		const shot = await send("Page.captureScreenshot", { format: "png" });
 		const label = `${name}-z${zoom}-${width}x${height}${typeof clickText === "string" ? "-click" : ""}`;
 		const file = join(outDir, `${label}.png`);
 		writeFileSync(file, Buffer.from(shot.data, "base64"));
 		const state = JSON.parse(await evaluate(REPORT));
-		report.push({ label, file, ...state });
+		// `--ask` runs here, not earlier: what it is asked about is usually the state that
+		// --click/--eval just created.
+		const answers = [];
+		for (const expression of asks) {
+			try {
+				answers.push({ ask: expression, value: await evaluate(expression) });
+			} catch (error) {
+				answers.push({ ask: expression, error: String(error?.message ?? error) });
+			}
+		}
+		if (answers.length > 0) console.log(JSON.stringify(answers, null, 1));
+		report.push({ label, file, ...state, answers });
 		if (!quiet) {
 			// The same arithmetic the plugin ships: slack * height / requirement.
 			const ceiling = state.sidebarRequired

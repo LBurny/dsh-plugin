@@ -49,9 +49,10 @@ no flag. Restart dsh afterwards — plugins have no HMR.
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
 | GET | `/dsh-features/api/status` | `{ ok, hub, route, version }` — the probe feature panels use |
-| GET | `/dsh-features/api/features` | the inventory: packages *this profile declares* (its `dependencies` / `dsh.profile.bundles`) that declare `dsh.ui.feature` |
+| GET | `/dsh-features/api/features` | the inventory: packages *this profile declares* (its `dependencies` / `dsh.profile.bundles`) that declare `dsh.ui.feature`, plus `navOrder` |
+| POST | `/dsh-features/api/order` | save the reader's feature order: `{ keys: [...] }`, answered with the stored order |
 
-Both are read-only, credential-free, and same-origin with the page.
+Read-only except the order, credential-free, and same-origin with the page.
 
 ## The two contracts
 
@@ -90,7 +91,11 @@ built exactly as before. Uninstalling this package therefore restores the button
 
 ## Data
 
-Nothing. This plugin reads `package.json` manifests to build the inventory and writes no files.
+`<DSH_HOME>/dsh-features.json` — the reader's feature order, written atomically through
+`@deepseek-ai/dsh-atomic-write`. It is on the host rather than in the browser because browser storage is
+per-origin and the phone reaches the same dsh from the proxy's origin: kept in `localStorage` (where it
+used to live) a desktop reorder never reached the phone. The page still caches it locally, which is what
+gives the first frame the right order; the host's answer is what it reconciles against.
 
 ## Caveats
 

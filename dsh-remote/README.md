@@ -83,6 +83,24 @@ never logged. Disabling revokes the cookie, and *Reset link* invalidates every l
 Token and port persist, so **a saved LAN link survives a dsh restart** (a tunnel URL cannot —
 Cloudflare assigns a new hostname each time).
 
+## The phone's page
+
+The proxy rewrites dsh's HTML: it injects `assets/mobile.css` + `assets/mobile.js` before `</head>`, which
+is where the phone-only fixes live — the project browser tab, the attachment button, the viewport reset,
+and two compensations for upstream behaviour that will not change:
+
+- **The preview notice is re-shown on every remote load.** Upstream stores its acknowledgement in a
+  settings scope whose persistence follows the transport, and for a remote browser that scope is
+  memory-mode ("the acknowledgement stays process-local here"), so it never persists. `mobile.js` clicks
+  its Continue control as soon as the modal appears and marks its portal, which `mobile.css` hides — the
+  click matters as much as the hide, because the modal holds `#root` inert while it is up.
+- **The settings sheet's tab strip sits flush against the viewport top**, where a phone's status bar or
+  browser chrome can cover it. The sheet is made a flex column with a safe-area inset on the tabs, so the
+  tabs and the close row can never overlap.
+
+Both match on the exact wording of the notice and on `[class*="_…"]` local-name substrings, so an upstream
+rename degrades to "the phone looks like it did before" rather than breaking the page.
+
 ## Caveats
 
 - **Tunnel mode needs a cloudflared binary, and neither app ships one.** The search is, in order: the

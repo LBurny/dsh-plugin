@@ -18,7 +18,8 @@
  *                           `icon` is a 16×16 stroke SVG path for the list row.
  *                           The hub mounts the opened feature by calling `mount`
  *                           with a plain div it owns; the reader's own drag order
- *                           lives in localStorage, not in here.
+ *                           is served by the host half and cached in localStorage: the
+ *                           phone is a different origin, so it cannot live there.
  *   `#dsh-launchers`        hidden while this plugin is installed: one page
  *                           listing every feature replaces the corner buttons.
  *
@@ -372,14 +373,15 @@ window.__ModuleLoader__.load({
 		/* ------------------------------------------------------------ nav order */
 
 		/**
-		 * Where the reader's own feature order lives. dsh itself keeps UI preferences
-		 * in browser storage (its client store persists per origin), so the hub does
-		 * the same; the desktop shell keeps the dsh port stable across restarts,
-		 * which is what makes the order survive them.
+		 * The reader's own feature order. It is *served by the host* and only cached
+		 * here: browser storage is per-origin, and the phone reaches the same dsh
+		 * through the proxy at a different origin, so an order kept in `localStorage`
+		 * never left the desktop. The cache still matters — it is what paints the right
+		 * order on the first frame, before the inventory round trip answers.
 		 */
 		const ORDER_KEY = "dsh-features:nav-order";
 
-		/** The saved feature-key order; junk in storage degrades to no saved order. */
+		/** The cached order; junk in storage degrades to no saved order. */
 		function readNavOrder() {
 			try {
 				const parsed = JSON.parse(globalThis.localStorage?.getItem(ORDER_KEY) ?? "[]");
@@ -389,14 +391,35 @@ window.__ModuleLoader__.load({
 			}
 		}
 
-		/** Persist the order; denied storage (private mode) costs the sort, nothing else. */
+		/** Cache the order; denied storage (private mode) costs the first frame's sort only. */
 		function writeNavOrder(keys) {
 			try {
 				globalThis.localStorage?.setItem(ORDER_KEY, JSON.stringify(keys));
 			} catch {
-				/* the page still sorts by the default order */
+				/* the next inventory round trip still sorts the list */
 			}
 		}
+
+		/** Collapse a burst of drags into one write. */
+		function debounce(fn, delay) {
+			let timer;
+			return (...args) => {
+				clearTimeout(timer);
+				timer = setTimeout(() => fn(...args), delay);
+			};
+		}
+
+		/** Hand the order to the host, so every browser that reaches this dsh agrees. */
+		const saveNavOrder = debounce((keys) => {
+			void fetch(`${API}/order`, {
+				method: "POST",
+				credentials: "same-origin",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ keys })
+			}).catch(() => {
+				/* the local cache still holds it; the next reorder tries again */
+			});
+		}, 300);
 
 		/**
 		 * Lay the merged features out: keys the reader dragged into place keep that
@@ -525,13 +548,19 @@ window.__ModuleLoader__.load({
 				let live = true;
 				const scan = async () => {
 					let inventory = [];
+					let navOrder;
 					try {
 						const answer = await fetch(`${API}/features`, { credentials: "same-origin" }).then((response) => response.json());
-						if (answer?.ok === true) inventory = answer.features;
+						if (answer?.ok === true) {
+							inventory = answer.features;
+							// The reader's order comes from the host, so the phone (another
+							// origin) shows the arrangement the desktop set.
+							navOrder = answer.navOrder;
+						}
 					} catch {
 						/* the page works from the registry alone */
 					}
-					if (live) setSnapshot({ loading: false, features: mergeFeatures(globalThis.__dshFeatures, inventory) });
+					if (live) setSnapshot({ loading: false, features: mergeFeatures(globalThis.__dshFeatures, inventory), navOrder });
 				};
 				void scan();
 				// A feature's browser half lands after the shell boots; one late rescan
@@ -562,6 +591,20 @@ window.__ModuleLoader__.load({
 		function FeaturesPage({ t }) {
 			const [snapshot, reload] = useFeatures();
 			const [navOrder, setNavOrder] = React.useState(readNavOrder);
+			// The host answers with the order it holds. An empty answer means "nothing saved
+			// yet", not "reset it": the first reorder in either browser is what seeds it, so
+			// an existing local cache is pushed up rather than thrown away.
+			React.useEffect(() => {
+				const served = snapshot.navOrder;
+				if (!Array.isArray(served)) return;
+				if (served.length === 0) {
+					if (readNavOrder().length > 0) saveNavOrder(readNavOrder());
+					return;
+				}
+				if (served.join(" ") === navOrder.join(" ")) return;
+				writeNavOrder(served);
+				setNavOrder(served);
+			}, [snapshot.navOrder]);
 			const [active, setActive] = React.useState(undefined);
 			const [dropKey, setDropKey] = React.useState(undefined);
 			const dragKey = React.useRef(undefined);
@@ -612,13 +655,14 @@ window.__ModuleLoader__.load({
 				if (to === -1) return;
 				keys.splice(to, 0, fromKey);
 				writeNavOrder(keys);
+				saveNavOrder(keys);
 				setNavOrder(keys);
 			};
 
 			/**
 			 * HTML5 drag-and-drop on a row (or, with no key, on the end pad that accepts
-			 * "move to last"). Touch clients get no drag, so the phone view keeps the
-			 * default order.
+			 * "move to last"). Touch clients get no drag, so the phone cannot reorder —
+			 * but it now *shows* the order the desktop set, because the host holds it.
 			 */
 			const dragHandlers = (key) => ({
 				draggable: key === undefined ? undefined : true,

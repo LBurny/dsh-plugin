@@ -470,3 +470,48 @@
     /* 静默：增强失败不影响页面 */
   }
 })()
+
+/**
+ * 预览版说明：手机端每次打开都要重新点一次「继续」。
+ *
+ * 上游把这条提示的「已读」记在 settings 作用域里，而作用域的持久性是**按传输方式**决定的：
+ * 回环浏览器读的是宿主持久段，经代理/隧道的远程浏览器拿到的是 memory 模式作用域——上游
+ * 源码原话「the acknowledgement stays process-local here」。于是远程侧确认结果永不落盘，
+ * 每次加载都重新弹。这是上游的设计，只能在移动增强层里屏蔽。
+ *
+ * 做法：模态一出现就点掉它的「继续」。必须点、不能只隐藏——模态在显示期间给 #root 设了
+ * inert，只隐藏会让整页点不动。同时给 portal 打 data-dshmobile-notice，mobile.css 立刻
+ * 把它 display:none，避免手机先闪一下大字说明。
+ *
+ * 只认自己认得出的那个模态：portal 里必须有标题「预览版说明 / Preview Notice」且有一个
+ * 主按钮「继续 / Continue」，两者同时成立才动；插件表单、目录选择等其它对话框一律不管。
+ * 上游改文案 → 本模块失配静默退出，页面回到未增强状态（多弹一次而已）。
+ */
+;(() => {
+  try {
+    const TITLE = /^(预览版说明|Preview Notice)$/u
+    const OK = /^(继续|Continue)$/u
+    /** @returns true 表示已处理（调用方据此停掉观察器） */
+    const suppress = () => {
+      for (const portal of document.querySelectorAll('body > [role="presentation"]')) {
+        const heading = portal.querySelector('h1, h2, h3')
+        if (!heading || !TITLE.test((heading.textContent || '').trim())) continue
+        const button = [...portal.querySelectorAll('button')].find((item) => OK.test((item.textContent || '').trim()))
+        if (!button) continue
+        portal.setAttribute('data-dshmobile-notice', '')
+        const root = document.getElementById('root')
+        if (root) root.inert = false
+        button.click()
+        return true
+      }
+      return false
+    }
+    if (suppress()) return
+    const observer = new MutationObserver(() => {
+      if (suppress()) observer.disconnect()
+    })
+    observer.observe(document.documentElement, { childList: true, subtree: true })
+  } catch {
+    /* 静默：增强失败不影响页面 */
+  }
+})()

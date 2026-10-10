@@ -56,7 +56,7 @@ node tests/hub-contract.test.mjs          # 仓级：基座约定，在仓根跑
 node tests/panel-embed.test.mjs           # 仓级：六个面板在装了基座时的行为
 ```
 
-离线检查分别为 75（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 81 项，另有 279 项仓级契约检查与
+离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 81 项，另有 279 项仓级契约检查与
 78 项跨包面板检查。`dsh-features` 的套件会**真跑**它的浏览器端（vm + 极简 React 打桩），所以侧栏槽位、
 顺序、列表、点进去、拖拽排序与挂载交接不用浏览器也能断言；`tools/visual/` 另有截图工具，专看这些
 数字看不见的排版问题（见其 README）；`panel-embed.test.mjs` 把六个功能面板的

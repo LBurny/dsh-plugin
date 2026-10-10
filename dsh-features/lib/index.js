@@ -23,9 +23,10 @@
  *
  * @module dsh-features/index
  */
-import { guard, sendJson } from "./http.js";
+import { guard, readJson, sendJson } from "./http.js";
 import { readInventory } from "./inventory.js";
 import { resolveLayout } from "./layout.js";
+import { loadNavOrder, saveNavOrder } from "./order.js";
 
 const name = "features";
 const inject = [];
@@ -36,6 +37,7 @@ const VERSION = "0.1.0";
 const ROUTE_PREFIX = "/dsh-features";
 const STATUS_PATH = `${ROUTE_PREFIX}/api/status`;
 const FEATURES_PATH = `${ROUTE_PREFIX}/api/features`;
+const ORDER_PATH = `${ROUTE_PREFIX}/api/order`;
 
 /**
  * Create the plugin state. Layout resolution is lazy: the config-editor service
@@ -62,12 +64,15 @@ function createState(ctx) {
  */
 async function inventory(ctx) {
 	const configEditor = ctx.get("configEditor");
-	if (configEditor === undefined) return { features: [], source: "unavailable: no config-editor service" };
+	if (configEditor === undefined) return { features: [], navOrder: [], source: "unavailable: no config-editor service" };
 	try {
 		const layout = resolveLayout(configEditor);
-		return { features: await readInventory(layout), source: layout.pluginsDir };
+		// The order rides along with the inventory: the page already asks once at boot, and
+		// a second round trip would only add a frame where the list is in the wrong order.
+		const [features, navOrder] = await Promise.all([readInventory(layout), loadNavOrder(layout.orderPath)]);
+		return { features, navOrder, source: layout.pluginsDir };
 	} catch (error) {
-		return { features: [], source: `unavailable: ${String(error?.message ?? error)}` };
+		return { features: [], navOrder: [], source: `unavailable: ${String(error?.message ?? error)}` };
 	}
 }
 
@@ -90,11 +95,22 @@ function mount(ready, state, ctx) {
 			if (path === FEATURES_PATH && method === "GET") {
 				return sendJson(res, 200, { ok: true, ...(await inventory(ctx)) });
 			}
+			if (path === ORDER_PATH && method === "POST") {
+				// The reader's arrangement, shared by every browser that reaches this dsh:
+				// the desktop shell and the phone are different origins, so this cannot live
+				// in one browser's storage.
+				const configEditor = ctx.get("configEditor");
+				if (configEditor === undefined) return sendJson(res, 400, { ok: false, error: "no config-editor service" });
+				const body = await readJson(req);
+				if (body === undefined) return sendJson(res, 400, { ok: false, error: "expected a JSON body" });
+				const navOrder = await saveNavOrder(resolveLayout(configEditor).orderPath, body.keys);
+				return sendJson(res, 200, { ok: true, navOrder });
+			}
 			return sendJson(res, 404, { ok: false, error: `no dsh-features route for ${method} ${path}` });
 		})
 	}), "dsh-features http routes");
 
-	state.log(`hub routes served: ${STATUS_PATH}, ${FEATURES_PATH}`);
+	state.log(`hub routes served: ${STATUS_PATH}, ${FEATURES_PATH}, ${ORDER_PATH}`);
 }
 
 /**
