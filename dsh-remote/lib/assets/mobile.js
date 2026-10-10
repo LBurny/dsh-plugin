@@ -526,41 +526,47 @@
  * 重试也不会成功。这是上游刻意的边界，**本层不能伪造回环**——否则拿到链接的人就能改写宿主
  * 设置与 API 密钥。
  *
- * 能做且只该做的：把这张卡换成一句"去哪儿改"。红字 + 永不会成功的重试按钮在手机上只会让
- * 人反复点；故障原因（传输方式）也不是用户能修的东西。只认上游那行原话，认不出就完全不动
- * 页面。上游改文案 → 本模块静默失配，页面回到未增强状态。
+ * 做法：**只给那张卡打一个属性**（值是本地化后的一句说明），文案由 mobile.css 用
+ * `content: attr(...)` 显示、并隐藏卡里原有的子节点。绝不往 React 的子树里插节点：
+ * 插进去的节点 React 重渲染时不会清掉，切到别的设置分区它还留着——实测四分区都显示同一句
+ * 说明，看起来就是"切不动了"。属性是 React 不管理的，切分区时节点本身被换掉，属性随之消失。
+ *
+ * 只认上游那行原话，认不出就完全不动页面；上游改文案 → 本模块静默失配，页面回到未增强状态。
  */
 ;(() => {
   try {
     const FAILED = /settings are unavailable in this browser/u
+    const ATTR = 'data-dshmobile-unavailable'
     const zh = () => (document.documentElement.lang || '').toLowerCase().startsWith('zh')
     const TEXT = () =>
       zh()
         ? '手机端读不到模型与设置：dsh 只让本机窗口读写设置，换电脑端窗口里改即可。'
         : 'This browser cannot read models or settings: dsh only lets the machine\u2019s own window read and write them, so change it in the desktop window.'
-    /** 用说明卡替换上游的失败卡；已替换过就什么都不做。 */
+    /** 给失败卡打上说明；分区切走后把属性收回。 */
     const annotate = () => {
       const content = document.querySelector('[class*="_overlay"] [class*="_content"]')
       if (!content) return
       const scroller = content.querySelector('[class*="_options"]') || content
-      if (scroller.querySelector('[data-dshmobile-unavailable]')) return
+      const marked = scroller.querySelector(`[${ATTR}]`)
       // 先按整段文字做一次廉价判断，再逐节点找那行（面板开着时观察器会被频繁唤醒）。
-      if (!FAILED.test(scroller.textContent || '')) return
+      if (!FAILED.test(scroller.textContent || '')) {
+        // React 可能复用了同一个节点：失败文案没了就必须收回属性，否则说明句会盖在
+        // 正常内容上。
+        if (marked !== null) marked.removeAttribute(ATTR)
+        return
+      }
+      if (marked !== null) return
       const hit = [...scroller.querySelectorAll('*')].find(
         (item) => item.children.length === 0 && FAILED.test(item.textContent || '')
       )
-      if (!hit) return
-      // 走到滚动区下的那一层卡片：整张藏掉（含那个重试按钮），说明句占它的位置。
+      if (hit === undefined) return
+      // 走到滚动区下的那一层卡片：属性打在整张卡上，重试按钮随卡的子节点一起被隐藏。
       let card = hit
-      while (card.parentElement && card.parentElement !== scroller) card = card.parentElement
-      const note = document.createElement('p')
-      note.setAttribute('data-dshmobile-unavailable', '')
-      note.textContent = TEXT()
-      card.setAttribute('data-dshmobile-unavailable-card', '')
-      card.insertAdjacentElement('afterend', note)
+      while (card.parentElement !== null && card.parentElement !== scroller) card = card.parentElement
+      card.setAttribute(ATTR, TEXT())
     }
     annotate()
-    // 面板每次打开都会重挂子树：观察器长期在，卡片被换掉后说明句会自动补回。
+    // 面板每次打开都会重挂子树：观察器长期在，卡片被换掉后说明会自动补回。
     new MutationObserver(annotate).observe(document.documentElement, { childList: true, subtree: true })
   } catch {
     /* 静默：增强失败不影响页面 */

@@ -52,6 +52,7 @@
 		resetLinkHint: ["Issues a fresh credential: every link shared before this stops working", "换发新凭证：此前分享过的链接全部失效"],
 		remoteLink: ["Link (send this to your phone)", "链接（发给手机）"],
 		linkIsCredential: ["Treat the link as a credential: do not share it, and reset it if it leaks.", "把链接当凭证看待：不要外传；怀疑泄露就重置。"],
+		linkKept: ["Link unchanged: the tunnel from the last session is still running, so the phone keeps working.", "链接未变：沿用了上次留下的隧道，手机上那条不用重新扫码。"],
 		qr: ["QR code", "二维码"],
 		qrUnavailable: ["The qrcode package is not installed, so only the link is shown. Install it with:", "未安装 qrcode 包，因此只显示链接。安装命令："],
 		remoteLanUrls: ["Local network addresses", "局域网地址"],
@@ -322,6 +323,10 @@
 		const link = remote.link ?? remote.lanUrls?.[0];
 		if (link !== undefined) {
 			fragment.append(el("div", { class: "field" }, el("label", { text: T("remoteLink") }), linkRow(link)));
+			// The link is the credential a phone already holds, so a restart that kept it
+			// is worth saying out loud: it is the difference between "carry on" and
+			// "re-scan this".
+			if (remote.resumed === true) fragment.append(el("div", { class: "note", text: T("linkKept") }));
 			fragment.append(el("div", { class: "note", text: T("linkIsCredential") }));
 			fragment.append(el("div", { class: "field" }, el("label", { text: T("qr") }),
 				qrAvailable

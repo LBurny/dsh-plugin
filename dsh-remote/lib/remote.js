@@ -30,7 +30,7 @@
  */
 import { spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, openSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { connect as netConnect } from "node:net";
@@ -39,6 +39,7 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { respond as respondEnhanced } from "./enhance.js";
 import { handleProjectRoute, PROJECT_API_PREFIX, PROJECT_PREFIX } from "./project.js";
+import { canAdopt, clearSession, loadSession, saveSession } from "./session.js";
 import { bridgeSockets } from "./wsbridge.js";
 
 /** Cookie the proxy issues to a remote browser. */
@@ -54,6 +55,8 @@ const TUNNEL_URL_TIMEOUT_MS = 60_000;
 /** Restart backoff for a crashed tunnel. */
 const TUNNEL_RETRY_MIN_MS = 500;
 const TUNNEL_RETRY_MAX_MS = 30_000;
+/** How long a recorded tunnel gets to prove it is still alive. */
+const TUNNEL_PROBE_TIMEOUT_MS = 6_000;
 /** Hop-by-hop headers that must not be forwarded. */
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"]);
 /** Browser markers dsh's fence reads; from dsh's point of view the proxy is the origin. */
@@ -201,12 +204,25 @@ export function parseTunnelUrl(text) {
 /**
  * Supervise a cloudflared quick tunnel: spawn it, read the URL off its log, and
  * restart with backoff while the intent to run is still set.
- * @param options - binary path, local target and a logger.
- * @returns start/stop handle plus a status snapshot.
+ *
+ * Two properties matter more than the supervision itself:
+ *
+ * - **The tunnel outlives dsh.** It is spawned detached, with its output going to a
+ *   log file rather than to our pipes (a pipe would break the moment we exit, and
+ *   cloudflared dying on a write error is exactly the link churn this avoids), so the
+ *   hostname — the link — survives a restart.
+ * - **A survivor can be adopted.** `adopt()` attaches this handle to a tunnel recorded
+ *   in the session file without spawning anything, which is what keeps the link
+ *   byte-identical across restarts. Adoption is deliberately unable to stop the
+ *   process it did not spawn unless the reader disables remote access.
+ *
+ * @param options - binary path, local target, log sink, log file path and a logger.
+ * @returns start/adopt/stop handle plus a status snapshot.
  */
-function createTunnel({ exe, target, log }) {
+function createTunnel({ exe, target, logPath, onSession, log }) {
 	let child;
 	let url = "";
+	let adoptedPid;
 	let state = "off";
 	let error;
 	let failures = 0;
@@ -217,6 +233,16 @@ function createTunnel({ exe, target, log }) {
 	const status = () => ({ state, url, error });
 	const notify = () => {
 		for (const listener of listeners) listener(status());
+	};
+
+	/** Record the live tunnel so the next start can adopt it. */
+	const remember = (pid) => {
+		if (url === "" || !Number.isInteger(pid) || pid <= 0) return;
+		try {
+			onSession({ tunnelUrl: url, tunnelPid: pid, cloudflaredExe: exe, target });
+		} catch (cause) {
+			log(`could not record the tunnel session: ${String(cause?.message ?? cause)}`);
+		}
 	};
 
 	const scheduleRetry = () => {
@@ -235,10 +261,20 @@ function createTunnel({ exe, target, log }) {
 		notify();
 		// http2 is pinned on purpose: the desktop shell found QUIC/UDP gets killed by
 		// some carriers, which shows up as a tunnel that dies mid-session.
+		let sink;
+		try {
+			sink = openSync(logPath, "a");
+		} catch {
+			sink = "ignore";
+		}
 		child = spawn(exe, ["tunnel", "--url", target, "--no-autoupdate", "--protocol", "http2"], {
 			windowsHide: true,
-			stdio: ["ignore", "pipe", "pipe"]
+			// Detached is the whole point: this is the process that keeps the hostname
+			// alive while dsh is not running.
+			detached: true,
+			stdio: ["ignore", sink, sink]
 		});
+		child.unref();
 		const deadline = setTimeout(() => {
 			if (state === "starting") {
 				error = "cloudflared did not report a tunnel url";
@@ -248,21 +284,35 @@ function createTunnel({ exe, target, log }) {
 			}
 		}, TUNNEL_URL_TIMEOUT_MS);
 		deadline.unref?.();
-		const readChunk = (chunk) => {
-			const found = parseTunnelUrl(chunk);
-			if (found === undefined || url !== "") return;
+		// The URL is read back from the log file rather than from a pipe, because a
+		// detached tunnel keeps writing after we are gone.
+		const poll = setInterval(() => {
+			if (url !== "") {
+				clearInterval(poll);
+				return;
+			}
+			let text = "";
+			try {
+				text = readFileSync(logPath, "utf8").slice(-8192);
+			} catch {
+				return;
+			}
+			const found = parseTunnelUrl(text);
+			if (found === undefined) return;
+			clearInterval(poll);
 			url = found;
 			state = "up";
 			error = undefined;
 			failures = 0;
 			clearTimeout(deadline);
+			remember(child?.pid ?? adoptedPid);
 			log("tunnel up");
 			notify();
-		};
-		child.stdout.on("data", readChunk);
-		child.stderr.on("data", readChunk);
+		}, 500);
+		poll.unref?.();
 		child.on("exit", (code) => {
 			clearTimeout(deadline);
+			clearInterval(poll);
 			child = undefined;
 			if (stopping) return;
 			state = "error";
@@ -284,10 +334,34 @@ function createTunnel({ exe, target, log }) {
 		}
 	}
 
-	function stop() {
+	/** Kill a process we only know by pid (an adopted tunnel). */
+	function killPid(pid) {
+		if (!Number.isInteger(pid) || pid <= 0) return;
+		try {
+			if (process.platform === "win32") spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }).unref();
+			else process.kill(pid);
+		} catch {
+			/* already gone */
+		}
+	}
+
+	/**
+	 * Stop supervising.
+	 * @param options - `revoke: true` (the reader turned remote access off) also kills
+	 *   the tunnel, which is what makes a new link on the next enable. The default
+	 *   leaves it running so the link survives this process.
+	 */
+	function stop({ revoke = false } = {}) {
 		stopping = true;
 		clearTimeout(retryTimer);
-		stopChild();
+		if (revoke) {
+			stopChild();
+			killPid(adoptedPid);
+		} else {
+			// Leaving the child alive means dropping our handle to it, not killing it.
+			child = undefined;
+		}
+		adoptedPid = undefined;
 		state = "off";
 		url = "";
 		error = undefined;
@@ -300,6 +374,20 @@ function createTunnel({ exe, target, log }) {
 			failures = 0;
 			start();
 		},
+		/**
+		 * Take over a tunnel recorded in the session file: no spawn, same hostname, so
+		 * the link a phone already has keeps working.
+		 * @param saved - `{ tunnelUrl, tunnelPid }` from the session record.
+		 */
+		adopt(saved) {
+			stopping = false;
+			adoptedPid = saved.tunnelPid;
+			url = saved.tunnelUrl;
+			state = "up";
+			error = undefined;
+			log("tunnel adopted, link unchanged");
+			notify();
+		},
 		stop,
 		status,
 		onChange(listener) {
@@ -307,6 +395,44 @@ function createTunnel({ exe, target, log }) {
 			return () => listeners.delete(listener);
 		}
 	};
+}
+
+/**
+ * Kill a process this run does not own, best effort. Used on a recorded tunnel that
+ * turned out to be unusable, so a long-lived machine does not collect cloudflared
+ * processes that nobody will ever adopt.
+ * @param pid - the recorded pid.
+ */
+function killStale(pid) {
+	if (!Number.isInteger(pid) || pid <= 0) return;
+	try {
+		if (process.platform === "win32") spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }).unref();
+		else process.kill(pid);
+	} catch {
+		/* already gone */
+	}
+}
+
+/**
+ * Whether a recorded tunnel still answers for this token. A quick tunnel whose
+ * process is gone, or whose target is a proxy port that no longer exists, answers
+ * with an error page — so this one probe covers both, and beats trusting a pid
+ * (which can be recycled by an unrelated process).
+ * @param url - the recorded tunnel base URL.
+ * @param token - the current link token.
+ * @param timeoutMs - how long to wait for an answer.
+ * @returns true when the tunnel is alive and pointing at this proxy.
+ */
+async function tunnelAnswers(url, token, timeoutMs = TUNNEL_PROBE_TIMEOUT_MS) {
+	try {
+		const response = await fetch(`${url}/?token=${encodeURIComponent(token)}`, {
+			redirect: "manual",
+			signal: AbortSignal.timeout(timeoutMs)
+		});
+		return response.status === 200 || response.status === 303;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -320,6 +446,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 	let state = "off";
 	let error;
 	let link;
+	let resumed = false;
 	const listeners = new Set();
 	const loadAssets = createAssetLoader(log);
 
@@ -360,6 +487,9 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		proxyPort: proxyPort(),
 		lanUrls: lanUrls(),
 		tunnel: tunnel?.status(),
+		// True when this session adopted the tunnel the last one left behind, which is
+		// what the panel reports as "the link did not change".
+		resumed,
 		// null rather than undefined so the field always survives JSON and the panel
 		// can tell "not found" from "not reported". The configured path rides along so
 		// the panel can show what is set, or let the reader set it.
@@ -648,23 +778,54 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 				log(error);
 				publish();
 			} else {
-				tunnel = createTunnel({ exe, target: `http://127.0.0.1:${String(port)}`, log });
+				const target = `http://127.0.0.1:${String(port)}`;
+				const paths = layout();
+				// The link is a credential the reader has already handed to a phone, so a
+				// restart should not silently invalidate it: adopt the tunnel the previous
+				// session left running whenever it is still ours and still answers.
+				const saved = loadSession(paths.sessionPath);
+				if (canAdopt(saved, { exe, target }) && (await tunnelAnswers(saved.tunnelUrl, current.token))) {
+					tunnel = createTunnel({
+						exe,
+						target,
+						logPath: paths.tunnelLogPath,
+						onSession: (state_) => saveSession(paths.sessionPath, state_),
+						log
+					});
+					tunnel.adopt(saved);
+					resumed = true;
+				} else {
+					// A recorded tunnel that cannot be adopted is dead weight: kill it so a
+					// long-lived machine does not accumulate cloudflared processes.
+					if (saved !== undefined) killStale(saved.tunnelPid);
+					clearSession(paths.sessionPath);
+					resumed = false;
+					tunnel = createTunnel({
+						exe,
+						target,
+						logPath: paths.tunnelLogPath,
+						onSession: (state_) => saveSession(paths.sessionPath, state_),
+						log
+					});
+					tunnel.start();
+				}
 				tunnel.onChange((tunnelStatus) => {
 					state = tunnelStatus.state === "up" ? "up" : tunnelStatus.state === "off" ? "off" : "starting";
 					error = tunnelStatus.error;
 					if (tunnelStatus.url !== "") link = `${tunnelStatus.url}/?token=${settings().token}`;
 					publish();
 				});
-				tunnel.start();
 			}
 		}
 		return snapshot();
 	}
 
-	/** Stop everything and revoke the credential. */
+	/** Stop everything and revoke the credential, tunnel included. */
 	async function disable() {
-		tunnel?.stop();
+		tunnel?.stop({ revoke: true });
 		tunnel = undefined;
+		resumed = false;
+		clearSession(layout().sessionPath);
 		if (server !== undefined) {
 			const victim = server;
 			server = undefined;
@@ -678,6 +839,18 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		log("remote access disabled");
 		publish();
 		return snapshot();
+	}
+
+	/**
+	 * dsh is going away, remote access is not. Leave the tunnel running so its
+	 * hostname — and therefore the phone's link — survives, and keep the session file
+	 * so the next start can adopt it. Only the proxy dies, with the process.
+	 */
+	function suspend() {
+		if (tunnel === undefined) return;
+		tunnel.stop();
+		tunnel = undefined;
+		log("remote suspended: tunnel left alive, link unchanged");
 	}
 
 	/** Switch transport, keeping the token so a saved link keeps working. */
@@ -702,6 +875,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		},
 		enable,
 		disable,
+		suspend,
 		setMode,
 		/** Issue a fresh credential; every link shared before this stops working. */
 		async resetToken() {

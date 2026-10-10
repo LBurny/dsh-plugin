@@ -91,6 +91,7 @@ function publicStatus(status) {
 		mode: status.mode,
 		proxyPort: status.proxyPort,
 		tunnel: status.tunnel?.state,
+		resumed: status.resumed === true,
 		error: status.error
 	};
 }
@@ -245,6 +246,10 @@ function mount(ready, state) {
 		table.push({ kind: "html", html: `<link rel="stylesheet" href="${STYLE_PATH}">`, placement: "head" });
 		table.push({ kind: "script-src", src: SCRIPT_PATH, placement: "body" });
 	}), "dsh-remote index injection");
+
+	// On unload, stop supervising the tunnel but leave it running: its hostname is the
+	// phone's link, and a fresh quick tunnel would hand out a different one.
+	ready.effect(() => () => state.remote.suspend(), "dsh-remote keep the tunnel alive");
 
 	state.log(`panel served at ${SCRIPT_PATH}`);
 }

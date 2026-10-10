@@ -16,15 +16,13 @@
 }
 
 /*
- * 「加载提供商目录失败: settings are unavailable in this browser」被换掉的那张卡
- * （mobile.js 打标隐藏）与代替它的说明。
+ * 「加载提供商目录失败: settings are unavailable in this browser」——手机端把它整张换成一句
+ * 说明（mobile.js 打属性，值是本地化文案）。
  * 上游设置页在非本机来源下读不到 settings 作用域（远程拿到的是 memory 模式、没有 view），
- * 手机上这张红字失败卡 + 一个永远不成功的「重试」纯属噪音：它说明的是传输方式，不是
- * 用户能修的故障。整卡隐藏，换成下面这句"去哪儿改"。
+ * 红字失败卡 + 一个永远不成功的「重试」纯属噪音：它说明的是传输方式，不是用户能修的故障。
+ * 只隐藏卡里原有的子节点、用伪元素显示说明——**不插节点**，插进去的 React 不会清，
+ * 切到别的分区还留着（实测四个分区都显示同一句，看着像切不动了）。
  */
-[data-dshmobile-unavailable-card] {
-  display: none !important;
-}
 [data-dshmobile-unavailable] {
   margin: 8px 0 0;
   padding: 10px 12px;
@@ -33,6 +31,12 @@
   color: var(--dsw-alias-label-secondary, inherit);
   font-size: 13px;
   line-height: 1.6;
+}
+[data-dshmobile-unavailable] > * {
+  display: none !important;
+}
+[data-dshmobile-unavailable]::after {
+  content: attr(data-dshmobile-unavailable);
 }
 
 /* mobile.js 注入的信息标签/面板：仅 ≤700px 生效，宽屏（含窗口拉窄后又放大）隐藏 */
@@ -90,12 +94,17 @@
    * 设置弹窗：全屏化，左侧 188px 固定导航列改顶部横向 tab 条。
    * 原布局在手机上弹窗仅 ~342px 宽，导航列不收缩，内容区不足百像素，
    * 文字被压成一字一行竖排。
+   *
+   * 尺寸用 100%（相对 overlay）**不用 vw/vh**：本插件可以给页面加 zoom（dsh-zoom
+   * 默认 106%），而 vh 在 zoom 下按设备像素算、不除 zoom——100dvh 于是变成 895 设备
+   * 像素，比 844 的视口还高，居中的面板上下各被切掉 25px：标签条顶部被浏览器栏压住
+   * （实测 stripTop = -15，用户报"顶部挨得太近、挡住字体"，且标签上半截点不到）。
+   * overlay 是 inset:0（与 zoom 无关地正好等于视口），面板填满它就是正好一屏。
    */
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) {
-    width: 100vw;
+    width: 100%;
     max-width: none;
-    height: 100vh;
-    height: 100dvh;
+    height: 100%;
     max-height: none;
     border-radius: 0;
     flex-direction: column;
@@ -106,8 +115,9 @@
     flex-direction: row;
     align-items: center;
     gap: 4px;
-    /* 上下必须同宽：原来只给顶部 10px，标签在条内贴下沿，看着"没有上下居中"。 */
-    padding: max(10px, env(safe-area-inset-top, 0px)) 8px 10px;
+    /* 上下同宽（原来只有顶部 10px，标签在条内贴下沿）；两边都放到 14px 给一点顶部呼吸，
+       否则一整屏的面板顶边就贴着浏览器地址栏，观感是"太朝上了"。 */
+    padding: max(14px, env(safe-area-inset-top, 0px)) 8px 14px;
     overflow-x: auto;
   }
   /* “设置”标题在顶部 tab 条里纯属占位，省出纵向空间 */

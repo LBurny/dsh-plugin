@@ -31,6 +31,17 @@ export function resolveLayout(configEditor) {
 		profileName: profileDir.slice(profilesDir.length + 1),
 		configPath: join(dshHome, CONFIG_FILENAME),
 		/**
+		 * The live-session record (which tunnel is ours, where it points, which binary
+		 * runs it). It is what lets a restart adopt the running tunnel, so the link a
+		 * phone already holds stays byte-identical — see `lib/session.js`.
+		 */
+		sessionPath: join(dshHome, "dsh-remote-session.json"),
+		/**
+		 * cloudflared's own output. A detached tunnel writes here instead of into this
+		 * process's pipes, so it survives our exit instead of dying on a broken pipe.
+		 */
+		tunnelLogPath: join(dshHome, "dsh-remote-tunnel.log"),
+		/**
 		 * dsh's workspace store (`tables.workspaces[*] = {path, title, sessionIds[]}`),
 		 * read by the phone-side project browser to map a session to its workspace.
 		 */

@@ -61,7 +61,7 @@ node tests/panel-embed.test.mjs           # repo-wide: every panel boots without
 node tests/mobile-layer.test.mjs          # repo-wide: the phone layer's DOM behaviour
 ```
 
-Offline suites: 88 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 86 checks, plus 279 repo-wide contract
+Offline suites: 88 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 99 checks, plus 279 repo-wide contract
 checks, 78 cross-package panel checks and 7 mobile-layer checks. `tools/visual/` holds a screenshot
 harness for the UI work these numbers cannot see — see its README. `dsh-features`' suite evaluates its
 browser half for real (a vm with a minimal React), so the sidebar slot, its order, the list, the

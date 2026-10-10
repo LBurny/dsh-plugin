@@ -28,6 +28,7 @@ import {
 } from "../lib/enhance.js";
 import { contained, contentDisposition, handleProjectRoute, listDir, mimeFor, readProjectFile, resolveWorkspace } from "../lib/project.js";
 import { cloudflaredCandidates, findCloudflared } from "../lib/remote.js";
+import { canAdopt, clearSession, loadSession, saveSession } from "../lib/session.js";
 
 const results = [];
 const check = (ok, label, detail = "") => results.push({ ok, label, detail });
@@ -433,27 +434,90 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 		cell.replace(/\s+/gu, " ").slice(0, 80)
 	);
 	// The strip's own padding was 10px top / 0 bottom, which reads as the tabs not being
-	// centred in the bar.
+	// centred in the bar. Both sides now match (and carry the safe-area inset).
 	const bar = block(css, ':has(> [class*="_nav"]) > [class*="_nav"] {');
 	check(
-		/padding:\s*max\(10px, env\(safe-area-inset-top, 0px\)\) 8px 10px/u.test(bar),
+		/padding:\s*max\(14px, env\(safe-area-inset-top, 0px\)\) 8px 14px/u.test(bar),
 		"the tab bar pads top and bottom by the same amount (plus the safe area)",
 		bar.replace(/\s+/gu, " ").slice(0, 90)
 	);
 	// The models page cannot read settings from a remote origin (upstream: no view for a
-	// memory-mode scope). The layer must not fake loopback — it replaces the dead end.
+	// memory-mode scope). The layer must not fake loopback — it replaces the dead end, and it
+	// does so without inserting a node into React's subtree (a foreign node survives every
+	// re-render, so each settings section would show the same note and look like it had not
+	// switched).
 	check(
-		css.includes("[data-dshmobile-unavailable-card]") &&
-			css.includes("display: none !important") &&
+		css.includes('[data-dshmobile-unavailable] > *') &&
+			css.includes("[data-dshmobile-unavailable]::after") &&
+			css.includes("content: attr(data-dshmobile-unavailable)") &&
 			js.includes("settings are unavailable in this browser"),
-		"the upstream failure card is hidden and its wording is what gets matched",
+		"the failure card is replaced by an attribute + pseudo-element, matching upstream's wording",
 		""
 	);
 	check(
-		js.includes("data-dshmobile-unavailable") && /电脑端|desktop window/u.test(js),
-		"a note takes its place, pointing at the desktop window instead of the dead Retry",
+		js.includes("removeAttribute") && /电脑端|desktop window/u.test(js) && !js.includes("insertAdjacentElement"),
+		"the mark is retracted when the section changes, and nothing is ever inserted",
 		""
 	);
+	// The sheet must be sized from its container: `100dvh` is resolved in device pixels and is
+	// not divided by the zoom this plugin may apply, which made the sheet 895px tall in an
+	// 844px viewport and cut 25px off the top (the tab strip) and the bottom.
+	const sheet = block(css, ':has(> [class*="_nav"]) {');
+	check(
+		/width:\s*100%/u.test(sheet) && /height:\s*100%/u.test(sheet) && !/\d(vh|dvh|vw)/u.test(sheet),
+		"the full-screen sheet is sized by percentage, never by vh/vw (zoom would overflow it)",
+		sheet.replace(/\s+/gu, " ").slice(0, 90)
+	);
+}
+
+/* ------------------------------------------------- the live-session record */
+
+// A quick-tunnel hostname changes every time cloudflared starts, so the link a phone
+// holds only survives a restart if the tunnel does too and the next start adopts it.
+// These check the record and the adopt decision; the probe that proves the tunnel still
+// answers lives in remote.js (it needs a network).
+{
+	const dir = await mkdtemp(join(tmpdir(), "dsh-remote-session-"));
+	const path = join(dir, "dsh-remote-session.json");
+	const saved = { tunnelUrl: "https://x-y-z.trycloudflare.com", tunnelPid: 4242, cloudflaredExe: "C:/tools/cloudflared.exe", target: "http://127.0.0.1:29274" };
+	check(loadSession(path) === undefined, "a first start has no session to read", "");
+	await saveSession(path, saved);
+	check(
+		JSON.stringify(loadSession(path)) === JSON.stringify(saved),
+		"a saved session round-trips (pid, url, binary and target)",
+		JSON.stringify(loadSession(path))
+	);
+	clearSession(path);
+	check(loadSession(path) === undefined, "clearing forgets it", "");
+	await writeFile(path, "{ not json", "utf8");
+	check(loadSession(path) === undefined, "a corrupt record is ignored rather than thrown", "");
+	await writeFile(path, JSON.stringify({ tunnelUrl: saved.tunnelUrl, tunnelPid: 0 }), "utf8");
+	check(loadSession(path) === undefined, "a record without a usable pid cannot be adopted", "");
+	// Adopting a tunnel that points elsewhere is worse than a fresh one: the link would
+	// answer 502. So all three of binary, target and url have to agree.
+	check(canAdopt(saved, { exe: saved.cloudflaredExe, target: saved.target }), "the same binary and target adopt", "");
+	check(!canAdopt(saved, { exe: saved.cloudflaredExe, target: "http://127.0.0.1:30111" }), "a different proxy port does not adopt", "");
+	check(!canAdopt(saved, { exe: "C:/elsewhere/cloudflared.exe", target: saved.target }), "a reinstalled binary does not adopt", "");
+	check(!canAdopt(undefined, { exe: saved.cloudflaredExe, target: saved.target }), "nothing saved means nothing to adopt", "");
+	// The plugin has to leave the tunnel alive when dsh exits, or there is nothing to
+	// adopt next time: detached spawn, output to a file (a pipe would break on exit).
+	const remote = await readFile(new URL("../lib/remote.js", import.meta.url), "utf8");
+	check(
+		/detached: true/u.test(remote) && /openSync\(logPath/u.test(remote),
+		"the tunnel is spawned detached with a log file, so it outlives this process",
+		""
+	);
+	check(
+		/suspend,/.test(remote) && /tunnel\.stop\(\);\s*\n\s*tunnel = undefined;\s*\n\s*log\("remote suspended/u.test(remote),
+		"suspend() stops supervising without killing the tunnel (that is what keeps the link)",
+		""
+	);
+	check(
+		/tunnel\?\.stop\(\{ revoke: true \}\)/u.test(remote) && /clearSession\(layout\(\)\.sessionPath\)/u.test(remote),
+		"disabling remote access does kill the tunnel and forget the session",
+		""
+	);
+	await rm(dir, { recursive: true, force: true });
 }
 
 /* -------------------------------------------------------------- reporting */

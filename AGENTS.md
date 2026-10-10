@@ -87,6 +87,30 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   layer hides that failure card — Retry included, it can never work — and puts a line in its place pointing
   at the desktop window. `mobile.js` is injected before `</head>`, which is why it can catch a modal before
   the first paint.
+- **Never insert a node into React's subtree from the mobile layer.** The models note was first written as a
+  `<p>` inserted after the failed card. React does not remove foreign nodes, so after switching to another
+  settings section the note was still there: every section showed the same sentence, which a reader reports
+  as "I cannot switch sections any more". The layer now only sets an **attribute** on the card (whose value
+  is the localised sentence) and `mobile.css` renders it with `content: attr(…)` while hiding the card's own
+  children. Attributes are not React's business, and a section switch replaces the node, so the mark leaves
+  with it — plus a retraction path for the case where React reuses the node for healthy content.
+- **`vh` units are device pixels under a CSS `zoom`.** `dsh-zoom` can put `zoom: 1.06` on the page, and
+  `100dvh` then resolves to 844 CSS px *rendered as 895 device px*: a centred full-screen sheet overflows
+  25px at the top and the bottom, which is what covered the tab strip's glyphs and made its upper half
+  untappable. Size full-screen layers from their container (`100%` of an `inset: 0` overlay) and never in
+  `vh`/`vw` when the plugin can zoom the document. This is also why a headless phone run must pass the same
+  `--zooms` the plugin applies: at zoom 1 the bug does not exist.
+- **A phone link must survive a restart, so the tunnel outlives dsh.** A Cloudflare quick tunnel picks a
+  random hostname per process, so the link (which *is* the credential) would change on every restart and the
+  reader would re-scan the QR code each time. The desktop shell's answer is ported here: spawn cloudflared
+  **detached** with its output in `<DSH_HOME>/dsh-remote-tunnel.log` (a pipe breaks the moment dsh exits, and
+  cloudflared dying on a write error is the churn this avoids), record `{tunnelUrl, tunnelPid,
+  cloudflaredExe, target}` in `<DSH_HOME>/dsh-remote-session.json`, and on the next start **adopt** that
+  tunnel when the record agrees with this run and the tunnel still answers for the current token. One probe
+  covers both a dead process and a tunnel whose target port is gone, which is stronger than trusting a pid
+  (recyclable) and is why adoption is allowed to fail: a link that answers 502 is worse than a new one.
+  `disable()` is the only path that kills the tunnel and forgets the session; unload only stops supervising.
+  Ports stay remembered for the same reason — the tunnel's target is fixed at spawn.
 - **`[class*="_nav"]` also matches `_navList`.** CSS-modules substrings are not names: a rule written for
   the settings nav bar silently padded the tab *list*, which is why its pills sat at the bottom of the bar
   and looked off-centre no matter how the alignment was set. Scope bar rules with `:has(> [class*="_nav"])`

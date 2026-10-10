@@ -57,7 +57,7 @@ node tests/panel-embed.test.mjs           # 仓级：六个面板在装了基座
 node tests/mobile-layer.test.mjs          # 仓级：手机增强层的 DOM 行为
 ```
 
-离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 86 项，另有 279 项仓级契约检查、
+离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 99 项，另有 279 项仓级契约检查、
 78 项跨包面板检查与 7 项手机增强层检查。`dsh-features` 的套件会**真跑**它的浏览器端（vm + 极简
 React 打桩），所以侧栏槽位、
 顺序、列表、点进去、拖拽排序与挂载交接不用浏览器也能断言；`tools/visual/` 另有截图工具，专看这些

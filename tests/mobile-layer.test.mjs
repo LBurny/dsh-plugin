@@ -54,6 +54,14 @@ function element(tag, className = "", text = "") {
 				node.children.push(child);
 			}
 		},
+		removeAttribute(key) {
+			delete node.attrs[key];
+		},
+		replaceChildren(...next) {
+			for (const child of node.children) child.parent = undefined;
+			node.children = [];
+			node.append(...next);
+		},
 		insertAdjacentElement(position, inserted) {
 			const at = node.parent.children.indexOf(node);
 			node.parent.children.splice(position === "afterend" ? at + 1 : at, 0, inserted);
@@ -89,7 +97,8 @@ const descendants = (node, parts) => {
 	}
 	return level;
 };
-const querySelector = (node, selector) => descendants(node, selector.trim().split(/\s+/u))[0];
+/** A real DOM answers `null`, not `undefined`, and the layer compares against `null`. */
+const querySelector = (node, selector) => descendants(node, selector.trim().split(/\s+/u))[0] ?? null;
 const querySelectorAll = (node, selector) => descendants(node, selector.trim().split(/\s+/u));
 
 /**
@@ -154,29 +163,27 @@ function run(sheet) {
 	return sandbox;
 }
 
-const noteIn = (sheet) => sheet.options.children.find((child) => Object.hasOwn(child.attrs, "data-dshmobile-unavailable"));
 
 /* ------------------------------------------------------------------ the checks */
 
 {
 	const sheet = makeSheet();
 	run(sheet);
-	const note = noteIn(sheet);
+	const note = sheet.card.getAttribute("data-dshmobile-unavailable");
 	check(
-		sheet.card.hasAttribute("data-dshmobile-unavailable-card"),
-		"upstream's failed-catalog card is marked so the stylesheet hides it (Retry and all)",
+		note !== undefined,
+		"the failed-catalog card carries the replacement wording as an attribute",
 		JSON.stringify(sheet.card.attrs)
 	);
-	check(note !== undefined, "a note takes its place in the same scroller", String(sheet.options.children.length));
 	check(
-		note !== undefined && sheet.options.children.indexOf(note) === sheet.options.children.indexOf(sheet.card) + 1,
-		"the note sits directly after the card it replaces, not at the panel's foot",
-		""
+		sheet.options.children.length === 1,
+		"nothing is inserted into the scroller — React owns that subtree and never removes a foreign node",
+		String(sheet.options.children.length)
 	);
 	check(
-		note !== undefined && note.textContent.includes("电脑端"),
-		"the Chinese note says which window can actually change it",
-		note === undefined ? "" : note.textContent
+		note !== undefined && note.includes("电脑端"),
+		"the Chinese wording says which window can actually change it",
+		note ?? ""
 	);
 }
 
@@ -184,22 +191,36 @@ const noteIn = (sheet) => sheet.options.children.find((child) => Object.hasOwn(c
 	// An English page must not be answered in Chinese.
 	const sheet = makeSheet({ lang: "en" });
 	run(sheet);
-	const note = noteIn(sheet);
+	const note = sheet.card.getAttribute("data-dshmobile-unavailable");
 	check(
-		note !== undefined && /desktop window/u.test(note.textContent) && !/[\u4e00-\u9fff]/u.test(note.textContent),
-		"an English page gets the English note",
-		note === undefined ? "" : note.textContent
+		note !== undefined && /desktop window/u.test(note) && !/[\u4e00-\u9fff]/u.test(note),
+		"an English page gets the English wording",
+		note ?? ""
 	);
 }
 
 {
-	// Two copies of the layer live in the page during a live preview (the proxy's and an
-	// injected one): the second must not stack a second note.
+	// Switching to another settings section replaces the options' subtree. The mark must go
+	// with it — a stale one shows the note over a healthy page, which is what made every
+	// section look like it had not switched.
 	const sheet = makeSheet();
 	run(sheet);
+	sheet.options.replaceChildren(element("div", "css-other", "填入各提供商的 API 密钥即可使用其模型。"));
 	run(sheet);
-	const notes = sheet.options.children.filter((child) => Object.hasOwn(child.attrs, "data-dshmobile-unavailable")).length;
-	check(notes === 1, "running the layer twice still leaves exactly one note", String(notes));
+	check(
+		sheet.options.querySelector("[data-dshmobile-unavailable]") === null,
+		"switching sections leaves no stale mark behind",
+		JSON.stringify(sheet.options.children.map((child) => child.attrs))
+	);
+	// ...and coming back re-marks the fresh card.
+	const back = makeSheet();
+	run(back);
+	run(back);
+	check(
+		back.card.getAttribute("data-dshmobile-unavailable") !== undefined,
+		"a second run against the same card is idempotent (one mark, not a stack)",
+		JSON.stringify(back.card.attrs)
+	);
 }
 
 {
@@ -208,7 +229,7 @@ const noteIn = (sheet) => sheet.options.children.find((child) => Object.hasOwn(c
 	const before = sheet.options.children.length;
 	run(sheet);
 	check(
-		sheet.options.children.length === before && sheet.card.hasAttribute("data-dshmobile-unavailable-card") === false,
+		sheet.options.children.length === before && sheet.card.hasAttribute("data-dshmobile-unavailable") === false,
 		"a sheet that loads its providers is left completely alone",
 		String(sheet.options.children.length)
 	);

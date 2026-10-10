@@ -108,6 +108,27 @@ and three compensations for upstream behaviour that will not change:
 All three match on the exact upstream wording and on `[class*="_…"]` local-name substrings, so an upstream
 rename degrades to "the phone looks like it did before" rather than breaking the page.
 
+## The link survives a restart
+
+The link is the credential, so a restart must not invalidate it. A Cloudflare *quick* tunnel gets a fresh
+random hostname every time cloudflared starts, which would mean re-scanning the QR code after every restart —
+so, like the desktop shell, this plugin keeps the tunnel instead:
+
+- cloudflared is spawned **detached**, with its output going to `<DSH_HOME>/dsh-remote-tunnel.log` rather
+  than to the plugin's pipes. A pipe would break the moment dsh exits, and cloudflared dying on a write
+  error is exactly the churn this avoids.
+- Its hostname, pid and target are recorded in `<DSH_HOME>/dsh-remote-session.json`.
+- The next start **adopts** that tunnel instead of spawning one, provided the record agrees with this run
+  (same binary, same proxy target) **and** the tunnel still answers for the current token — one probe
+  covers both a dead process and a tunnel pointing at a proxy port that no longer exists. The panel then
+  says the link is unchanged.
+- The proxy rebinds the remembered port for the same reason, so the tunnel's target stays valid.
+- Disabling remote access is the one path that kills the tunnel and forgets the session (the next enable
+  then mints a new link, which is what "disable" has to mean). On unload the plugin only stops supervising.
+
+If any check fails, the plugin kills the stale tunnel and starts a fresh one — a new hostname, the same
+token, so the old link stops working and the panel shows the new one.
+
 ## Caveats
 
 - **Tunnel mode needs a cloudflared binary, and neither app ships one.** The search is, in order: the
