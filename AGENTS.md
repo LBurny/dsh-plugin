@@ -1,283 +1,290 @@
-# dsh-plugin — notes for agents
+# dsh-plugin: notes for agents
 
-A collection of independent dsh plugins, one feature per package. Read this before changing
-anything here; it is short and most of it is a trap someone already walked into.
+Independent dsh plugins, one feature per package. Most of what follows is a trap someone already
+walked into, so read it before changing anything here.
 
 ## Shape
 
-One directory per feature at the repository root, each a **complete, standalone dsh plugin** you can
-install on its own (`dsh plugin add <that dir>`). Nothing may import from a sibling package — that is
-the whole point of the split. Shared helpers are duplicated on purpose.
+One directory per feature at the repository root, each a complete, standalone plugin you can install on
+its own (`dsh plugin add <that dir>`). Nothing may import a sibling package. Shared helpers are
+duplicated on purpose.
 
 ```
 <name>/
   package.json       dsh.bundle.patch + main: lib/index.js + files: lib/**
   cordis.patch.yml   the `- insert:` row that mounts the package
   README.md  LICENSE
-  lib/               host half — every module flat, one responsibility per file
+  lib/               host half, flat, one responsibility per file, named by role
     index.js         the plugin body (name/inject/apply) + routes + index injection
-    <role>.js        http.js, layout.js, the feature's own modules …
+    <role>.js        http.js, layout.js, the feature's own modules
     client.js        browser half (plain DOM, no build step), served by this package's routes
     client.css       its stylesheet
-    sounds/          an asset cluster that ships as a set (dsh-notify)
-    assets/          page assets served verbatim (dsh-remote: mobile/splash/project)
+    sounds/ assets/  asset clusters that ship as a set
   tests/             sibling suite: <name>.test.mjs (+ remote-live.mjs)
   locale/            bilingual name/description for dsh's plugin management page
 ```
 
-This is the official dsh package shape: `lib/` is flat and modules are named by **role**, not grouped
-by feature — `packages/core/tools/src/` upstream is `index / code-mode / json-schema / presentation /
-py-types / schema / testing / types`, and across the 286 packages in a dsh runtime the only
-directories under `lib/` are `lib/types/` (build output), asset clusters (`markdown/`,
-`settings-form/`, `styles/`) and a separate execution entrypoint (`worker/`). Tests live in a sibling
-`tests/`, never co-located. Our packages are hand-written JavaScript with no build step, so `lib/` is
-both source and published artifact, and `main` points straight at `lib/index.js`.
+This is the official dsh package shape: `lib/` is flat and modules are named by role, `tests/` is a
+sibling and never co-located, and the runtime itself keeps only build output (`lib/types/`), asset
+clusters and a worker entrypoint as directories under `lib/`. Our packages are hand-written JavaScript
+with no build step, so `lib/` is both source and published artifact and `main` points straight at
+`lib/index.js`.
 
-- The package name is the npm name; the module's exported `name` and the patch row `id` are the short
-  name (`dsh-skills` → `skills`). Row ids are first-come, first-served across the whole plugin tree.
-- `dsh-features/` is the exception in shape, not in independence: it is the **hub** (the Features page)
-  and the only package with a browser *client* half (`dsh.client` + `exports["./client"]` →
-  `lib/client.js`, a `__ModuleLoader__.load({id, factory})` classic script, not a module). A real
-  sidebar entry can only be added by a dsh client plugin, which is why the hub cannot be an injected
-  script like the rest. It imports no sibling and needs none.
-- `dsh-init/` is the exception in the other direction, and the only pure **command** package: no
-  browser half, no panel, no `dsh.ui.feature` marker, so the hub does not list it. That is supported
-  rather than accidental (`dsh-features/lib/inventory.js` skips any package without the marker), which
-  is what lets a host-only plugin skip the DOM work entirely. Two things there are load-bearing: its
-  row id is `init`, a name DSHDesktop's preseeded `dsh-command-init` also claims (first-come,
-  first-served; a clash only deactivates the loser, so registration is guarded to leave one readable
-  line instead of a stack), and its message source is `plugin:dsh-init` because session format
-  V4 refuses the retired generic `kind:"plugin"` wrapper. A refused write fails the whole turn, the
-  nastiest shape a bug takes here: the command registers, answers the palette, and does nothing.
-  `tests/init.test.mjs` runs the runtime's own admission as the probe.
+- The npm package name, the module's exported `name` and the patch row `id` are not the same string:
+  `dsh-skills` is the package, `skills` is the other two. Row ids are first-come, first-served across
+  the whole plugin tree.
+- `dsh-features/` is the hub (the Features page) and the only package with a browser *client* half
+  (`dsh.client` + `exports["./client"]` to `lib/client.js`, a `__ModuleLoader__.load({id, factory})`
+  classic script, not a module). Only a dsh client plugin can add a real sidebar entry, which is why the
+  hub cannot be an injected script like the rest.
+- `dsh-init/` is the only pure command package: no browser half, no panel, no `dsh.ui.feature` marker,
+  so the hub does not list it (supported, not accidental: `dsh-features/lib/inventory.js` skips any
+  package without the marker). Two things there are load-bearing. Its row id is `init`, which
+  DSHDesktop's preseeded `dsh-command-init` also claims, so registration is guarded to leave a warning
+  instead of a stack. And its message source is `plugin:dsh-init`, because session format V4 refuses the
+  retired generic `kind:"plugin"` wrapper; a refused write fails the whole turn, the nastiest shape a bug
+  takes here, where the command registers, answers the palette, and does nothing.
+  `tests/init.test.mjs` runs the runtime's own V4 admission as the probe.
 
 ## Rules that are easy to get wrong
 
-- **`package.json` must declare `dsh.bundle.patch`.** Without it `dsh plugin add` installs the package
-  as a plain dependency and mounts no layer — the symptom is silence, not an error. This happened
-  during the split; `--dump-config` is how you catch it.
-- **A module-level failure does not stop dsh from booting, which is worse for an author than a crash:
-  it costs that one row and says almost nothing.** An import that throws, a module that throws while it
-  evaluates, and an `apply` that throws each print one `warning: N entries did not activate` and the
-  boot carries on (measured on 0.2.0-rc.1 and rc.2; the rule is written out in full further down, with
-  the seven row ids that *are* fatal). Verify in a sandbox — `node tools/sandbox/sandbox.mjs up`, which
-  prints the ready line and says whether any row failed — before touching a real `DSH_HOME`.
-- **Colours prefer the shell's theme tokens.** `--dsw-alias-bg-base` / `-label-primary` /
-  `-label-caption` / `-border-l2` / `-interactive-bg-hover` are defined on `body` (light) and
-  `body[data-ds-dark-theme]` (dark) by `@deepseek-ai/dsh-client-ui-theme`, so `var(--dsw-…, <hardcoded
-  fallback>)` follows dsh's own light/dark setting. Keep the fallback, and keep the
-  `prefers-color-scheme` block beside it: a shell without those tokens must still look right.
-- **`zoom` on `<html>` is capped by dsh's own chrome, and the cap is measured, not assumed.**
-  The factor divides the layout viewport, so past `window height / sidebar requirement` the sidebar's
-  stack no longer fits: the shell clips it (`overflow: hidden` on the sidebar column) and the document
-  never scrolls, which puts 设置 / 意见反馈 / 退出登录 and the avatar menu off it out of reach. A constant
-  cannot express the requirement — plugins add nav rows, a signed-in profile adds footer rows, and the
-  stock rail needs a different height from the expanded sidebar. `dsh-zoom/lib/client.js` therefore
-  samples it: forcing a deliberately oversized zoom makes the sidebar column's `scrollHeight` report
-  exactly what the stack needs in layout px (its children are all `flex: none` except the session
-  region). Restore the sampling zoom in the same task — no frame is painted oversized, and the shell's
-  width watcher reads a viewport-space rect on the next animation frame, so it never sees it either.
-  Re-measure on resize, and once more when the sidebar mounts, since the cap is read before it exists.
-- **The browser halves share exactly two things, both DOM-level:** the `#dsh-launchers` corner
-  container and the `--dsh-launcher-stack` custom property, plus the `.dsh-launch` button class whose
-  styles are duplicated identically in every `client.css`. Panel styles are scoped under
-  `#<package>-root` so six stylesheets cannot fight. Keep both properties when adding a package.
-- **Anything the reader arranges belongs on the host, not in browser storage.** The hub's feature order
-  lived in `localStorage`, which is per-origin: the desktop shell opens dsh at `127.0.0.1:<port>` while the
-  phone reaches the same dsh through the proxy at the tunnel's origin, so a drag on the desktop never
-  reached the phone. It is written to `<DSH_HOME>/dsh-features.json` behind `POST /dsh-features/api/order`
-  and served with the inventory (one round trip), with `localStorage` kept only as the first-frame cache:
-  the host answers and the page reconciles. Anything of that shape has the same trap, dsh's own client
-  store included.
-- **The phone gets a rewritten page, so its fixes live in the proxy's layer, never in dsh.** Three rules
-  are there because upstream will not change: the preview notice is re-shown on every remote load
-  (upstream keeps its acknowledgement in a memory-mode settings scope for remote transports, so it never
-  persists — `mobile.js` clicks its Continue control and hides its portal); the settings sheet's tab strip
-  is left-packed and clips its last tab at 390px (four tabs measure 401px of content in a 390px screen, so
-  the strip centres its tabs and wraps rather than scrolling, which nobody would find, and it pads top and
-  bottom equally — a bar padded 10px top / 0 bottom reads as *the tabs are not centred*, which is exactly
-  what was reported twice); and the models page cannot read settings from a remote origin at all, so the
-  layer hides that failure card — Retry included, it can never work — and puts a line in its place pointing
-  at the desktop window. `mobile.js` is injected before `</head>`, which is why it can catch a modal before
-  the first paint.
-- **Never insert a node into React's subtree from the mobile layer.** The models note was first written as a
-  `<p>` inserted after the failed card. React does not remove foreign nodes, so after switching to another
-  settings section the note was still there: every section showed the same sentence, which a reader reports
-  as "I cannot switch sections any more". The layer now only sets an **attribute** on the card (whose value
-  is the localised sentence) and `mobile.css` renders it with `content: attr(…)` while hiding the card's own
-  children. Attributes are not React's business, and a section switch replaces the node, so the mark leaves
-  with it — plus a retraction path for the case where React reuses the node for healthy content.
-- **`vh` units are device pixels under a CSS `zoom`.** `dsh-zoom` can put `zoom: 1.06` on the page, and
-  `100dvh` then resolves to 844 CSS px *rendered as 895 device px*: a centred full-screen sheet overflows
-  25px at the top and the bottom, which is what covered the tab strip's glyphs and made its upper half
-  untappable. Size full-screen layers from their container (`100%` of an `inset: 0` overlay) and never in
-  `vh`/`vw` when the plugin can zoom the document. This is also why a headless phone run must pass the same
-  `--zooms` the plugin applies: at zoom 1 the bug does not exist.
-- **A phone link must survive a restart, so the tunnel outlives dsh.** A Cloudflare quick tunnel picks a
-  random hostname per process, so the link (which *is* the credential) would change on every restart and the
-  reader would re-scan the QR code each time. The desktop shell's answer is ported here: spawn cloudflared
-  **detached** with its output in `<DSH_HOME>/dsh-remote-tunnel.log` (a pipe breaks the moment dsh exits, and
-  cloudflared dying on a write error is the churn this avoids), record `{tunnelUrl, tunnelPid,
-  cloudflaredExe, target}` in `<DSH_HOME>/dsh-remote-session.json`, and on the next start **adopt** that
-  tunnel when the record agrees with this run and the tunnel still answers for the current token. One probe
-  covers both a dead process and a tunnel whose target port is gone, which is stronger than trusting a pid
-  (recyclable) and is why adoption is allowed to fail: a link that answers 502 is worse than a new one.
-  `disable()` is the only path that kills the tunnel and forgets the session; unload only stops supervising.
-  Ports stay remembered for the same reason — the tunnel's target is fixed at spawn.
-- **`[class*="_nav"]` also matches `_navList`.** CSS-modules substrings are not names: a rule written for
-  the settings nav bar silently padded the tab *list*, which is why its pills sat at the bottom of the bar
-  and looked off-centre no matter how the alignment was set. Scope bar rules with `:has(> [class*="_nav"])`
-  or a `>` step, and when a measurement refuses to match the CSS you wrote, suspect your own selector
-  before the browser. The same trap exists for `_headerActions` (which also matches the sidebar's), already
-  noted for the session header.
-- **Reproduce the phone's origin instead of guessing what a phone does.** `shot.mjs --browser-arg` exists
-  for this: point the URL at a fake host and let the browser map it to the proxy
-  (`--browser-arg "--host-resolver-rules=MAP phone.test 127.0.0.1"` plus `--browser-arg "--no-proxy-server"`,
-  or the machine's HTTP proxy swallows the fake host). It matters because **the proxy always rewrites `Host`
-  to the loopback authority** (`headers.host = upstream().authority`), so the server cannot tell the two
-  apart — dsh decides the settings scope from the client's own `location.hostname`. That is why a loopback
-  run shows a working models page and a phone-origin run shows
-  `加载提供商目录失败: settings are unavailable in this browser`: upstream's models page fails its load when
-  the settings "describe face" has no view (`mirrored.view === void 0`), which is exactly what a remote
-  transport gets. **Never make a remote page look like loopback to fix that** — the same scope is what keeps
-  a link-holder from rewriting host settings and API keys. Explain it in the layer; nothing else.
-- **The official app's own dsh is inside `app.asar`.** When a fix must target the build the phone actually
-  runs (hashes and local-name prefixes differ per build), read it without Electron:
-  `node tools/visual/asar.mjs <app.asar> --list|--cat|--grep <text>`. `--grep` names the packed file that
-  carries a string — that is how the settings nav was found in `dsh-client-ui-settings-general` and the
-  failure wording in `dsh-client-ui-settings-models`.
-- **A feature may need something neither app ships, and the reader must not be sent into a config
-  file.** cloudflared is the case that bit: tunnel mode spawns it, the shell bundles one beside its node,
-  the official desktop app bundles nothing, and it is usually not on PATH either. So `findCloudflared`
-  searches the setting, the running runtime's directory, `<dsh home>/../tunnel/`, every `PATH` entry and
-  the common Windows install locations, the panel names where it looked and takes a path, and the route
-  refuses a path with no file behind it. Keep the candidate list injectable (`cloudflaredCandidates`)
-  so the search is tested without a binary on the machine.
-- **A package's own routes must not collide with the remote proxy's project routes.** The proxy
-  forwards a request to dsh unless it claims it, so anything under the proxy's project prefixes is
-  invisible to the page. That is why the project browser lives under
-  `/dsh-remote/project/api/*` while this plugin's own API is `/dsh-remote/api/*`.
-- **The hub contract is two DOM-level facts, and both directions must stay optional** — no package
-  may assume the other exists.
-  - A feature publishes itself to `window.__dshFeatures[key] = { title, icon?, order, mount(host) }`
-    (`icon` is a 16×16 stroke SVG path for the nav row) and
-    declares `dsh.ui.feature` in its package.json (`key`, `order`, bilingual `title`/`summary`). The
-    key and the order must match in both places; `tests/hub-contract.test.mjs` fails if they drift.
-  - `mount(host)` is called again on every visit and the hub drops the DOM when you leave the page, so
-    it must rebuild from scratch (see `mountInline` in any feature's `client.js`).
-  - The hub page is a **list of rows plus a drill-down**, modelled on dsh's own Plugins page: one row per
-    feature (glyph, name, summary, chevron), clicking one opens it and puts a back control in the
-    head. It is deliberately *not* a left-hand nav rail — that reads as a second level of dsh's own
-    sidebar. The reader's drag order lives in `localStorage["dsh-features:nav-order"]` (an array of
-    keys; new features append by their default order). Reordering must not remount the open panel:
-    the mount effect depends on the merged snapshot, and the open feature is looked up by key.
-  - The page head owns the **only** refresh control (rescan + remount re-fetches the panel's data).
-    A panel that has one of its own hides it while embedded — `inHub ? undefined : …` — and marks it
-    `data-dsh-refresh` so the hub can drop it either way. The hub additionally sweeps the mount point
-    (`stripDuplicateRefresh`: the marker, or a bare refresh label, localized or not) on every mutation,
-    because a
-    panel copy predating this rule must not be able to put two refresh buttons on the page. Keep the
-    standalone floating panel's button: without the hub it is the only refresh.
-  - Nothing a panel or the hub shows may contain an em dash — `tests/hub-contract.test.mjs` fails on
-    one in any non-comment line. Comment prose is exempt.
-  - The six `client.css` files share **one byte-identical block** (everything up to the toast rule;
-    only per-package tails differ) whose metrics mirror the official plugin page and settings form —
-    the tokens were extracted from `dsh-client-ui-plugin-manager` and `dsh-client-ui-primitives`
-    (14px/500 row titles, 13px/18px tertiary subtitles, hairline `0.5px` outlines, 32px buttons,
-    the 36×20 switch, brand-token accent). Row text never breaks mid-word (`overflow-wrap: anywhere`
-    is banned): subtitles clamp to two lines and keep the full string on the row's `title` tooltip.
-    A list row is **one card per entry** — the same hairline stroke, `12px` radius, `12px 14px` padding
-    and 8px rhythm the hub draws for its own rows — and `.row .row-sub` holds a two-line slot, so every
-    entry in a list is one height whatever each description's length.
-    `tests/hub-contract.test.mjs` pins the card's metrics and the hub's, so the two cannot drift apart.
-    A read-only value that sits inside a row of controls is a **badge in the same box as those controls**
-    (`dsh-zoom`'s `.level`: 32px, hairline stroke, tinted fill, tabular digits) — bare text beside a
-    button reads as a stray number, which is what 106% looked like next to 重置为 100%. The badge keeps
-    the filled half of the control language so it cannot be mistaken for a button that does nothing.
-  - `tests/panel-embed.test.mjs` boots every panel's script in a DOM stub for both directions (hub
-    present and absent). Its stubs are load-bearing: panels append with `child instanceof Node`, read
-    `panel.hidden`/`element.id` as *properties* (the `hidden` and `id` attributes are reflected), and
-    the hub sweeps through `querySelectorAll` + `MutationObserver`. Feeding them a thin `{ ok: true }`
-    payload makes the render throw, and then every "no refresh button here" assertion passes
-    vacuously — so each package declares its real payload shape (see `PAYLOADS` there).
-  - `tests/mobile-layer.test.mjs` does the same for `dsh-remote`'s browser half, which only ever runs on
-    a phone: a settings sheet from a remote origin, where upstream's provider catalog fails. A DOM stub
-    is never the real thing — it has to answer `textContent` by aggregation, expose `parentElement` as
-    well as `parent`, and match `[data-x]` presence selectors, or the layer's own guards silently pass
-    and the test asserts nothing. Both of those bit while writing it.
-  - A feature probes `GET /dsh-features/api/status` at boot and **skips its floating panel when the
-    hub answers**. Without the hub (bare dsh, or the package uninstalled) the launcher must still be
-    built exactly as before — that path is what the panels were originally written for.
-  - The hub hides `#dsh-launchers` from its own stylesheet. Do not "fix" a feature by re-showing it.
-  - **Every hub page class is prefixed `hub-`, and no panel may use that prefix.** A feature is mounted
-    *inside* `#dsh-features-root`, so the scope id on the hub's rules does not keep them out of the
-    mounted panel: a hub `#dsh-features-root .row` matched a panel's `.row` and handed it the hub's card
-    border, `padding: 12px 14px` and `user-select: none` (the panel's own `.row` overrode only the
-    padding, so the border stayed and the sub-page looked boxed and misaligned). Same for `head`,
-    `row-name` and `note`, and for a bare element selector such as `#dsh-features-root h1` or
-    `#dsh-features-root *`. `tests/hub-contract.test.mjs` now reads every selector in the hub's
-    stylesheet and fails on one that is neither an exemption (`#dsh-launchers`, the root itself) nor
-    carries a `hub-` class. Corollary for both sides: a row sits on the same gutter as its page's own
-    buttons — no negative horizontal margin, which is what pushed panel rows 8px outside the hub's head
-    controls — and since a row is a card, its stroke is what the eye lines up against the head's back and
-    refresh controls. Card geometry lives in the shared block, so all six panels move together.
-- **The hub's client half is served from the row, not from a route.** `dsh.client` + `exports["./client"]`
-  is the whole wiring; the bundle URL, its revision and the boot-graph row are dsh's business. If the
-  entry does not appear, check `node --dump-config | grep features` (the row must be mounted) before
-  touching the bundle.
-- **Command registration is guarded** (a name clash degrades to a warning). A broken plugin row never
-  stops dsh from booting: an import failure, a throw while the module evaluates, a throw from `apply`,
-  and an unresolvable entry in `dsh.profile.bundles` each print `warning: N entries did not activate`
-  and the boot continues (verified on dsh 0.2.0-rc.1 and rc.2, 2026-10-10). Only the seven ids in
-  `dsh-app-boot`'s `requiredStartupEntryIds` (`agent-loop webserver modules connection
-  headless-runner acp sdk-jsonrpc-server`) are fatal, so never take one of those row ids.
-- **`readdir({ withFileTypes: true })` reports lstat, so a symlinked directory is not
-  `isDirectory()`.** Skill farms are usually one shared checkout linked into every agent tool, so any
-  directory scan must accept `isSymbolicLink()` too and follow it with `stat` before deciding. Getting
-  this wrong reports an empty source instead of an error; `cp` must pass `dereference: true` so the
-  managed root ends up with real files, not links into a foreign farm. This is what made the Import
-  skills dialog report that it found no skills while `~/.codex/skills` held ten skills.
-- Never log a remote link or token; `/dsh-remote/api/status` exists precisely so there is a
+**Installing and activating**
+
+- `package.json` must declare `dsh.bundle.patch`. Without it `dsh plugin add` installs the package as a
+  plain dependency and mounts no layer, and the symptom is silence, not an error. `--dump-config` is how
+  you catch it.
+- A broken row never stops dsh from booting, which is worse for an author than a crash: it costs that one
+  row and says almost nothing. An import failure, a throw while the module evaluates, a throw from
+  `apply`, and an unresolvable entry in `dsh.profile.bundles` each print one
+  `warning: N entries did not activate` and the boot carries on (measured on dsh 0.2.0-rc.1 and rc.2).
+  The only fatal ids are the seven in `dsh-app-boot`'s `requiredStartupEntryIds`
+  (`agent-loop webserver modules connection headless-runner acp sdk-jsonrpc-server`), so never take one
+  of those as a row id. Command names are first-come, first-served, and a clash degrades to a warning, so
+  registration is guarded: an exception from `apply` would take the tree down.
+- Verify in a sandbox before touching a real `DSH_HOME`. Plugins have no HMR, so a change needs a restart.
+
+**The browser halves**
+
+- Panels follow dsh's theme through its own tokens: `--dsw-alias-bg-base`, `-label-primary`,
+  `-label-caption`, `-border-l2`, `-interactive-bg-hover`, defined on `body` (light) and
+  `body[data-ds-dark-theme]` (dark) by `@deepseek-ai/dsh-client-ui-theme`. Write
+  `var(--dsw-..., <hardcoded fallback>)`, keep the fallback, and keep the `prefers-color-scheme` block
+  beside it so a shell without those tokens still looks right. Language comes from `navigator.language`,
+  deliberately not dsh's `locale`.
+- The browser halves share exactly three DOM-level things: the `#dsh-launchers` corner container, the
+  `--dsh-launcher-stack` custom property, and the `.dsh-launch` button class whose styles are duplicated
+  identically in every `client.css`. Panel styles are scoped under `#<package>-root`. Keep all three when
+  adding a package.
+- `[class*="_nav"]` also matches `_navList`. CSS-modules substrings are not names: a rule written for the
+  settings nav bar silently padded the tab *list*. Scope bar rules with `:has(> [class*="_nav"])` or a
+  `>` step, and when a measurement refuses to match the CSS you wrote, suspect your own selector first.
+  The same trap exists for `_headerActions`.
+- `vh` units are device pixels under a CSS `zoom` (dsh-zoom can put `zoom: 1.06` on the page), so a
+  centred full-screen sheet overflows top and bottom. Size full-screen layers from their container
+  (`100%` of an `inset: 0` overlay), never in `vh`/`vw`. This is also why a headless phone run must pass
+  the same `--zooms` the plugin applies.
+- `zoom` on `<html>` is capped by dsh's own chrome, and the cap is measured, not assumed. The factor
+  divides the layout viewport, and past `window height / sidebar requirement` the sidebar stack no longer
+  fits: the shell clips it and the document never scrolls, putting 设置 / 意见反馈 / 退出登录 and the
+  avatar menu out of reach. No constant expresses it (plugins add nav rows, a signed-in profile adds
+  footer rows, the rail needs a different height from the expanded sidebar), so `dsh-zoom/lib/client.js`
+  samples it: forcing an oversized zoom makes the sidebar column's `scrollHeight` report what the stack
+  needs in layout px. Restore the sampling zoom in the same task, and re-measure on resize and when the
+  sidebar mounts (the cap is read before it exists).
+- Anything the reader arranges belongs on the host, not in browser storage. The hub's feature order lived
+  in `localStorage`, which is per-origin, so a drag on the desktop never reached the phone (the shell
+  opens dsh at `127.0.0.1:<port>`, the phone reaches it through the proxy at the tunnel's origin). It is
+  written to `<DSH_HOME>/dsh-features.json` behind `POST /dsh-features/api/order` with `localStorage` kept
+  only as the first-frame cache. dsh's own client store has the same trap.
+
+**The hub contract** (two DOM-level facts, both directions optional: no package may assume the other
+exists)
+
+- A feature publishes `window.__dshFeatures[key] = { title, icon?, order, mount(host) }` (`icon` is a
+  16×16 stroke SVG path for the nav row) and declares `dsh.ui.feature` in its package.json (`key`,
+  `order`, bilingual `title`/`summary`). The key and the order must match in both places, and
+  `tests/hub-contract.test.mjs` fails if they drift.
+- `mount(host)` is called again on every visit and the hub drops the DOM when you leave the page, so it
+  must rebuild from scratch (see `mountInline`).
+- The hub page is a list of rows plus a drill-down, modelled on dsh's own Plugins page, deliberately not
+  a left-hand nav rail (that reads as a second level of dsh's own sidebar).
+- The page head owns the only refresh control. A panel hides its own while embedded (`inHub ? undefined :
+  ...`) and marks it `data-dsh-refresh`; the hub also sweeps the mount point for a stray refresh,
+  because a panel copy that predates the rule must not be able to show two. Keep the standalone floating
+  panel's button: without the hub it is the only refresh.
+- Nothing a panel or the hub shows may contain an em dash. `tests/hub-contract.test.mjs` fails on one in
+  any non-comment line; comment prose is exempt. That test also pins the row and card metrics (one card
+  per entry, the hub's gutter and the shared panel CSS block, byte-identical across the panels except for
+  the per-package tails, 14px/500 titles, 13px/18px subtitles, 32px buttons, the 36×20 switch, two-line
+  subtitle clamps with the full string on the row's `title` tooltip, and no `overflow-wrap: anywhere`), so
+  read it before changing a row's look. A read-only value inside a row of controls is a badge in the same
+  box as those controls (dsh-zoom's `.level`), never bare text beside a button.
+- Every hub page class is prefixed `hub-`, and no panel may use that prefix: a feature is mounted inside
+  `#dsh-features-root`, so the hub's scope id does not keep its rules out of the panel. The contract test
+  reads every selector in the hub's stylesheet and fails on one that neither carries a `hub-` class nor is
+  an exemption (`#dsh-launchers`, the root itself). A row sits on the same gutter as its page's own
+  buttons, with no negative horizontal margin.
+- A feature probes `GET /dsh-features/api/status` at boot and skips its floating panel when the hub
+  answers. Without the hub (bare dsh, or the package uninstalled) the launcher must be built exactly as
+  before. The hub hides `#dsh-launchers` from its own stylesheet; do not "fix" a feature by re-showing it.
+- The hub's client half is served from the row, not from a route: `dsh.client` + `exports["./client"]` is
+  the whole wiring. If the entry does not appear, check `node --dump-config | grep features`.
+
+**The phone (dsh-remote)**
+
+- A feature may need something neither app ships, and the reader must not be sent into a config file.
+  cloudflared is the case: tunnel mode spawns it, the shell bundles one beside its node, the official
+  desktop app bundles nothing, and it is usually not on PATH. `findCloudflared` searches the setting, the
+  running runtime's directory, `<dsh home>/../tunnel/`, every `PATH` entry and the common Windows install
+  locations, and the panel names where it looked and takes a path. Keep the candidate list injectable
+  (`cloudflaredCandidates`) so the search is tested without a binary on the machine.
+- A phone link must survive a restart, so the tunnel outlives dsh. A Cloudflare quick tunnel picks a
+  random hostname per process, so cloudflared is spawned **detached** with its output in
+  `<DSH_HOME>/dsh-remote-tunnel.log` (a pipe breaks the moment dsh exits, and cloudflared dying on a write
+  error is exactly the churn this avoids), with `{tunnelUrl, tunnelPid, cloudflaredExe, target}` recorded
+  in `<DSH_HOME>/dsh-remote-session.json`. The next start **adopts** that tunnel when the record agrees
+  with this run and the tunnel still answers for the current token; one probe covers both a dead process
+  and a tunnel whose target port is gone, which is stronger than trusting a pid (recyclable), and is why
+  adoption is allowed to fail (a link answering 502 is worse than a new one). `disable()` is the only path
+  that kills the tunnel and forgets the session; unload only stops supervising. Ports stay remembered for
+  the same reason.
+- The tailnet channel is a bind, and the address it binds is the whole design. `tailnet` mode
+  (`lib/tailnet.js`) reads this machine's Tailscale address out of `100.64.0.0/10` off the network
+  interfaces and binds **only** that address, so the link is stable across restarts and nothing is public.
+  `lanUrls()` therefore returns nothing unless the mode is `lan`: `lan` binds every interface, `tailnet`
+  binds one address and `tunnel` binds loopback, and a LAN link in either of the last two points at a port
+  that answers nothing. The MagicDNS name comes from `tailscale status --json` and is optional, so a
+  missing CLI costs the name and never the channel (`BackendState` is the only way to see a Windows
+  machine whose Tailscale was fully exited). `enable` refuses to fall back to every interface when there
+  is no address: a reader who chose a private channel did not choose to serve the LAN. Community plugins
+  use `tailscale serve` instead, which forces them to register a trusted host (dsh's browser fence rejects
+  the `<machine>.<tailnet>.ts.net` authority, so "the page opens but every request 403s") and to enable
+  HTTPS certificates; this proxy re-originates under loopback, so the tailnet name never reaches the fence
+  and neither is needed.
+- A package's own routes must not collide with the remote proxy's project routes. The proxy forwards a
+  request to dsh unless it claims it, so anything under the proxy's project prefixes is invisible to the
+  page. That is why the project browser lives under `/dsh-remote/project/api/*` while the plugin's own API
+  is `/dsh-remote/api/*`.
+- Never log a remote link or token. `/dsh-remote/api/status` exists precisely so there is a
   credential-free status.
-- **A plugin can read the harness's own logs in-process, and that is the only way on the official
-  app.** `ctx.logger` is cordis's logger service; `ctx.logger.exporter({ levels: { default: 3 },
-  export })` registers a sink that receives every record from every module (`dsh-app-boot` registers
-  one itself for its startup audit), and `ctx.logger.buffer` holds the service's own last 1000
-  records, which is the boot history if it is snapshotted at attach time. `dsh-doctor` is built on
-  this. Two limits worth knowing before designing around it: the loader logs each row's
-  `apply`/`unload` and import/config errors through the logger (name `loader`), but the
+- The phone gets a rewritten page, so its fixes live in the proxy's layer, never in dsh. Three rules are
+  there because upstream will not change: the preview notice is re-shown on every remote load (upstream
+  keeps its acknowledgement in a memory-mode settings scope for remote transports, so `mobile.js` clicks
+  its Continue control and hides its portal); the settings sheet's tab strip is left-packed and clips its
+  last tab at 390px (four tabs measure 401px of content in a 390px screen, so the strip centres and wraps
+  rather than scrolling, and pads top and bottom equally, since 10px top / 0 bottom reads as "the tabs are
+  not centred"); and the models page cannot read settings from a remote origin at all, so the layer hides
+  that failure card, Retry included, and puts a line in its place pointing at the desktop window.
+  `mobile.js` is injected before `</head>`, which is how it catches a modal before the first paint.
+- Never insert a node into React's subtree from the mobile layer. The models note was first a `<p>` after
+  the failed card, and React does not remove foreign nodes, so every settings section showed the same
+  sentence and a reader reports it as "I cannot switch sections any more". The layer now only sets an
+  **attribute** on the card (the localised sentence) and `mobile.css` renders it with `content: attr(...)`
+  while hiding the card's own children. Attributes are not React's business, and a section switch replaces
+  the node, so the mark leaves with it, plus a retraction path for when React reuses the node.
+- Reproduce the phone's origin instead of guessing what a phone does. **The proxy always rewrites `Host`
+  to the loopback authority**, so the server cannot tell the two apart: dsh decides the settings scope from
+  the client's own `location.hostname`. A loopback run shows a working models page and a phone-origin run
+  shows `加载提供商目录失败: settings are unavailable in this browser`, which is exactly what a remote
+  transport gets. **Never make a remote page look like loopback to fix that**: the same scope is what stops
+  a link-holder from rewriting host settings and API keys. Explain it in the layer; nothing else.
+
+**Diagnostics and the runtime**
+
+- A plugin can read the harness's own logs in-process, and that is the only way on the official app.
+  `ctx.logger` is cordis's logger service: `ctx.logger.exporter({ levels: { default: 3 }, export })`
+  registers a sink that receives every record from every module, and `ctx.logger.buffer` holds the
+  service's own last 1000 records. Two limits matter before designing around it: the loader logs each
+  row's `apply`/`unload` and its import/config errors through the logger (name `loader`), but the
   `N entries did not activate`, `startup failed` and `skipping profile bundle` lines are
   `process.stderr.write` calls and a thrown `StartupError` inside `dsh-app-boot`, so no exporter sees
-  them; and the official app writes no log file at all (only `~/.dsh/logs/startup-*.log` when a
-  required row fails, and a crash report under `%APPDATA%\@deepseek-ai\dsh-desktop\logs\`).
-- **"Did my row load?" is answerable in-process**: `ctx.get("loader").entries()` yields every row
-  with its `id`, `options` (the module `name`), `disabled`, and `fiber.state` — the numeric
-  `FiberState` (`0 pending, 1 loading, 2 active, 3 failed, 4 disposed, 5 unloading`, from
-  `cordis/src/fiber.ts`). A disabled row has no fiber at all, so its state cannot be read the same
-  way. This is the half of the picture the ready line cannot give, and it is what `dsh-doctor`'s row
-  table shows.
+  them; and the official app writes no log file at all, only `~/.dsh/logs/startup-*.log` when a required
+  row fails, plus a crash report under `%APPDATA%\@deepseek-ai\dsh-desktop\logs\`. `dsh-doctor` is built
+  on this.
+- "Did my row load?" is answerable in-process: `ctx.get("loader").entries()` yields every row with its
+  `id`, `options` (the module `name`), `disabled` and `fiber.state`, the numeric `FiberState`
+  (`0 pending, 1 loading, 2 active, 3 failed, 4 disposed, 5 unloading`). A disabled row has no fiber, so
+  its state cannot be read the same way. This is the half the ready line cannot give.
+- The official app's own dsh is inside `app.asar`. When a fix must target the build the phone actually
+  runs (hashes and local-name prefixes differ per build), read it without Electron:
+  `node tools/visual/asar.mjs <app.asar> --list|--cat|--grep <text>`. `--grep` names the packed file that
+  carries a string, which is how the settings nav and the failure wording were found.
+- `readdir({ withFileTypes: true })` reports lstat, so a symlinked directory is not `isDirectory()`. Skill
+  farms are usually one shared checkout linked into every agent tool, so any directory scan must accept
+  `isSymbolicLink()` too and follow it with `stat`, and `cp` must pass `dereference: true`. Getting this
+  wrong reports an empty source instead of an error.
 
 ## Test
 
-**The whole set running together has a reusable sandbox**: `node tools/sandbox/sandbox.mjs up` creates
-a real dsh home at `.sandbox/` (gitignored), installs all eight packages from this working tree as
-`link:` installs, boots it and prints the ready-line URL with its token. After that first run, a code
-change needs only `up --restart` — the profile and the packages stay. `url` prints the running URL,
-`down` stops it. Two rules are built into it because both were learned the hard way: it forces
+The whole set running together has a reusable sandbox: `node tools/sandbox/sandbox.mjs up` creates a real
+dsh home at `.sandbox/` (gitignored), installs all eight packages from this working tree as `link:`
+installs, boots it and prints the ready-line URL with its token. After that first run a code change needs
+only `up --restart`; `url` prints the running URL and `down` stops it. Two guards are built in: it forces
 `DSH_HOME` on every command it runs (without it, `dsh plugin add` writes into the user's real `~/.dsh`
-silently and creates a profile there), and after installing it re-reads the profile manifest and fails
-if the packages are not in both `dependencies` and `dsh.profile.bundles`. It also refuses a home outside
-this repository unless `--allow-foreign-home` is passed. Never point it at `~/.dsh`.
+silently and creates a profile there), and after installing it re-reads the profile manifest and fails if
+the packages are not in both `dependencies` and `dsh.profile.bundles`. It refuses a home outside this
+repository unless `--allow-foreign-home` is passed; never point it at `~/.dsh`.
+
+Offline suites need `@deepseek-ai/*` (and `yaml` for dsh-mcp) to resolve. Run them from an installed copy,
+or make the packages resolvable in the package's `node_modules`: they are published on npm under the
+`next` tag at the version the official app ships (0.2.0-rc.2), so
+`npm i --no-save @deepseek-ai/dsh-atomic-write@next @deepseek-ai/dsh-llm@next
+@deepseek-ai/dsh-session-format-v3-to-v4@next` is enough, and junctions into a runtime also work.
+
+```bash
+cd <name> && node tests/<name>.test.mjs
+```
+
+`dsh-features` needs no runtime: its suite evaluates the browser bundle in a `vm` with a minimal React
+(state/effect/ref), so the sidebar slot, its order, the skin and the `mount` hand-off are asserted without
+a browser. `dsh-init` needs `@deepseek-ai/dsh-llm` for the module itself and
+`@deepseek-ai/dsh-session-format-v3-to-v4` for the admission probe; leave the second out and the suite
+prints a note and skips that one check.
+
+The cross-package agreement cannot live in a package suite (an installed copy has no siblings), so it is
+checked from the repository root:
+
+```bash
+node tests/hub-contract.test.mjs    # the hub agreement, the shared row metrics, no em dash, the CSS prefix
+node tests/manifest.test.mjs        # the directory name is the package name, every import declared
+node tests/host-half.test.mjs       # every host half mounts; its routes, assets and command are legal
+node tests/panel-embed.test.mjs     # every panel boots with and without the hub
+node tests/mobile-layer.test.mjs    # the phone layer's DOM behaviour
+```
+
+- `manifest.test.mjs` catches the package that imports something it never declared: it resolves here
+  because the profile farm happens to carry it, and then fails on a user's machine as one missing row.
+  Browser halves are exempt (a client bundle resolves dsh's own seed words, not npm packages).
+- `host-half.test.mjs` mounts every `lib/index.js` against a fake context the way dsh would and then calls
+  what it registered: the `commands` definition, the single `webServer` prefix (which must equal
+  `/<package>`), the `webserver/index-inject` entries (one script in the body, one stylesheet in the head,
+  both served by that prefix), those assets fetched back byte-for-byte, and the two negative cases (a path
+  it does not know under its own prefix answers its own JSON 404, a path outside it is not answered at
+  all). Its fake must expose services as context **properties** as well as through `ctx.get()`, because
+  that is how every host half calls them.
+- `panel-embed.test.mjs` boots every panel's script in a DOM stub for both directions. Its stubs are
+  load-bearing: panels append with `child instanceof Node`, read `panel.hidden`/`element.id` as
+  properties, and the hub sweeps through `querySelectorAll` + `MutationObserver`. Feeding them a thin
+  `{ ok: true }` payload makes the render throw, and then every "no refresh button here" assertion passes
+  vacuously, so each package declares its real payload shape (see `PAYLOADS`).
+- `mobile-layer.test.mjs` does the same for `dsh-remote`'s browser half, which only runs on a phone. A DOM
+  stub has to aggregate `textContent`, expose `parentElement` as well as `parent`, and match `[data-x]`
+  presence selectors, or the layer's own guards silently pass and the test asserts nothing.
+
+Two things are worth re-checking after any change: all eight installed **together** still boot
+(`--dump-config` then `web --port N --no-open`, and look for the ready line), and dsh-remote's live suite
+(`node tests/remote-live.mjs <baseUrl> <proxyPort> <token>` against a sandbox with remote access on).
 
 ### The phone path is tested in a browser sized like a phone
 
-`dsh-remote` has no honest offline test for its whole point — the rewritten page a phone gets — so it is
-driven through the **browser MCP against the running sandbox**, with the viewport resized to a phone.
-What the layer keys off is **width**, not the user agent (`mobile.js`: `matchMedia("(max-width: 700px)")`),
-so `browser_resize 390x844` *is* a phone environment for this purpose.
+`dsh-remote` has no honest offline test for its whole point (the rewritten page a phone gets), so it is
+driven through the browser MCP against the running sandbox, resized to a phone. The layer keys off
+**width**, not the user agent (`matchMedia("(max-width: 700px)")`), so `browser_resize 390x844` *is* a
+phone environment.
 
-1. **Enable remote in LAN mode** on the sandbox and read the proxy URL from the answer — never print it
-   (`lanUrls[0]` and `snapshot.link` carry the token, which is the only credential):
+1. Enable remote in **LAN** mode on the sandbox and read the proxy URL from the answer. Never print it:
+   `lanUrls[0]` and `snapshot.link` carry the token, which is the only credential. A tunnel publishes the
+   harness to the internet and is the user's decision, never a test fixture.
 
    ```bash
    TOKEN=$(node -e "console.log(require('./.sandbox/sandbox.state.json').token)")
@@ -285,135 +292,45 @@ so `browser_resize 390x844` *is* a phone environment for this purpose.
      "http://127.0.0.1:25499/dsh-remote/api/remote?token=$TOKEN"
    ```
 
-   LAN only. A tunnel publishes the harness to the internet (the link is the credential) and is the
-   user's decision, never a test fixture.
-2. **Resize, then open the proxy origin** with its token (`browser_resize 390x844`, then
-   `browser_navigate` to `http://127.0.0.1:<proxyPort>/?token=<proxy token>`).
-3. **Enter a session that has content before asserting anything.** The layer is progressive by design:
-   every step that cannot find its anchor gives up silently, and the blank new-session page has no
-   `对话 / 轨迹` tab list and no composer stats row. Send one message (or open an existing session) and
-   wait for the view.
-4. **What it must show**, asserted through `browser_evaluate` (and a screenshot as the record):
+2. Resize to 390x844, then open the proxy origin with its token.
+3. Enter a session that has content before asserting anything. The layer is progressive: every step that
+   cannot find its anchor gives up silently, and the blank new-session page has no `对话 / 轨迹` tab list
+   and no composer stats row. Send one message or open an existing session and wait for the view.
+4. What it must show, asserted through `browser_evaluate` (and a screenshot as the record):
    `html[data-dshmobile-enhanced]`; a tab strip reading `对话 / 轨迹 / 项目 / 信息` (the last two are the
    layer's, in that order); `[data-composer-stats]` present but `display: none` (the info tab took it
-   over, `mobile.css` hides the original); the injected attach button on the composer's tool row.
-5. **Known and expected: `/manifest.webmanifest` answers 403** on the proxy origin, which is the whole
-   of the phone page's console noise. dsh serves that file unauthenticated; the proxy gates every path
-   on its own cookie, and the browser fetches a manifest **without credentials**. It costs the PWA
-   metadata ("add to home screen" gets no name or icon), not the chat. Do not "fix" it by loosening the
-   proxy's gate as a side effect of a test run; that is an auth policy decision.
-6. **Clean up**: disable remote and rotate the token, then confirm the port is free. A LAN listener left
-   running on a test machine is the kind of thing that outlives the test.
+   over); the injected attach button on the composer's tool row.
+5. Known and expected: `/manifest.webmanifest` answers 403 on the proxy origin, which is the whole of the
+   phone page's console noise. dsh serves that file unauthenticated, the proxy gates every path on its own
+   cookie, and the browser fetches a manifest **without credentials**. It costs the PWA metadata, not the
+   chat. Do not "fix" it by loosening the proxy's gate as a side effect of a test run.
+6. Clean up: disable remote and rotate the token, then confirm the port is free. A LAN listener left
+   running on a test machine outlives the test.
 
    ```bash
    for action in disable reset-token; do curl -s -X POST -H "content-type: application/json" \
      -d "{\"action\":\"$action\"}" "http://127.0.0.1:25499/dsh-remote/api/remote?token=$TOKEN"; done
    ```
 
-For stills rather than interaction, `tools/visual/shot.mjs --sizes 390x844` with
-`--css dsh-remote/lib/assets/mobile.css --script dsh-remote/lib/assets/mobile.js` reproduces the phone
-look against fixtures, and `--browser-arg "--host-resolver-rules=MAP phone.test 127.0.0.1"` shoots the
-page from a phone *origin* (dsh scopes client settings by `location.hostname`, which the proxy rewrites,
-so the server cannot be asked which origin it thinks it is).
+### Look at the UI, do not infer it
 
-Offline suites need `@deepseek-ai/*` (and `yaml` for dsh-mcp) to resolve. Either run them from an
-installed copy, or create junctions in the package's `node_modules` pointing at the runtime's
-packages. Then:
+`tools/visual/shot.mjs` screenshots the real dsh web UI (headless Edge over CDP) at any viewport size,
+`zoom` and host attribute, next to a geometry report; its README carries the flags and the measurement
+facts. Use it for anything a stylesheet can get wrong, because a computed style that looks right on a panel
+that renders wrong is the normal failure here and the suites cannot see it. Point it at the sandbox, never
+at a running app. The parts worth knowing before opening that README: `--panel <pkg>` renders a panel
+inside a copy of the hub page against `tools/visual/fixtures/<pkg>.json`, `--eval` injects the state you
+need to reproduce, `--css` previews a fix before it is written, and `--ask` prints JSON from the real DOM,
+which is how a rule gets written against measurement instead of a guess.
 
-```bash
-cd <name> && node tests/<name>.test.mjs
-```
-
-`dsh-features` needs no runtime at all: its suite evaluates the browser bundle in a `vm` with a
-minimal React (state/effect/ref), so the sidebar slot, its order, the skin and the `mount` hand-off are
-asserted without a browser. `dsh-init` needs `@deepseek-ai/dsh-llm` for the module itself and, for the
-admission probe, `@deepseek-ai/dsh-session-format-v3-to-v4`; junction both and the probe runs, leave the
-second out and the suite prints a note and skips that one check instead of failing. The cross-package
-agreement cannot live in a package suite (an installed copy has no siblings), so it is checked from the
-repository root:
-
-```bash
-node tests/hub-contract.test.mjs
-node tests/manifest.test.mjs
-node tests/host-half.test.mjs
-```
-
-`tests/host-half.test.mjs` mounts every `lib/index.js` against a fake context the way dsh would, then
-calls what it registered: the `commands` definition (legal name, description, handler, no name two
-packages share), the single `webServer` prefix (it must equal `/<package>`), the `webserver/index-inject`
-entries (one script in the body and one stylesheet in the head, both served by that prefix), those
-assets fetched back byte-for-byte against `lib/`, and the two negative cases (a path it does not know
-under its own prefix answers its own JSON 404, a path outside it is not answered at all). This is the
-layer no package suite touched, and the layer where a mistake is silent: a wrong prefix or a
-half-registered row only costs that plugin's features, and dsh still boots. Its fake must expose
-services as context **properties** as well as through `ctx.get()`, because that is how every host half
-calls them (`ctx.commands.register`). A negative fixture is built into the suite's history: changing
-one package's `ROUTE_PREFIX` makes exactly three checks fail.
-
-`tests/manifest.test.mjs` is the one that reads the manifests: the directory name must equal the package
-name, and every bare import in a host half must be declared in `dependencies` or `peerDependencies`. A
-host module that imports something undeclared still loads here, because the profile's `node_modules` farm
-happens to carry it, and then fails on a user's machine as one missing row. `dsh-features` was importing
-`@deepseek-ai/dsh-atomic-write` with no declaration until this check went in. Browser halves are exempt:
-a client bundle is a classic script that resolves dsh's own seed words, not npm packages.
-
-Verification is per package and the totals are in the root README. Two things are worth re-checking
-after any change: all six installed **together** still boot (`--dump-config` then `web --port N
---no-open`, and look for the ready line), and dsh-remote's live suite
-(`node tests/remote-live.mjs <baseUrl> <proxyPort> <token>` against a sandbox with remote access on).
-
-## Look at the UI, do not infer it
-
-`tools/visual/shot.mjs` screenshots the real dsh web UI (headless Edge over CDP) at any combination of
-viewport size, `zoom` and host attribute, next to a geometry report — see `tools/visual/README.md`.
-Use it for anything a stylesheet can get wrong; a computed style that looks right on a panel that
-renders wrong is the normal failure here, and it is invisible in the suites.
-
-```bash
-RT=/f/DSHDesktop/runtime/windows-x64
-"$RT/node.exe" "$RT/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js" web --port 7411 --no-open   # token on stdout
-"$RT/node.exe" tools/visual/shot.mjs --url "http://127.0.0.1:7411/?token=<t>" --sizes 1400x900 --zooms 1,2
-```
-
-It never touches a running app: the sandbox instance above answers with dsh's own chrome, which is what
-most of these bugs are about. `--eval` injects the state you need to reproduce (extra footer rows, a
-dialog, a collapsed sidebar), `--css` previews a fix before it is written, `--tree` prints the sidebar's
-subtree with layout heights.
-
-For a panel there is nothing to install either: `--panel dsh-skills` (any package in this repo) renders it
-*inside a copy of the hub page* — the hub's own stylesheet, its head with back / title / package chip /
-refresh, and a `hub-stage[data-view="feature"]` for the panel to mount into — with its routes answered
-from `tools/visual/fixtures/<pkg>.json` and `--theme dark|light`. That is how to see a list's look, its
-gutter against the head's controls, and whether every row is the same height, before touching an install.
-
-The phone is not a separate app — the proxy rewrites dsh's own page — so it is reproduced by shooting the
-sandbox at a phone viewport with that layer injected:
-
-```bash
-node tools/visual/shot.mjs --url "$URL" --sizes 390x844 --css dsh-remote/lib/assets/mobile.css      --script dsh-remote/lib/assets/mobile.js --theme dark      --eval "document.querySelector('[aria-label=\"设置\"]').click()"      --ask "(() => { const nav = document.querySelector('[class*=\"_navList\"]'); return nav.getBoundingClientRect().toJSON(); })()"
-```
-
-Better still, shoot the real thing: the running instance's proxy answers on its port with
-`?token=<token>` (read the token out of the plugin's settings file, never print it), and the deployed layer is
-already in the page — so a screenshot with no `--css`/`--script` is exactly what the phone shows. To see what
-a *phone origin* does, add the fake host (see the `--browser-arg` note above).
-
-`--ask` runs after `--eval`/`--click` and prints JSON, which is how a rule gets written against the real DOM
-instead of a guess; a browser or computer MCP driver works the same way when interactive poking is genuinely
-cheaper, but this scripted loop is repeatable and leaves the numbers behind. Panels and sheets open from
-`aria-label` labels (设置, 插件, 功能管理) — at a phone viewport the trigger is a 36px icon with no text, so a
-text click finds nothing. What this loop cannot show is iOS's own viewport behaviour (the toolbar collapsing
-moves the visual viewport): say so instead of claiming a phone-side fix is verified.
-
-Two numbers decide most zoom work, and both are easy to misread: `getBoundingClientRect` reports
-**viewport** px while `scrollHeight`/`clientHeight` report **layout** px (at zoom 2 a 50 px row reports
-100), and dsh **auto-collapses the sidebar to a rail below 1024 px of viewport width** — measure the
-expanded sidebar at ≥ 1400 px wide or the answer is about a different sidebar.
+The phone is not a separate app (the proxy rewrites dsh's own page), so it is reproduced by shooting the
+sandbox at a phone viewport, or the running instance's proxy port with `?token=`, where the deployed layer
+is already in the page. Add `--browser-arg "--host-resolver-rules=MAP phone.test 127.0.0.1"` plus
+`--browser-arg "--no-proxy-server"` to shoot from a phone *origin*; without the second flag the machine's
+HTTP proxy swallows the fake host.
 
 ## Not here
 
 `dsh-desktop-kit`, the original single-package version, was retired on 2026-10-10 and removed from the
-DSHPlugin working tree; this repository is the only line still in development. Language and theme
-following, page-error reporting and the `/init` fallback were dropped in the split, and `/init` has
-since come back as its own package. The retired package is recoverable from its tag
-`archive/kit-final` in the DSHPlugin repository.
+DSHPlugin working tree; it is recoverable from the tag `archive/kit-final` there. Page-error reporting and
+the `/kit` command were dropped in the split and never came back.

@@ -14,7 +14,7 @@ Small independent [deepseek-harness](https://github.com/deepseek-ai/deepseek-har
 | `dsh-doctor` | Debug this set of plugins: the harness's own log records read in-process, every row of the plugin tree with its activation state, and whichever log files exist | `/doctor` |
 | `dsh-zoom` | Page zoom with rebindable shortcuts | `/zoom` |
 | `dsh-notify` | Task reminders: in-page popup, bundled sounds, browser notification | `/notify` |
-| `dsh-remote` | Phone remote access: authenticated reverse proxy, QR link, optional Cloudflare tunnel, mobile UI rewrite, project browser | `/remote` |
+| `dsh-remote` | Phone remote access: authenticated reverse proxy, QR link, Tailscale tailnet / LAN / Cloudflare tunnel, mobile UI rewrite, project browser | `/remote` |
 | `dsh-init` | Write or update this workspace's `AGENTS.md`, the instruction file dsh loads into every session there | `/init` |
 
 Each one is a normal dsh plugin: it declares `dsh.bundle.patch`, so `dsh plugin add` mounts its layer automatically. They never import each other, so any subset works.
@@ -105,9 +105,9 @@ node tests/manifest.test.mjs              # repo-wide: the directory name, and e
 node tests/host-half.test.mjs             # repo-wide: every host half mounts, and its routes and command
 ```
 
-Offline suites: 88 (dsh-features) / 60 / 20 / 63 / 23 / 38 / 99 checks, plus 49 (dsh-init) and 279
-repo-wide contract checks, 78 cross-package panel checks, 7 mobile-layer checks, 17 manifest checks
-and 125 host-half checks.
+Each suite prints its own total, and the totals are deliberately not copied here: they change with every
+check added, and a stale count is worse than none. What matters is that all of them pass, per package and
+from the root.
 
 `dsh-features`' suite evaluates its browser half for real (a vm with a minimal React), so the
 sidebar slot, its order, the list, the drill-down and the mount hand-off are asserted without a
@@ -117,7 +117,7 @@ register and then do nothing stays caught. `panel-embed.test.mjs` runs all six f
 scripts in a DOM stub to prove none of them docks a corner button or a second refresh control while
 the hub is installed. `mobile-layer.test.mjs` does the same for the browser half of the phone layer,
 where a remote-origin settings page has to lose upstream's dead Retry.
-`tools/visual/` holds a screenshot harness for the UI work these numbers cannot see; see its README.
+`tools/visual/` holds a screenshot harness for the UI work the suites cannot see; see its README.
 `dsh-remote` also ships a live suite (`tests/remote-live.mjs`) that needs a sandbox instance with
 remote access enabled.
 
