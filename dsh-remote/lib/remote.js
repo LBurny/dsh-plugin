@@ -263,7 +263,10 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 		// some carriers, which shows up as a tunnel that dies mid-session.
 		let sink;
 		try {
-			sink = openSync(logPath, "a");
+			// Truncated, not appended: the URL is read back from this file, and a previous
+			// session's banner would still be in an appended tail — the poll would then
+			// report the hostname of a tunnel that no longer exists.
+			sink = openSync(logPath, "w");
 		} catch {
 			sink = "ignore";
 		}

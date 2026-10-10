@@ -503,8 +503,8 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	// adopt next time: detached spawn, output to a file (a pipe would break on exit).
 	const remote = await readFile(new URL("../lib/remote.js", import.meta.url), "utf8");
 	check(
-		/detached: true/u.test(remote) && /openSync\(logPath/u.test(remote),
-		"the tunnel is spawned detached with a log file, so it outlives this process",
+		/detached: true/u.test(remote) && /openSync\(logPath, "w"\)/u.test(remote),
+		"the tunnel is spawned detached into a truncated log file, so it outlives us and its URL is this run's",
 		""
 	);
 	check(
