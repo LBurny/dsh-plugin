@@ -550,6 +550,16 @@
    * 让标签条盖住标题行。这里把面板列化——标签条与标题行各占一行、内容区
    * 自己滚（options 本就是滚动容器），并给标签条留出安全区，两行永不相叠。
    */
+  /*
+   * 设置弹窗标签条：手机截图里"通用设置/模型"在药丸内不居中。本机同版渲染下每个
+   * cell 贴合内容（实测 104/76/104/117px，内容恰好填满内边距框）看不出问题；上游
+   * 把 cell 做成等宽 flex（flex:1）时，内容贴左、药丸右侧一片空——用户手机上正是
+   * 这样。给 cell 加居中：贴合内容时是空操作，等宽时把图标与文字居中，两种形态都对。
+   */
+  [class*="_overlay"] [class*="_navCell"] {
+    justify-content: center;
+    text-align: center;
+  }
   [class*="_overlay"] [class*="_panel"] {
     display: flex;
     flex-direction: column;
