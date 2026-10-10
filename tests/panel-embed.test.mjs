@@ -6,7 +6,7 @@
  * embedded panel must not dock its floating corner button and must not add a
  * second refresh button. That behaviour lives in each panel's browser script,
  * which no package's own suite evaluates, so it is asserted here by running the
- * real `assets/panel.js` of every feature in a small DOM stub.
+ * real `assets/client.js` of every feature in a small DOM stub.
  *
  * Run from the repository root:
  *   node test/panel-embed.test.mjs

@@ -256,6 +256,16 @@ both source and published artifact, and `main` points straight at `lib/index.js`
 
 ## Test
 
+**The whole set running together has a reusable sandbox**: `node tools/sandbox/sandbox.mjs up` creates
+a real dsh home at `.sandbox/` (gitignored), installs all eight packages from this working tree as
+`link:` installs, boots it and prints the ready-line URL with its token. After that first run, a code
+change needs only `up --restart` — the profile and the packages stay. `url` prints the running URL,
+`down` stops it. Two rules are built into it because both were learned the hard way: it forces
+`DSH_HOME` on every command it runs (without it, `dsh plugin add` writes into the user's real `~/.dsh`
+silently and creates a profile there), and after installing it re-reads the profile manifest and fails
+if the packages are not in both `dependencies` and `dsh.profile.bundles`. It also refuses a home outside
+this repository unless `--allow-foreign-home` is passed. Never point it at `~/.dsh`.
+
 Offline suites need `@deepseek-ai/*` (and `yaml` for dsh-mcp) to resolve. Either run them from an
 installed copy, or create junctions in the package's `node_modules` pointing at the runtime's
 packages. Then:

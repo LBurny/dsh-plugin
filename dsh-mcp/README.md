@@ -44,7 +44,7 @@ hot-reloads the patch layer.
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
-| GET | `/dsh-mcp/panel.js` `/dsh-mcp/panel.css` | browser half |
+| GET | `/dsh-mcp/client.js` `/dsh-mcp/client.css` | browser half |
 | GET | `/dsh-mcp/api/mcp` | servers + importable sources + counts + patch path |
 | POST | `/dsh-mcp/api/mcp` | `upsert` · `toggle` · `delete` · `import` |
 

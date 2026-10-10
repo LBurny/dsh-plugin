@@ -79,7 +79,7 @@ remote-desktop key events still work.
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
-| GET | `/dsh-zoom/panel.js` `/dsh-zoom/panel.css` | browser half |
+| GET | `/dsh-zoom/client.js` `/dsh-zoom/client.css` | browser half |
 | GET | `/dsh-zoom/api/settings` | current settings + the settings file path |
 | POST | `/dsh-zoom/api/settings` | deep-merged settings patch |
 

@@ -28,9 +28,11 @@ no flag. Restart dsh afterwards — plugins have no HMR.
   Scheduled tasks (`10`), and the sidebar sorts that slot by `order`.
 - **A page that hosts the features.** A list of rows, one per installed feature plugin, laid out like
   dsh's own Plugins page: glyph, name, summary, chevron. **Clicking a row opens that feature's settings**
-  on the same page, with a back control in the head. Rows are **draggable into your own order**, kept
-  in `localStorage` (`dsh-features:nav-order`) — the same per-origin storage dsh itself uses for UI
-  preferences. **One refresh control exists at a time**, in the page head: it rescans the inventory
+  on the same page, with a back control in the head. Rows are **draggable into your own order**, and
+  that order belongs to the **host**, not to one browser: it is written through
+  `POST /dsh-features/api/order` into `<DSH_HOME>/dsh-features.json`, because the phone reaches the
+  same dsh through the proxy at a different origin and would never see an order kept in `localStorage`
+  (that stays only as the first frame's cache). **One refresh control exists at a time**, in the page head: it rescans the inventory
   and remounts the open feature, so embedded panels hide their own (and the hub sweeps away a
   leftover one from an older panel build). Below 620px the gutters tighten for the phone remote view.
   Features stay standalone — the hub calls into them.

@@ -601,7 +601,7 @@ window.__ModuleLoader__.load({
 					if (readNavOrder().length > 0) saveNavOrder(readNavOrder());
 					return;
 				}
-				if (served.join(" ") === navOrder.join(" ")) return;
+				if (served.join("\u0000") === navOrder.join("\u0000")) return;
 				writeNavOrder(served);
 				setNavOrder(served);
 			}, [snapshot.navOrder]);

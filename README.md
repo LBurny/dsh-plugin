@@ -120,6 +120,19 @@ where a remote-origin settings page has to lose upstream's dead Retry.
 `dsh-remote` also ships a live suite (`tests/remote-live.mjs`) that needs a sandbox instance with
 remote access enabled.
 
+For the whole set running together there is a reusable sandbox: one command brings up a real dsh with
+all eight packages installed from this working tree, and after the first run a code change only needs
+a restart. It lives in `.sandbox/` (gitignored, never committed, and it refuses to touch your own
+`~/.dsh`):
+
+```bash
+node tools/sandbox/sandbox.mjs up --restart   # reload the running instance
+node tools/sandbox/sandbox.mjs url            # its URL, token included
+node tools/sandbox/sandbox.mjs down           # stop it
+```
+
+See [tools/sandbox/README.md](tools/sandbox/README.md).
+
 ## License
 
 MIT. Sounds under `dsh-notify/lib/sounds/` come from opencode via DSHDesktop; the mobile assets under `dsh-remote/lib/assets/` are vendored from DSHDesktop.

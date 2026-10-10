@@ -50,7 +50,7 @@ Everything hangs off `/dsh-skills` and is protected by dsh's own origin gate.
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
-| GET | `/dsh-skills/panel.js` `/dsh-skills/panel.css` | browser half |
+| GET | `/dsh-skills/client.js` `/dsh-skills/client.css` | browser half |
 | GET | `/dsh-skills/api/skills` | skills + importable sources + counts |
 | POST | `/dsh-skills/api/skills` | `toggle` · `delete` · `import` · `import-zip` |
 | POST | `/dsh-skills/api/skills/zip` | ZIP import step 1: upload (≤64 MiB), get discovered skills + an upload id |

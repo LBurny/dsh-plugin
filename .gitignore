@@ -4,3 +4,7 @@ node_modules/
 *.tgz
 tools/visual/shots/
 tools/visual/browser-profile/
+
+# 可复用的本地沙箱（tools/sandbox）：一个完整的 dsh home，含 profile、会话与 pnpm 链接，
+# 只在本机使用，永不入库
+.sandbox/

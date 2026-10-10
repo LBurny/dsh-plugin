@@ -53,7 +53,7 @@ browser notification (needs permission once). Volume 0–1.
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
-| GET | `/dsh-notify/panel.js` `/dsh-notify/panel.css` | browser half |
+| GET | `/dsh-notify/client.js` `/dsh-notify/client.css` | browser half |
 | GET | `/dsh-notify/api/settings` | settings + the bundled sound list |
 | POST | `/dsh-notify/api/settings` | deep-merged settings patch |
 | GET | `/dsh-notify/api/events` | SSE reminder stream |

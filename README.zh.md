@@ -85,6 +85,16 @@ node tests/manifest.test.mjs              # 仓级：目录名即包名，裸导
 
 `dsh-features` 的套件会真跑它的浏览器端（vm 加极简 React 打桩），侧栏槽位、顺序、列表、点进、拖拽排序与挂载交接不用浏览器也能断言。`dsh-init` 的套件把运行时自己的会话格式 V4 准入跑在它注入的那条消息上，并用一个反例证明这个探针能失败，所以"注册成功却什么都不做"这个唯一的坑被钉住了。`panel-embed.test.mjs` 把六个功能面板的浏览器脚本放进 DOM 打桩里跑，证明装了基座时它们不挂浮动按钮，也不多出第二个刷新控件。`mobile-layer.test.mjs` 对手机增强层的浏览器端做同样的事：远端来源的设置页必须让上游那个永远不会成功的重试消失。`tools/visual/` 是截图工具，专看这些数字看不见的排版问题，见其 README。`dsh-remote` 另有实时套件（`tests/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
 
+要把整套装在一起跑，有一个可复用的沙箱：一条命令起一个真 dsh，把本仓八个包都以 `link:` 装上；第一次之后改代码只要重启进程。沙箱落在 `.sandbox/`（已被 gitignore，永不入库，而且它拒绝把包装到你自己的 `~/.dsh` 去）：
+
+```bash
+node tools/sandbox/sandbox.mjs up --restart   # 重启正在跑的那个实例
+node tools/sandbox/sandbox.mjs url            # 打印它的 URL（含令牌）
+node tools/sandbox/sandbox.mjs down           # 停掉
+```
+
+见 [tools/sandbox/README.md](tools/sandbox/README.md)。
+
 ## License
 
 MIT。`dsh-notify/lib/sounds/` 的音效来自 opencode（经 DSHDesktop）；`dsh-remote/lib/assets/` 的移动端资产 vendored 自 DSHDesktop。

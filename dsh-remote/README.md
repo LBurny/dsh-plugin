@@ -59,7 +59,7 @@ Served by dsh's origin, behind its gate:
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
-| GET | `/dsh-remote/panel.js` `/dsh-remote/panel.css` | browser half |
+| GET | `/dsh-remote/client.js` `/dsh-remote/client.css` | browser half |
 | GET | `/dsh-remote/api/remote` | state, link, LAN addresses, cloudflared path |
 | POST | `/dsh-remote/api/remote` | `enable` · `disable` · `mode` · `reset-token` |
 | GET | `/dsh-remote/api/status` | the same state **without** the credential |
