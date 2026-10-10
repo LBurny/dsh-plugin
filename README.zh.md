@@ -15,8 +15,11 @@
 | `dsh-zoom` | 页面缩放，快捷键可重绑 | `/zoom` |
 | `dsh-notify` | 任务提醒：页面弹窗、随包音效、系统通知 | `/notify` |
 | `dsh-remote` | 手机远程访问：带鉴权的反向代理、二维码链接、可选 Cloudflare 隧道、移动端界面改写、项目浏览 | `/remote` |
+| `dsh-init` | 为当前工作区生成或更新 `AGENTS.md`，dsh 会把该文件注入这里每一个会话 | `/init` |
 
 每个包都是标准 dsh 插件：声明了 `dsh.bundle.patch`，`dsh plugin add` 会自动挂上它那一层。包与包互不 import，装哪个、装几个都行。
+
+`dsh-init` 是命令不是功能：没有浏览器端、没有面板、不声明 `dsh.ui.feature`，基座因此不会把它列进去，这与它移植自的内置 `/init` 一致。它的提示词按本 harness 真实的指令文件加载规则写（根目录的 `AGENTS.md` 与 `CLAUDE.md`、个人覆盖层、嵌套文件，以及它不许动的全局文件），以折叠上下文行注入，不占用户气泡。
 
 `dsh-features` 不是功能，是其余包挂靠的基座，也是唯一带浏览器端的包（`dsh.client` → `lib/client.js`），因为真正的导航入口只能由 dsh 客户端插件加。装了它，功能面板搬进基座页面，浮动按钮消失；卸载它，按钮原样回来。
 
@@ -36,9 +39,10 @@ github:LBurny/dsh-plugin#path:/dsh-doctor
 github:LBurny/dsh-plugin#path:/dsh-zoom
 github:LBurny/dsh-plugin#path:/dsh-notify
 github:LBurny/dsh-plugin#path:/dsh-remote
+github:LBurny/dsh-plugin#path:/dsh-init
 ```
 
-`#path:/<包名>` 是 pnpm 的仓库子目录写法，七个包同仓，所以每条都带。顺序无所谓，只装几个也行。把 `dsh-features` 也装上，各功能面板就搬进它那唯一的侧栏入口，不再各挂一个浮动按钮。钉 commit 的规格在这里不用转义，`&` 被吃掉是命令行的坑，不是这个页面的。
+`#path:/<包名>` 是 pnpm 的仓库子目录写法，八个包同仓，所以每条都带。顺序无所谓，只装几个也行。把 `dsh-features` 也装上，各功能面板就搬进它那唯一的侧栏入口，不再各挂一个浮动按钮。钉 commit 的规格在这里不用转义，`&` 被吃掉是命令行的坑，不是这个页面的。
 
 页面自己会提醒两件事。升级是先卸载再装新版，没有自动更新，修复靠重装规格拿到，想可复现就钉 commit。GitHub 拉不动时，用页面的安装源换源重试：默认、npm 官方源、中国大陆镜像源、自定义地址。
 
@@ -63,7 +67,7 @@ dsh plugin --profile web remove dsh-skills
 - **跨包约定都在 DOM 层。** 各插件入口停靠进共用的 `#dsh-launchers` 角落容器，面板通过发布的 `--dsh-launcher-stack` 高度避开它。
 - **基座约定。** 功能插件把 `{ title, order, mount(host) }` 发布到 `window.__dshFeatures`，并在 package.json 里声明 `dsh.ui.feature`；基座据此就地挂载，并隐藏 `#dsh-launchers`。双向都没有 import。
 - **面板双语，配色跟随 dsh 主题。** 语言取自 `navigator.language`，刻意不读 dsh 的 `locale`，否则每个包都要解析 profile patch。配色优先用壳自己的 `--dsw-alias-*` 令牌，跟着 dsh 的明暗设置走，取不到时回落到硬编码值并按 `prefers-color-scheme` 切换。
-- **相比单包的 `dsh-desktop-kit`：** 没有页面错误上报，也没有兜底 `/init`。
+- **相比单包的 `dsh-desktop-kit`：** 没有页面错误上报，`/init` 是独立的一个包，不再藏在基座的兜底开关后面。两者注册的是同一个命令名，装一个就好，别都装。
 
 改代码前先看 [AGENTS.md](AGENTS.md) 里的约定与坑。
 
@@ -76,7 +80,9 @@ node tests/panel-embed.test.mjs           # 仓级：装了基座时六个面板
 node tests/mobile-layer.test.mjs          # 仓级：手机增强层的 DOM 行为
 ```
 
-离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 99 项，另有 279 项仓级契约检查、78 项跨包面板检查与 7 项手机增强层检查。`dsh-features` 的套件会真跑它的浏览器端（vm 加极简 React 打桩），侧栏槽位、顺序、列表、点进、拖拽排序与挂载交接不用浏览器也能断言。`panel-embed.test.mjs` 把六个功能面板的浏览器脚本放进 DOM 打桩里跑，证明装了基座时它们不挂浮动按钮，也不多出第二个刷新控件。`tools/visual/` 是截图工具，专看这些数字看不见的排版问题，见其 README。`dsh-remote` 另有实时套件（`tests/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
+离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 99 项，另有 49 项（dsh-init）与 279 项仓级契约检查、78 项跨包面板检查、7 项手机增强层检查。
+
+`dsh-features` 的套件会真跑它的浏览器端（vm 加极简 React 打桩），侧栏槽位、顺序、列表、点进、拖拽排序与挂载交接不用浏览器也能断言。`dsh-init` 的套件把运行时自己的会话格式 V4 准入跑在它注入的那条消息上，并用一个反例证明这个探针能失败，所以"注册成功却什么都不做"这个唯一的坑被钉住了。`panel-embed.test.mjs` 把六个功能面板的浏览器脚本放进 DOM 打桩里跑，证明装了基座时它们不挂浮动按钮，也不多出第二个刷新控件。`mobile-layer.test.mjs` 对手机增强层的浏览器端做同样的事：远端来源的设置页必须让上游那个永远不会成功的重试消失。`tools/visual/` 是截图工具，专看这些数字看不见的排版问题，见其 README。`dsh-remote` 另有实时套件（`tests/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
 
 ## License
 

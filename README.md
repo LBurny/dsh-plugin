@@ -15,8 +15,15 @@ Small independent [deepseek-harness](https://github.com/deepseek-ai/deepseek-har
 | `dsh-zoom` | Page zoom with rebindable shortcuts | `/zoom` |
 | `dsh-notify` | Task reminders: in-page popup, bundled sounds, browser notification | `/notify` |
 | `dsh-remote` | Phone remote access: authenticated reverse proxy, QR link, optional Cloudflare tunnel, mobile UI rewrite, project browser | `/remote` |
+| `dsh-init` | Write or update this workspace's `AGENTS.md`, the instruction file dsh loads into every session there | `/init` |
 
 Each one is a normal dsh plugin: it declares `dsh.bundle.patch`, so `dsh plugin add` mounts its layer automatically. They never import each other, so any subset works.
+
+`dsh-init` is a command, not a feature: no browser half, no panel, no `dsh.ui.feature` marker, so
+`dsh-features` does not list it. That matches the built-in `/init` it was ported from. Its prompt is
+written against the harness's real instruction-loading chain (the root `AGENTS.md` and `CLAUDE.md`,
+the personal overlays, nested files, and the user-global file it must not touch), and it arrives as a
+collapsed context row rather than a long user message.
 
 `dsh-features` is not a feature but the hub the other packages plug into. It is the only one with a
 browser half (`dsh.client` → `lib/client.js`), because a real navigation entry can only be added by
@@ -42,9 +49,10 @@ github:LBurny/dsh-plugin#path:/dsh-doctor
 github:LBurny/dsh-plugin#path:/dsh-zoom
 github:LBurny/dsh-plugin#path:/dsh-notify
 github:LBurny/dsh-plugin#path:/dsh-remote
+github:LBurny/dsh-plugin#path:/dsh-init
 ```
 
-`#path:/<package>` is pnpm's subdirectory-of-a-repository form; all seven live in this one
+`#path:/<package>` is pnpm's subdirectory-of-a-repository form; all eight live in this one
 repository, so every spec carries it. Order does not matter, and a subset is fine. Install
 `dsh-features` too and the feature panels move onto its single sidebar entry instead of one
 floating corner button each. A pinned spec needs no escaping here; the `&` trap belongs to the
@@ -82,7 +90,7 @@ proxy, so a TLS-intercepting network fails with `TypeError: fetch failed`. Write
 - **One DOM-level agreement.** Launchers dock into a shared `#dsh-launchers` corner container, and panels clear it via the published `--dsh-launcher-stack` height.
 - **The hub agreement.** A feature publishes `{ title, order, mount(host) }` to `window.__dshFeatures` and declares `dsh.ui.feature` in its package.json; the hub mounts it inline and hides `#dsh-launchers`. Nothing is imported in either direction.
 - **Bilingual panels, theme-following colours.** Language comes from `navigator.language`, deliberately not dsh's `locale`, which would make every package parse the profile patch. Colours prefer the shell's own `--dsw-alias-*` tokens, so a panel follows dsh's light/dark setting, and fall back to hardcoded values under `prefers-color-scheme`.
-- **Compared to the single-package `dsh-desktop-kit`:** no page-error reporting, no fallback `/init`.
+- **Compared to the single-package `dsh-desktop-kit`:** no page-error reporting, and `/init` lives in its own package instead of behind the kit's fallback flag. Both register the same command name, so install one or the other, never both.
 
 Development notes and the traps worth knowing live in [AGENTS.md](AGENTS.md).
 
@@ -95,13 +103,17 @@ node tests/panel-embed.test.mjs           # repo-wide: every panel boots without
 node tests/mobile-layer.test.mjs          # repo-wide: the phone layer's DOM behaviour
 ```
 
-Offline suites: 88 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 99 checks, plus 279 repo-wide contract
-checks, 78 cross-package panel checks and 7 mobile-layer checks. `dsh-features`' suite evaluates its
-browser half for real (a vm with a minimal React), so the sidebar slot, its order, the list, the
-drill-down and the mount hand-off are asserted without a browser. `panel-embed.test.mjs` runs all
-six feature panels' scripts in a DOM stub to prove none of them docks a corner button or a second
-refresh control while the hub is installed. `mobile-layer.test.mjs` does the same for the browser
-half of the phone layer, where a remote-origin settings page has to lose upstream's dead Retry.
+Offline suites: 88 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 99 checks, plus 49 (dsh-init) and 279
+repo-wide contract checks, 78 cross-package panel checks and 7 mobile-layer checks.
+
+`dsh-features`' suite evaluates its browser half for real (a vm with a minimal React), so the
+sidebar slot, its order, the list, the drill-down and the mount hand-off are asserted without a
+browser. `dsh-init`'s suite runs the runtime's own session-format V4 admission on the message it
+injects, with a negative fixture proving the probe can fail, so the one regression that makes `/init`
+register and then do nothing stays caught. `panel-embed.test.mjs` runs all six feature panels'
+scripts in a DOM stub to prove none of them docks a corner button or a second refresh control while
+the hub is installed. `mobile-layer.test.mjs` does the same for the browser half of the phone layer,
+where a remote-origin settings page has to lose upstream's dead Retry.
 `tools/visual/` holds a screenshot harness for the UI work these numbers cannot see; see its README.
 `dsh-remote` also ships a live suite (`tests/remote-live.mjs`) that needs a sandbox instance with
 remote access enabled.

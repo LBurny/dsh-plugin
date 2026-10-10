@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Init",
+    "description": "Create or update this workspace's AGENTS.md instruction file. The prompt is written against this harness's real instruction-loading rules and injected as a collapsed context row, not a user bubble."
+  }
+}

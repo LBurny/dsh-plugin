@@ -40,6 +40,16 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   `lib/client.js`, a `__ModuleLoader__.load({id, factory})` classic script, not a module). A real
   sidebar entry can only be added by a dsh client plugin, which is why the hub cannot be an injected
   script like the rest. It imports no sibling and needs none.
+- `dsh-init/` is the exception in the other direction, and the only pure **command** package: no
+  browser half, no panel, no `dsh.ui.feature` marker, so the hub does not list it. That is supported
+  rather than accidental (`dsh-features/lib/inventory.js` skips any package without the marker), which
+  is what lets a host-only plugin skip the DOM work entirely. Two things there are load-bearing: its
+  row id is `init`, a name DSHDesktop's preseeded `dsh-command-init` and the desktop kit's opt-in
+  fallback also claim (first-come, first-served; a clash is survivable, an exception out of `apply` is
+  not, so registration is guarded), and its message source is `plugin:dsh-init` because session format
+  V4 refuses the retired generic `kind:"plugin"` wrapper. A refused write fails the whole turn, the
+  nastiest shape a bug takes here: the command registers, answers the palette, and does nothing.
+  `tests/init.test.mjs` runs the runtime's own admission as the probe.
 
 ## Rules that are easy to get wrong
 
@@ -235,8 +245,11 @@ cd <name> && node tests/<name>.test.mjs
 
 `dsh-features` needs no runtime at all: its suite evaluates the browser bundle in a `vm` with a
 minimal React (state/effect/ref), so the sidebar slot, its order, the skin and the `mount` hand-off are
-asserted without a browser. The cross-package agreement cannot live in a package suite (an installed
-copy has no siblings), so it is checked from the repository root:
+asserted without a browser. `dsh-init` needs `@deepseek-ai/dsh-llm` for the module itself and, for the
+admission probe, `@deepseek-ai/dsh-session-format-v3-to-v4`; junction both and the probe runs, leave the
+second out and the suite prints a note and skips that one check instead of failing. The cross-package
+agreement cannot live in a package suite (an installed copy has no siblings), so it is checked from the
+repository root:
 
 ```bash
 node tests/hub-contract.test.mjs

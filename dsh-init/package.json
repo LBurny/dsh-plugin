@@ -1,0 +1,48 @@
+{
+  "name": "dsh-init",
+  "version": "0.1.0",
+  "description": "The /init command for DeepSeek Harness: submit the AGENTS.md workspace-instruction authoring prompt for the current workspace as a collapsed context row, so the agent writes or updates that file with the harness's own loading rules in hand. dsh-init：/init 命令，为当前工作区生成或更新 AGENTS.md 指令文件。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "init",
+    "agents-md",
+    "instructions",
+    "初始化",
+    "指令文件"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "^0.2.0-rc.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LBurny/dsh-plugin.git",
+    "directory": "dsh-init"
+  },
+  "homepage": "https://github.com/LBurny/dsh-plugin/tree/main/dsh-init#readme",
+  "bugs": {
+    "url": "https://github.com/LBurny/dsh-plugin/issues"
+  }
+}
