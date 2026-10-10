@@ -38,14 +38,19 @@
 		failed: ["Failed", "失败"],
 		working: ["Working…", "处理中…"],
 		refresh: ["Refresh", "刷新"],
-		remoteHint: ["Turning this on publishes your harness to whoever holds the link, on your local network or to the whole internet in tunnel mode. The link is the only credential.", "开启后，任何拿到链接的人都能访问你的 harness：局域网模式下是同网段，隧道模式下是整个互联网。链接就是唯一的凭证。"],
+		remoteHint: ["Turning this on serves your harness to whoever holds the link: inside your Tailscale tailnet, or on your local network, or, in tunnel mode, to the whole internet. The link is the only credential.", "开启后，任何拿到链接的人都能访问你的 harness：Tailscale 私有网络或局域网范围内可连，隧道模式下则是整个互联网。链接就是唯一的凭证。"],
 		stateOff: ["off", "已关闭"],
 		stateStarting: ["starting…", "启动中…"],
 		stateUp: ["up", "已开启"],
 		stateError: ["error", "出错"],
 		remoteMode: ["Channel", "通道"],
+		modeTailnet: ["Tailscale tailnet (private, stable address)", "Tailscale 私有网络（地址稳定）"],
 		modeTunnel: ["Cloudflare tunnel (works from any network)", "Cloudflare 隧道（任何网络都能连）"],
-		modeLan: ["Local network only (nothing leaves your LAN)", "仅局域网（不出网）"],
+		modeLan: ["Local network only (only devices on your Wi-Fi)", "仅局域网（只有同 Wi-Fi 的设备能连）"],
+		tailnetHint: ["Join this machine and your phone to the same tailnet and this channel answers only inside it. Nothing is published to the internet, no port is opened, and the link stays the same across restarts.", "把这台机器和手机加入同一个 tailnet，这个通道只在 tailnet 内应答。不发布到公网、不开放端口，链接在重启后保持不变。"],
+		tailnetMissing: ["No Tailscale address was found on this machine. Install Tailscale here, sign in, then enable again. The phone has to join the same tailnet.", "本机没找到 Tailscale 地址。请在这里安装 Tailscale 并登录后再开启；手机需要加入同一个 tailnet。"],
+		tailnetNotRunning: ["Tailscale is installed but its backend is not running. Open Tailscale on this machine and sign in.", "Tailscale 已安装但后端未运行。请在本机打开 Tailscale 并登录。"],
+		tailnetCliMissing: ["The tailscale CLI was not found, so the link uses the address instead of the MagicDNS name. That still works; the name only matters if the device is removed from the tailnet and added again.", "没找到 tailscale 命令行，链接会用地址代替 MagicDNS 名称。这仍然可用；只有设备被移出 tailnet 再重新加入时名称才重要。"],
 		remoteEnable: ["Enable", "开启"],
 		remoteDisable: ["Disable", "关闭"],
 		resetLink: ["Reset link", "重置链接"],
@@ -55,10 +60,9 @@
 		linkKept: ["Link unchanged: the tunnel from the last session is still running, so the phone keeps working.", "链接未变：沿用了上次留下的隧道，手机上那条不用重新扫码。"],
 		qr: ["QR code", "二维码"],
 		qrUnavailable: ["The qrcode package is not installed, so only the link is shown. Install it with:", "未安装 qrcode 包，因此只显示链接。安装命令："],
-		remoteLanUrls: ["Local network addresses", "局域网地址"],
 		copy: ["Copy", "复制"],
 		copied: ["Copied", "已复制"],
-		cloudflaredMissing: ["Tunnel mode needs the cloudflared binary, and neither app ships one. It was not on PATH, next to the dsh runtime, nor in <dsh home>/../tunnel. Install it (winget install Cloudflare.cloudflared), or paste its path below. LAN mode needs nothing and still works.", "隧道模式需要 cloudflared 程序，两个应用都没自带。PATH、dsh 运行时旁、<dsh home>/../tunnel 都没找到。可先安装（winget install Cloudflare.cloudflared），或在下面填上它的路径。局域网模式什么都不需要，仍然可用。"],
+		cloudflaredMissing: ["Tunnel mode needs the cloudflared binary, and neither app ships one. It was not on PATH, next to the dsh runtime, nor in <dsh home>/../tunnel. Install it (winget install Cloudflare.cloudflared), or paste its path below. LAN mode needs nothing, and Tailscale mode needs only Tailscale.", "隧道模式需要 cloudflared 程序，两个应用都没自带。PATH、dsh 运行时旁、<dsh home>/../tunnel 都没找到。可先安装（winget install Cloudflare.cloudflared），或在下面填上它的路径。局域网模式什么都不需要，Tailscale 模式只需要 Tailscale 本身。"],
 		binary: ["Tunnel binary", "隧道程序"],
 		binaryFound: ["cloudflared found", "已找到 cloudflared"],
 		binaryPath: ["Path to cloudflared", "cloudflared 路径"],
@@ -286,10 +290,23 @@
 				el("div", { class: "row-sub", text: [remote.error, remote.tunnel === undefined ? "" : `tunnel: ${remote.tunnel}`, remote.proxyPort === undefined ? "" : `port ${String(remote.proxyPort)}`].filter(Boolean).join(" · ") }))));
 
 		const mode = el("select", {},
-			el("option", { value: "tunnel", text: T("modeTunnel"), selected: remote.mode === "tunnel" }),
-			el("option", { value: "lan", text: T("modeLan"), selected: remote.mode === "lan" }));
+			el("option", { value: "tailnet", text: T("modeTailnet"), selected: remote.mode === "tailnet" }),
+			el("option", { value: "lan", text: T("modeLan"), selected: remote.mode === "lan" }),
+			el("option", { value: "tunnel", text: T("modeTunnel"), selected: remote.mode === "tunnel" }));
 		mode.addEventListener("change", () => void act({ action: "mode", mode: mode.value }));
 		fragment.append(el("div", { class: "field" }, el("label", { text: T("remoteMode") }), mode));
+
+		// The tailnet is the only channel with a prerequisite on this machine, so it
+		// explains itself: that it stays private, and what to do when the address is
+		// missing or Tailscale is installed but not running.
+		if (remote.mode === "tailnet") {
+			fragment.append(el("div", { class: "note", text: T("tailnetHint") }));
+			const info = remote.tailnet ?? {};
+			const notRunning = typeof info.backendState === "string" && info.backendState !== "Running";
+			if (info.address === undefined) fragment.append(el("div", { class: "note", text: notRunning ? T("tailnetNotRunning") : T("tailnetMissing") }));
+			else if (notRunning) fragment.append(el("div", { class: "note", text: T("tailnetNotRunning") }));
+			else if (info.dnsName === undefined && info.cli === null) fragment.append(el("div", { class: "note", text: T("tailnetCliMissing") }));
+		}
 
 		fragment.append(el("div", { class: "actions" },
 			remote.enabled
@@ -334,12 +351,6 @@
 					? el("img", { src: `${qrPath}?v=${String(Date.now())}`, alt: "remote link QR code", style: "width:200px;height:200px;background:#fff;border-radius:8px;padding:6px" })
 					: el("div", { class: "note", text: `${T("qrUnavailable")} dsh plugin --profile web add dsh-remote` })));
 			fragment.append(el("div", { class: "note", text: T("hint") }));
-		}
-
-		// The LAN addresses stay useful as a fallback while a tunnel is up.
-		if (remote.enabled && remote.mode === "tunnel" && (remote.lanUrls?.length ?? 0) > 0) {
-			fragment.append(el("div", { class: "field" }, el("label", { text: T("remoteLanUrls") }),
-				...remote.lanUrls.map((url) => linkRow(url))));
 		}
 		return fragment;
 	}

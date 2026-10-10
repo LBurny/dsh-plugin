@@ -31,11 +31,31 @@ Restart dsh afterwards — plugins have no HMR.
 
 | Channel | Reaches | Notes |
 | ------- | ------- | ----- |
+| Tailscale | devices on your tailnet | binds this machine's `100.64.0.0/10` address only; the link is `http://<machine>.<tailnet>.ts.net:<port>/?token=…` and is **stable across restarts**; needs Tailscale on both devices, no open port, nothing public |
 | LAN | nothing leaves your network | binds `0.0.0.0`; open `http://<lan-ip>:<port>/?token=…` on the phone; no extra binary |
 | Tunnel | the public internet | also spawns `cloudflared` (Cloudflare quick tunnel); see the caveat below about finding it |
 
-**Off by default** — the link is the only credential, and enabling publishes your harness to whoever
+**Off by default**: the link is the only credential, and enabling serves your harness to whoever
 holds it.
+
+## The tailnet channel
+
+Tailscale hands every device a stable address in the carrier-grade NAT range `100.64.0.0/10` and a
+MagicDNS name, and carries the traffic over WireGuard. So this channel is mostly a bind: the proxy
+listens on **only** that address, and the link is built from the MagicDNS name when the CLI can name
+it, falling back to the address. Nothing is published, no port is opened, and the link survives a
+restart because the name does (the token is persisted too).
+
+Deliberately **not** `tailscale serve`, which most community plugins use. Serve puts dsh's own
+authority (`<machine>.<tailnet>.ts.net`) in front of the harness, and dsh's browser fence rejects an
+authority it does not trust, so those plugins also have to register a trusted host and enable HTTPS
+certificates on the tailnet. This proxy already terminates the remote authority and re-issues every
+request to dsh under the loopback authority, so the tailnet name never reaches the fence and none of
+that is needed here.
+
+The Tailscale CLI is **optional**: the address is read off the network interfaces, which is enough to
+bind and to hand out a working link. The CLI is consulted only when it is present, for the MagicDNS
+name and for an honest "installed but not running" report in the panel.
 
 ## Response-side work
 
@@ -60,8 +80,8 @@ Served by dsh's origin, behind its gate:
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
 | GET | `/dsh-remote/client.js` `/dsh-remote/client.css` | browser half |
-| GET | `/dsh-remote/api/remote` | state, link, LAN addresses, cloudflared path |
-| POST | `/dsh-remote/api/remote` | `enable` · `disable` · `mode` · `reset-token` |
+| GET | `/dsh-remote/api/remote` | state, link, LAN addresses, tailnet status, cloudflared path |
+| POST | `/dsh-remote/api/remote` | `enable` · `disable` · `mode` (`tailnet` · `lan` · `tunnel`) · `reset-token` |
 | GET | `/dsh-remote/api/status` | the same state **without** the credential |
 | GET | `/dsh-remote/qr.svg` | QR code for the current link |
 
@@ -80,8 +100,9 @@ never logged. Disabling revokes the cookie, and *Reset link* invalidates every l
 | ---- | ----- |
 | Enabled, channel, port, token, cloudflared path | `$DSH_HOME/dsh-remote.json` |
 
-Token and port persist, so **a saved LAN link survives a dsh restart** (a tunnel URL cannot —
-Cloudflare assigns a new hostname each time).
+Token and port persist, so **a saved LAN or tailnet link survives a dsh restart** (a tunnel URL cannot,
+because Cloudflare assigns a new hostname each time, while a tailnet link is stable because the MagicDNS
+name is).
 
 ## The phone's page
 
@@ -110,9 +131,11 @@ rename degrades to "the phone looks like it did before" rather than breaking the
 
 ## The link survives a restart
 
-The link is the credential, so a restart must not invalidate it. A Cloudflare *quick* tunnel gets a fresh
-random hostname every time cloudflared starts, which would mean re-scanning the QR code after every restart —
-so, like the desktop shell, this plugin keeps the tunnel instead:
+The link is the credential, so a restart must not invalidate it. The tailnet channel is stable by
+construction (the MagicDNS name does not change), and the LAN channel only has to keep its port; the
+tunnel is the hard case, because a Cloudflare *quick* tunnel gets a fresh random hostname every time
+cloudflared starts, which would mean re-scanning the QR code after every restart. So, like the desktop
+shell, this plugin keeps the tunnel instead:
 
 - cloudflared is spawned **detached**, with its output going to `<DSH_HOME>/dsh-remote-tunnel.log` rather
   than to the plugin's pipes. A pipe would break the moment dsh exits, and cloudflared dying on a write
@@ -131,6 +154,12 @@ token, so the old link stops working and the panel shows the new one.
 
 ## Caveats
 
+- **Tailnet mode needs Tailscale on both devices**, signed into the same tailnet, and a tailnet
+  address on this machine (the interface scan is what finds it). If Tailscale is installed but its
+  backend is not running, the panel says so; if there is no address at all, enabling reports an error
+  and binds nothing, because a tailnet-only channel must not quietly fall back to serving the LAN.
+  Windows Firewall may prompt the first time the port is bound on the Tailscale interface. No
+  certificate and no `tailscale serve` are needed (see "The tailnet channel" above).
 - **Tunnel mode needs a cloudflared binary, and neither app ships one.** The search is, in order: the
   `cloudflaredPath` setting, the directory holding the running runtime (`process.execPath`, which is
   where the shell keeps its own copy), `<dsh home>/../tunnel/`, every `PATH` entry, then the winget shim

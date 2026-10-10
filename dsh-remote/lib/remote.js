@@ -8,10 +8,12 @@
  *     embedded in the link; the proxy then authenticates *itself* to dsh by
  *     exchanging this process's launch token for the authority-bound `dsh-auth`
  *     cookie (the same exchange the desktop shell performs).
- *  2. Two transports. `lan` binds the proxy to all interfaces, so a phone on the
- *     same network connects directly and nothing leaves the machine. `tunnel`
- *     additionally spawns the bundled cloudflared quick tunnel, which makes the
- *     link work from anywhere.
+ *  2. Three transports. `lan` binds the proxy to all interfaces, so a phone on the
+ *     same network connects directly and nothing leaves the machine. `tailnet` binds
+ *     it to this machine's Tailscale address (`100.64.0.0/10`) only, so the link is
+ *     stable across restarts and reachable from any device on the same tailnet, still
+ *     without publishing anything. `tunnel` additionally spawns the bundled
+ *     cloudflared quick tunnel, which makes the link work from anywhere.
  *  3. Link/QR plumbing: one random 32-byte token is the whole credential, and it
  *     is persisted so a link the phone already saved keeps working across a
  *     restart.
@@ -40,7 +42,14 @@ import { fileURLToPath } from "node:url";
 import { respond as respondEnhanced } from "./enhance.js";
 import { handleProjectRoute, PROJECT_API_PREFIX, PROJECT_PREFIX } from "./project.js";
 import { canAdopt, clearSession, loadSession, saveSession } from "./session.js";
+import { discoverTailnet, findTailscale, tailnetAddresses, tailnetLink } from "./tailnet.js";
 import { bridgeSockets } from "./wsbridge.js";
+
+/** The transports this proxy offers. */
+export const MODES = ["lan", "tailnet", "tunnel"];
+
+/** Coerce a mode name into one of `MODES`, defaulting to `tunnel`. */
+export const normalizeMode = (mode) => (MODES.includes(mode) ? mode : "tunnel");
 
 /** Cookie the proxy issues to a remote browser. */
 const GATE_COOKIE = "__dsh_remote";
@@ -445,6 +454,8 @@ async function tunnelAnswers(url, token, timeoutMs = TUNNEL_PROBE_TIMEOUT_MS) {
 export function createRemoteManager({ ctx, layout, config, save, log }) {
 	let server;
 	let tunnel;
+	/** Last tailnet resolution, refreshed when the channel is enabled. */
+	let tailnet;
 	let authCookie;
 	let state = "off";
 	let error;
@@ -474,13 +485,33 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 	/** Proxy port, or undefined while stopped. */
 	const proxyPort = () => server?.address()?.port;
 
-	/** LAN links for the current proxy port, when it is reachable that way. */
+	/**
+	 * LAN links for the current proxy port. Only `lan` binds every interface, so only
+	 * `lan` has any: `tailnet` binds one address (its own link carries the name) and
+	 * `tunnel` binds loopback, where a LAN address answers nothing. Advertising
+	 * addresses the proxy is not listening on is worse than showing none.
+	 */
 	function lanUrls() {
 		const port = proxyPort();
 		const token = settings().token;
-		if (port === undefined || typeof token !== "string" || token.length === 0) return [];
+		if (settings().mode !== "lan" || port === undefined || typeof token !== "string" || token.length === 0) return [];
 		return lanAddresses().map((address) => `http://${address}:${String(port)}/?token=${token}`);
 	}
+
+	/**
+	 * What the tailnet channel can see right now, for the panel to explain itself
+	 * before the reader turns it on. The interface scan is synchronous, so this stays
+	 * safe on every request; the CLI is only consulted while enabling, because it
+	 * spawns a process. `last` carries whatever that run found.
+	 */
+	const tailnetStatus = () => ({
+		addresses: tailnetAddresses(),
+		address: tailnet?.address ?? tailnetAddresses()[0],
+		dnsName: tailnet?.dnsName,
+		backendState: tailnet?.backendState,
+		source: tailnet?.source,
+		cli: findTailscale() ?? null
+	});
 
 	const snapshot = () => ({
 		state,
@@ -489,6 +520,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		link,
 		proxyPort: proxyPort(),
 		lanUrls: lanUrls(),
+		tailnet: tailnetStatus(),
 		tunnel: tunnel?.status(),
 		// True when this session adopted the tunnel the last one left behind, which is
 		// what the panel reports as "the link did not change".
@@ -714,7 +746,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 
 	/** Start the proxy, and in tunnel mode bring up cloudflared. */
 	async function enable(mode) {
-		const wanted = mode === "lan" ? "lan" : "tunnel";
+		const wanted = normalizeMode(mode);
 		if (server !== undefined) {
 			// Already running: an enable that asks for the other transport means switch,
 			// not "keep what is there".
@@ -722,8 +754,22 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 			return setMode(wanted);
 		}
 		const current = await refreshSettings();
+		// The tailnet channel binds one specific address, so the address has to exist
+		// before the listener does. It must not fall back to every interface: the reader
+		// chose a private channel, and silently serving the whole LAN instead is a
+		// different decision than the one they made.
+		tailnet = wanted === "tailnet" ? await discoverTailnet() : undefined;
 		const token = typeof current.token === "string" && current.token.length > 0 ? current.token : generateToken();
 		await persist({ token, enabled: true, mode: wanted });
+		if (wanted === "tailnet" && tailnet.address === undefined) {
+			state = "error";
+			// The panel turns this into an instruction (install Tailscale here and sign
+			// in); the string is the short form for the status row, and carries no em dash.
+			error = "no Tailscale address found (is Tailscale installed and signed in?)";
+			log(error);
+			publish();
+			return snapshot();
+		}
 		// Must happen before the proxy accepts a request, or the first proxied
 		// request would go upstream without a session cookie.
 		await refreshAuthCookie();
@@ -738,7 +784,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 			}
 			forwardUpgrade(req, socket, head);
 		});
-		const bind = wanted === "lan" ? "0.0.0.0" : "127.0.0.1";
+		const bind = wanted === "lan" ? "0.0.0.0" : wanted === "tailnet" ? tailnet.address : "127.0.0.1";
 		/**
 		 * Bind, reusing the remembered port so a shared link keeps working after a
 		 * restart. A port taken by something else falls back to an ephemeral one
@@ -766,9 +812,16 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		const port = listening.address().port;
 		state = "up";
 		error = undefined;
-		link = wanted === "lan" ? (lanUrls()[0] ?? undefined) : undefined;
+		// The tailnet link prefers the MagicDNS name, so it survives the address being
+		// reassigned; the `lan` link is whatever interface the phone should use.
+		link =
+			wanted === "lan"
+				? (lanUrls()[0] ?? undefined)
+				: wanted === "tailnet"
+					? tailnetLink({ host: tailnet.dnsName ?? tailnet.address, port, token: settings().token })
+					: undefined;
 		if (port !== current.port) await persist({ port });
-		log(`remote proxy listening on ${bind}:${String(port)}`);
+		log(`remote proxy listening on ${bind}:${String(port)}${wanted === "tailnet" && tailnet.dnsName !== undefined ? ` (${tailnet.dnsName})` : ""}`);
 		publish();
 
 		if (wanted === "tunnel") {
@@ -858,7 +911,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 
 	/** Switch transport, keeping the token so a saved link keeps working. */
 	async function setMode(mode) {
-		const next = mode === "lan" ? "lan" : "tunnel";
+		const next = normalizeMode(mode);
 		const wasEnabled = server !== undefined;
 		if (wasEnabled) await disable();
 		await persist({ mode: next });
@@ -904,6 +957,8 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 			log(next === "" ? "cloudflared path cleared" : `cloudflared path set to ${next}`);
 			return snapshot();
 		},
-		cloudflared: () => findCloudflared(settings().cloudflaredPath, layout().dshHome)
+		cloudflared: () => findCloudflared(settings().cloudflaredPath, layout().dshHome),
+		/** The Tailscale CLI, when it is installed. Optional: the channel does not need it. */
+		tailscale: () => findTailscale()
 	};
 }

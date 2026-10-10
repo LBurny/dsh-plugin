@@ -13,10 +13,12 @@ import { writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
 /** Fresh-install settings. Remote access is off: see `enabled`. */
 export function defaultConfig() {
 	return {
-		// Off by default: enabling publishes the harness (on the LAN, or to the
-		// internet in tunnel mode), and the link it hands out is the only
+		// Off by default: enabling publishes the harness (on the tailnet, on the LAN, or
+		// to the internet in tunnel mode), and the link it hands out is the only
 		// credential.
 		enabled: false,
+		// One of `lan` (every interface), `tailnet` (this machine's Tailscale address
+		// only, private and stable) or `tunnel` (a public Cloudflare hostname).
 		mode: "tunnel",
 		port: 0,
 		token: "",
@@ -45,7 +47,7 @@ export function mergeDeep(base, patch) {
 export function normalizeConfig(raw) {
 	const defaults = defaultConfig();
 	const merged = mergeDeep(defaults, isObject(raw) ? raw : {});
-	merged.mode = merged.mode === "lan" ? "lan" : "tunnel";
+	merged.mode = ["lan", "tailnet", "tunnel"].includes(merged.mode) ? merged.mode : "tunnel";
 	merged.enabled = merged.enabled === true;
 	// An empty or malformed token means "mint a new one when access is enabled".
 	merged.token = typeof merged.token === "string" && /^[0-9a-f]{32,}$/u.test(merged.token) ? merged.token : "";

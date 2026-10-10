@@ -27,8 +27,17 @@ import {
 	wantsHtmlDocument
 } from "../lib/enhance.js";
 import { contained, contentDisposition, handleProjectRoute, listDir, mimeFor, readProjectFile, resolveWorkspace } from "../lib/project.js";
-import { cloudflaredCandidates, findCloudflared } from "../lib/remote.js";
+import { cloudflaredCandidates, findCloudflared, normalizeMode } from "../lib/remote.js";
 import { canAdopt, clearSession, loadSession, saveSession } from "../lib/session.js";
+import { normalizeConfig } from "../lib/settings.js";
+import {
+	discoverTailnet,
+	isTailnetAddress,
+	parseTailnetStatus,
+	tailnetAddresses,
+	tailnetLink,
+	tailscaleCandidates
+} from "../lib/tailnet.js";
 
 const results = [];
 const check = (ok, label, detail = "") => results.push({ ok, label, detail });
@@ -405,6 +414,125 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	// test can name without guessing: the shell's copy, which is second in the list.
 	const shellCopy = join(dirname(home), "tunnel", "cloudflared.exe");
 	check(findCloudflared("", home, (candidate) => candidate === shellCopy) === shellCopy, "the first candidate that exists is the one used", "");
+}
+
+/* ------------------------------------------------------- the tailnet channel */
+
+// The private, stable channel: bind this machine's Tailscale address only, and build
+// the link from the MagicDNS name when the CLI can supply one. The range is the whole
+// correctness question: 100.64.0.0/10 is the tailnet, 100.63.x and 100.128.x are not,
+// and a plain prefix test would conflate them. Nothing here needs a tailnet to exist,
+// which is why the discovery is exercised with injected interfaces and a fake CLI.
+{
+	check(
+		isTailnetAddress("100.64.0.1") && isTailnetAddress("100.127.255.254") && isTailnetAddress("100.100.100.100"),
+		"the tailnet range is accepted",
+		""
+	);
+	check(
+		!isTailnetAddress("100.63.0.1") && !isTailnetAddress("100.128.0.1") && !isTailnetAddress("100.64") && !isTailnetAddress("192.168.1.5") && !isTailnetAddress(undefined),
+		"addresses outside 100.64/10 are refused",
+		""
+	);
+
+	/** A machine with a Wi-Fi address, a tailnet, a loopback and a container bridge. */
+	const interfaces = {
+		"Wi-Fi": [{ family: "IPv4", internal: false, address: "192.168.200.42" }],
+		Tailscale: [
+			{ family: "IPv4", internal: false, address: "100.101.102.103" },
+			{ family: "IPv6", internal: false, address: "fd7a::1" }
+		],
+		Loopback: [{ family: "IPv4", internal: true, address: "127.0.0.1" }],
+		"vEthernet (WSL)": [{ family: "IPv4", internal: false, address: "172.20.176.1" }]
+	};
+	const found = tailnetAddresses(interfaces);
+	check(found.length === 1 && found[0] === "100.101.102.103", "only the tailnet address is offered", JSON.stringify(found));
+	check(tailnetAddresses({}).length === 0, "a machine with no tailnet offers nothing", "");
+
+	// The CLI is read for the name and the backend state, never trusted for the bind:
+	// binding an address the machine has not got fails with EADDRNOTAVAIL, and a node in
+	// userspace mode can report exactly that.
+	const status = parseTailnetStatus(
+		JSON.stringify({ BackendState: "Running", Self: { DNSName: "pc.tail1234.ts.net.", TailscaleIPs: ["100.101.102.103", "fd7a::1"] } })
+	);
+	check(status?.dnsName === "pc.tail1234.ts.net", "the MagicDNS name loses its trailing dot", status?.dnsName);
+	check(status?.ipv4 === "100.101.102.103" && status?.backendState === "Running", "the IPv4 address and the backend state are read", JSON.stringify(status));
+	check(parseTailnetStatus("not json") === undefined && parseTailnetStatus("{}") === undefined, "junk from the CLI reads as no status", "");
+
+	check(
+		tailnetLink({ host: "pc.tail1234.ts.net", port: 25499, token: "ab12" }) === "http://pc.tail1234.ts.net:25499/?token=ab12",
+		"the link carries the tailnet host and the token",
+		""
+	);
+	check(
+		tailnetLink({ host: "100.101.102.103", port: 25499, token: "ab12" }) === "http://100.101.102.103:25499/?token=ab12",
+		"an address host builds the same shape",
+		""
+	);
+	check(
+		tailnetLink({ host: "", port: 1, token: "x" }) === undefined && tailnetLink({ host: "h", port: 0, token: "x" }) === undefined,
+		"an incomplete link is not built",
+		""
+	);
+
+	const tailsaleDir = join("C:/Program Files", "Tailscale", "tailscale.exe");
+	check(
+		tailscaleCandidates({ PATH: "C:/tools", ProgramFiles: "C:/Program Files" }, "F:/Code/dsh/resources/runtime/node.exe", "win32").includes(tailsaleDir),
+		"the Windows install directory is searched for the CLI",
+		""
+	);
+	check(
+		tailscaleCandidates({ PATH: "C:/tools" }, "/usr/bin/node", "linux").every((item) => !item.endsWith(".exe")),
+		"the CLI name follows the platform",
+		""
+	);
+
+	// The interface address wins over the CLI's for the bind; the CLI only names it.
+	const cliRun = async () =>
+		JSON.stringify({ BackendState: "Running", Self: { DNSName: "pc.tail1234.ts.net.", TailscaleIPs: ["100.101.102.103"] } });
+	const viaCli = await discoverTailnet({ interfaces, env: { PATH: "C:/tools" }, execPath: "C:/tools/node.exe", platform: "win32", exists: () => true, run: cliRun });
+	check(
+		viaCli.address === "100.101.102.103" && viaCli.dnsName === "pc.tail1234.ts.net" && viaCli.backendState === "Running",
+		"the tailnet resolves with the CLI's name",
+		JSON.stringify(viaCli)
+	);
+	const noCli = await discoverTailnet({ interfaces, env: { PATH: "" }, execPath: "C:/none/node.exe", platform: "win32", exists: () => false });
+	check(
+		noCli.address === "100.101.102.103" && noCli.dnsName === undefined && noCli.source === "interface",
+		"without the CLI the interface address still resolves",
+		JSON.stringify(noCli)
+	);
+	const nothing = await discoverTailnet({ interfaces: {}, env: { PATH: "" }, execPath: "C:/none/node.exe", platform: "win32", exists: () => false });
+	check(nothing.address === undefined, "neither a tailnet address nor a CLI resolves to nothing", "");
+
+	check(
+		normalizeMode("tailnet") === "tailnet" && normalizeMode("lan") === "lan" && normalizeMode("bogus") === "tunnel" && normalizeMode(undefined) === "tunnel",
+		"the transport name is validated in one place",
+		""
+	);
+	check(
+		normalizeConfig({ mode: "tailnet" }).mode === "tailnet" && normalizeConfig({ mode: "bogus" }).mode === "tunnel" && normalizeConfig({}).mode === "tunnel",
+		"settings accept the tailnet mode and default an unknown one to tunnel",
+		""
+	);
+
+	// The mode has to reach the bind, and only `lan` may advertise LAN addresses: the
+	// tailnet channel binds one address and the tunnel binds loopback, so a LAN link in
+	// either would be a link to a port that answers nothing.
+	const remoteSource = await readFile(new URL("../lib/remote.js", import.meta.url), "utf8");
+	check(/MODES = \["lan", "tailnet", "tunnel"\]/u.test(remoteSource), "the manager knows all three transports", "");
+	check(
+		/wanted === "lan" \? "0\.0\.0\.0" : wanted === "tailnet" \? tailnet\.address : "127\.0\.0\.1"/u.test(remoteSource),
+		"the tailnet channel binds its own address, never every interface",
+		""
+	);
+	check(
+		/wanted === "tailnet"[\s\S]{0,240}?tailnetLink\(\{ host: tailnet\.dnsName \?\? tailnet\.address/u.test(remoteSource),
+		"the tailnet link prefers the MagicDNS name and falls back to the address",
+		""
+	);
+	const lanBody = remoteSource.slice(remoteSource.indexOf("function lanUrls()"), remoteSource.indexOf("function lanUrls()") + 480);
+	check(lanBody.includes('settings().mode !== "lan"'), "LAN links are advertised only when the proxy really binds the LAN", "");
 }
 
 /* ------------------------------------------------- the mobile layer's own rules */

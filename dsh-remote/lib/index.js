@@ -108,7 +108,14 @@ function renderStatus(state_, status) {
 		// command the operator asked for. Do not log it anywhere.
 		lines.push("", "link (treat it as a credential, do not share):", status.link);
 	}
-	lines.push("", `cloudflared: ${state_.remote.cloudflared() ?? "not found"}`, `settings: ${state_.layout().configPath}`);
+	lines.push(
+		"",
+		`cloudflared: ${state_.remote.cloudflared() ?? "not found"}`,
+		// Optional on purpose: the tailnet channel reads its address off the network
+		// interfaces, so a missing CLI costs the MagicDNS name, not the channel.
+		`tailscale: ${state_.remote.tailscale() ?? "the CLI was not found (not required)"}`,
+		`settings: ${state_.layout().configPath}`
+	);
 	return lines.join("\n");
 }
 
@@ -152,7 +159,9 @@ async function handleAction(state, body) {
 	if (body === undefined) throw new Error("expected a JSON body");
 	switch (body.action) {
 		case "enable": {
-			const status = await state.remote.enable(body.mode === "lan" ? "lan" : "tunnel");
+			// The manager validates the mode name; passing it through unchanged is what
+			// lets `tailnet` reach it (coercing here would fold it back to `tunnel`).
+			const status = await state.remote.enable(body.mode);
 			state.log(`remote access enabled (${status.mode})`);
 			return { ok: true, remote: status };
 		}

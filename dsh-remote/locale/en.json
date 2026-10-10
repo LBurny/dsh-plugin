@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Remote",
-    "description": "Reach this dsh from your phone: an authenticated reverse proxy inside the dsh process (token gate plus HttpOnly cookie), over your LAN or a Cloudflare tunnel (off by default), with a QR link. The harness UI is rewritten for narrow screens and gains a Project tab for browsing the current workspace. Ships a panel and the /remote command."
+    "description": "Reach this dsh from your phone: an authenticated reverse proxy inside the dsh process (token gate plus HttpOnly cookie), over your Tailscale tailnet, your LAN, or a Cloudflare tunnel (off by default), with a QR link. The harness UI is rewritten for narrow screens and gains a Project tab for browsing the current workspace. Ships a panel and the /remote command."
   }
 }
