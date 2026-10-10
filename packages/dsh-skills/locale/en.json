@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Skills",
+    "description": "Manage DeepSeek Harness skills from inside dsh: list, enable/disable, delete, and import from other agent tool roots or a local ZIP archive. Ships a panel and the /skills command."
+  }
+}

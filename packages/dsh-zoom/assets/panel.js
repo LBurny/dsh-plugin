@@ -1,0 +1,436 @@
+/**
+ * dsh-zoom — browser half.
+ *
+ * Injected into dsh's own web UI by the host half through the web server's
+ * structured index injection, so it runs same-origin with the harness and can
+ * call `/dsh-zoom/api/*` directly.
+ *
+ * Plain DOM, no build step and no framework: an injected script must not depend
+ * on dsh's internal client bundle format or slot names, both of which are
+ * undocumented outside the tree and change between releases.
+ *
+ * Two cross-package conventions, both DOM-level (no module coupling):
+ *   `#dsh-launchers`   the corner container every plugin's button docks into,
+ *                      created on demand by whichever plugin loads first
+ *   `.dsh-launch`      the shared button style, so several plugins look alike
+ *   `--dsh-launcher-stack`  its measured height, so panels clear the dock
+ */
+(() => {
+	"use strict";
+
+	// The loader may inject this script more than once (e.g. after a client HMR);
+	// a second copy would double every listener.
+	if (window.__dshZoomLoaded === true) return;
+	window.__dshZoomLoaded = true;
+
+	const BASE = "/dsh-zoom";
+	const API = `${BASE}/api`;
+
+	// ------------------------------------------------------------------ i18n
+
+	const ZH = (navigator.language || "").toLowerCase().startsWith("zh");
+	const STRINGS = {
+		title: ["Zoom", "缩放"],
+		close: ["Close", "关闭"],
+		failed: ["Failed", "失败"],
+		working: ["Working…", "处理中…"],
+		level: ["Level", "缩放级别"],
+		step: ["Step", "步进"],
+		range: ["Range", "范围"],
+		zoomIn: ["Zoom in", "放大"],
+		zoomOut: ["Zoom out", "缩小"],
+		record: ["Record", "录制"],
+		recording: ["Press the shortcut…", "请按下快捷键…"],
+		reset: ["Reset to 100%", "重置为 100%"],
+		shortcutHint: ["Shortcuts work anywhere in the dsh web UI; a recording stays open until you press a key.", "快捷键在 dsh 界面任意位置生效；录制状态下按任意键即完成。"],
+		configAt: ["Settings file", "设置文件"],
+		percent: ["%", "%"]
+	};
+	const T = (key) => STRINGS[key][ZH ? 1 : 0];
+
+	// --------------------------------------------------------------- helpers
+
+	/** Create an element with attributes and children. */
+	function el(tag, attrs, ...children) {
+		const node = document.createElement(tag);
+		for (const [key, value] of Object.entries(attrs ?? {})) {
+			if (value === undefined || value === null || value === false) continue;
+			if (key === "class") node.className = value;
+			else if (key === "text") node.textContent = value;
+			else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+			else if (key === "dataset") Object.assign(node.dataset, value);
+			else node.setAttribute(key, value === true ? "" : String(value));
+		}
+		for (const child of children.flat()) {
+			if (child === undefined || child === null || child === false) continue;
+			node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+		}
+		return node;
+	}
+
+	/** GET JSON. */
+	async function getJson(path) {
+		const response = await fetch(path, { credentials: "same-origin" });
+		return response.json();
+	}
+
+	/** POST JSON. */
+	async function postJson(path, body) {
+		const response = await fetch(path, {
+			method: "POST",
+			credentials: "same-origin",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body)
+		});
+		return response.json();
+	}
+
+	/** Throw when an API result reports failure. */
+	function assertOk(result) {
+		if (result?.ok !== true) throw new Error(result?.error ?? "request failed");
+		return result;
+	}
+
+	/** Debounce a function. */
+	function debounce(fn, delay) {
+		let handle;
+		return (...args) => {
+			clearTimeout(handle);
+			handle = setTimeout(() => fn(...args), delay);
+		};
+	}
+
+	/** Parse a `KEY=VALUE` textarea into an object, ignoring blank lines. */
+	function parsePairs(text) {
+		const out = {};
+		for (const line of String(text ?? "").split(/\r?\n/u)) {
+			const trimmed = line.trim();
+			if (trimmed === "") continue;
+			const at = trimmed.indexOf("=");
+			if (at <= 0) continue;
+			out[trimmed.slice(0, at).trim()] = trimmed.slice(at + 1).trim();
+		}
+		return out;
+	}
+
+	/** Serialize an object back into `KEY=VALUE` lines. */
+	const pairsToText = (value) =>
+		Object.entries(value ?? {})
+			.map(([key, item]) => `${key}=${item}`)
+			.join("\n");
+
+	// ------------------------------------------------------------------- dom
+
+	let panel;
+	let body;
+	let toasts;
+	let launcher;
+
+	/** In-page toast for local feedback. */
+	function toast(title, message) {
+		if (toasts === undefined) return;
+		const node = el("div", { class: "toast" },
+			el("div", { class: "toast-title", text: title }),
+			message ? el("div", { class: "row-sub", text: message }) : undefined);
+		node.addEventListener("click", () => node.remove());
+		toasts.append(node);
+		setTimeout(() => node.remove(), 8000);
+	}
+
+	/** One list row: name, subtitle, optional action buttons and a switch. */
+	function row(name, subtitle, enabled, toggle, actions) {
+		const children = [el("div", { class: "row-main" },
+			el("div", { class: "row-name", text: name }),
+			subtitle ? el("div", { class: "row-sub", text: subtitle }) : undefined)];
+		const side = [...(actions ?? [])];
+		if (toggle !== undefined) {
+			const control = el("div", { class: "switch", dataset: { on: String(enabled === true) }, role: "switch" });
+			control.addEventListener("click", async () => {
+				const next = control.dataset.on !== "true";
+				control.dataset.on = String(next);
+				try {
+					await toggle(next);
+				} catch (error) {
+					toast(T("failed"), String(error?.message ?? error));
+				}
+				void render();
+			});
+			side.push(control);
+		}
+		return el("div", { class: "row" }, ...children, side.length === 0 ? undefined : el("div", { class: "row-actions" }, ...side));
+	}
+
+	/** Swap the panel body for a sub-view (dialog); the factory supplies it. */
+	function showView(factory) {
+		void (async () => {
+			body.replaceChildren(el("div", { class: "muted", text: T("working") }));
+			try {
+				body.replaceChildren(await factory());
+			} catch (error) {
+				body.replaceChildren(el("div", { class: "row-sub", text: `${T("failed")}: ${String(error?.message ?? error)}` }));
+			}
+		})();
+	}
+
+	// --------------------------------------------------------------- feature
+
+	/**
+	 * Per-package hooks, reassigned by the feature block below: `prepare` runs
+	 * before the panel is painted (so saved settings apply first), and
+	 * `showLauncher` decides whether this plugin docks a button at all.
+	 */
+	let prepare = async () => {};
+	let showLauncher = () => true;
+
+	let config;
+	let configPath;
+	/** Set while the recorder is armed, so the matcher stands down. */
+	let recordTarget;
+
+	/** Apply a level to the page and remember it (the write is debounced). */
+	function applyLevel(level, persist) {
+		const next = Math.min(config.max, Math.max(config.min, level));
+		document.documentElement.style.zoom = String(next);
+		config.level = next;
+		if (persist) persistLevel();
+		return next;
+	}
+
+	const persistLevel = debounce(() => {
+		void postJson(`${API}/settings`, { level: config.level });
+	}, 400);
+
+	/** Match a keyboard event against a stored shortcut descriptor. */
+	function matchesShortcut(event, shortcut) {
+		if (event.metaKey) return false;
+		if (event.ctrlKey !== shortcut.ctrl) return false;
+		if (event.shiftKey !== shortcut.shift) return false;
+		if (event.altKey !== shortcut.alt) return false;
+		// `code` is authoritative; `key` covers synthesized/RDP events.
+		return (event.code && event.code === shortcut.code) || (event.key && event.key === shortcut.key);
+	}
+
+	/**
+	 * Capture-phase key handling for the zoom shortcuts. Registered once; the
+	 * handler reads the live settings, so rebinding needs no re-registration.
+	 */
+	function installShortcutMatcher() {
+		window.addEventListener("keydown", (event) => {
+			if (recordTarget !== undefined) return;
+			if (config === undefined) return;
+			for (const side of ["in", "out"]) {
+				if (!matchesShortcut(event, config[side])) continue;
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				applyLevel(side === "in" ? config.level + config.step : config.level - config.step, true);
+				return;
+			}
+		}, true);
+	}
+
+	/** Human-readable form of a shortcut descriptor. */
+	function describeShortcut(shortcut) {
+		const parts = [];
+		if (shortcut.ctrl) parts.push("Ctrl");
+		if (shortcut.shift) parts.push("Shift");
+		if (shortcut.alt) parts.push("Alt");
+		parts.push(prettyCode(shortcut.code, shortcut.key));
+		return parts.join(" + ");
+	}
+
+	/** Turn a KeyboardEvent code into something a person recognises. */
+	function prettyCode(code, key) {
+		if (typeof code !== "string" || code === "") return key ?? "?";
+		if (code.startsWith("Key")) return code.slice(3);
+		if (code.startsWith("Digit")) return code.slice(5);
+		const named = { Equal: "=", Minus: "-", Plus: "+", NumpadAdd: "Num +", NumpadSubtract: "Num -", Space: "Space" };
+		return named[code] ?? code;
+	}
+
+	/** Arm the recorder for one side; the next keydown becomes the shortcut. */
+	function recordShortcut(side, cap) {
+		recordTarget = side;
+		cap.textContent = T("recording");
+		cap.classList.add("recording");
+		const once = (event) => {
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			window.removeEventListener("keydown", once, true);
+			recordTarget = undefined;
+			// Escape cancels rather than binding Escape itself.
+			if (event.key !== "Escape") {
+				const shortcut = {
+					ctrl: event.ctrlKey === true,
+					shift: event.shiftKey === true,
+					alt: event.altKey === true,
+					code: typeof event.code === "string" && event.code !== "" ? event.code : "",
+					key: typeof event.key === "string" ? event.key : ""
+				};
+				if (shortcut.code === "" && shortcut.key === "") return;
+				config[side] = shortcut;
+				void patchConfig({ [side]: shortcut });
+				cap.textContent = describeShortcut(shortcut);
+			} else {
+				cap.textContent = describeShortcut(config[side]);
+			}
+			cap.classList.remove("recording");
+		};
+		window.addEventListener("keydown", once, true);
+	}
+
+	/** Save a settings patch and surface failures. */
+	async function patchConfig(patch) {
+		const result = await postJson(`${API}/settings`, patch);
+		if (result.ok !== true) {
+			toast(T("failed"), result.error ?? "settings save failed");
+			return;
+		}
+		config = result.config;
+		if (patch.level !== undefined) applyLevel(config.level, false);
+		void render();
+	}
+
+	async function render() {
+		body.replaceChildren(el("div", { class: "muted", text: "…" }));
+		try {
+			if (config === undefined) {
+				const data = await getJson(`${API}/settings`);
+				if (data.ok !== true) throw new Error(data.error ?? "failed to read settings");
+				config = data.config;
+			}
+			body.replaceChildren(renderSettings());
+		} catch (error) {
+			body.replaceChildren(el("div", { class: "row-sub", text: `${T("failed")}: ${String(error?.message ?? error)}` }));
+		}
+	}
+
+	/** The shortcut row for one side: a keycap that doubles as the recorder. */
+	function shortcutRow(side) {
+		const cap = el("span", { class: "keycap", text: describeShortcut(config[side]) });
+		cap.addEventListener("click", () => recordShortcut(side, cap));
+		return el("div", { class: "row" },
+			el("div", { class: "row-main" },
+				el("div", { class: "row-name", text: side === "in" ? T("zoomIn") : T("zoomOut") }),
+				el("div", { class: "row-sub", text: T("shortcutHint") })),
+			el("div", { class: "row-actions" }, cap,
+				el("button", { text: T("record"), onclick: () => recordShortcut(side, cap) })));
+	}
+
+	function renderSettings() {
+		const levelLabel = el("span", { class: "muted", text: `${Math.round(config.level * 100)}${T("percent")}` });
+		const slider = el("input", {
+			type: "range",
+			min: String(config.min),
+			max: String(config.max),
+			step: String(config.step),
+			value: String(config.level)
+		});
+		slider.addEventListener("input", () => {
+			const next = applyLevel(Number(slider.value), false);
+			levelLabel.textContent = `${Math.round(next * 100)}${T("percent")}`;
+		});
+		slider.addEventListener("change", () => persistLevel());
+		const stepSelect = el("select", {});
+		for (const step of [0.01, 0.02, 0.05, 0.1, 0.25]) {
+			stepSelect.append(el("option", { value: String(step), text: `${Math.round(step * 100)}${T("percent")}`, selected: Math.abs(step - config.step) < 0.001 }));
+		}
+		stepSelect.addEventListener("change", () => void patchConfig({ step: Number(stepSelect.value) }));
+		return el("div", {},
+			el("div", { class: "field" }, el("label", { text: `${T("level")} ${T("range")} ${Math.round(config.min * 100)}–${Math.round(config.max * 100)}${T("percent")}` }), slider),
+			el("div", { class: "actions" }, levelLabel,
+				el("button", { text: T("reset"), onclick: () => { applyLevel(1, true); void render(); } })),
+			el("div", { class: "field" }, el("label", { text: T("step") }), stepSelect),
+			shortcutRow("in"),
+			shortcutRow("out"),
+			el("div", { class: "note", text: `${T("configAt")}: ${configPath ?? "?"}` }));
+	}
+
+	// Read the saved level before the panel is painted, so the page is already at
+	// the user's zoom when the launcher appears, and the shortcut matcher is live
+	// even if they never open the panel.
+	prepare = async () => {
+		const data = await getJson(`${API}/settings`);
+		if (data.ok !== true) throw new Error(data.error ?? "failed to read settings");
+		config = data.config;
+		configPath = data.configPath;
+		applyLevel(config.level, false);
+		installShortcutMatcher();
+	};
+
+	/** The launcher is the settings' own on/off switch. */
+	showLauncher = () => config?.launcher !== false;
+
+	// ---------------------------------------------------------------- chrome
+
+	function toggle() {
+		const hidden = panel.hidden;
+		panel.hidden = !hidden;
+		launcher.dataset.open = String(hidden);
+		if (hidden) void render();
+	}
+
+	/**
+	 * Panels anchor above the launcher dock, whose height depends on how many
+	 * packages are installed. Every package publishes the same measurement, so a
+	 * later plugin's panel is placed clear of a taller dock.
+	 */
+	function publishStackHeight(dock) {
+		const apply = () => document.documentElement.style.setProperty("--dsh-launcher-stack", `${dock.offsetHeight}px`);
+		apply();
+		if (typeof ResizeObserver !== "undefined") new ResizeObserver(apply).observe(dock);
+	}
+
+	/** The corner launcher, docked into the shared container. */
+	function buildLauncher() {
+		let dock = document.getElementById("dsh-launchers");
+		if (dock === null) {
+			dock = el("div", { id: "dsh-launchers" });
+			document.body.append(dock);
+		}
+		launcher = el("button", { class: "dsh-launch", title: T("title"), onclick: toggle },
+			el("span", { class: "dsh-launch-icon", text: "Z" }),
+			el("span", { class: "dsh-launch-label", text: T("title") }));
+		launcher.dataset.open = "false";
+		dock.append(launcher);
+		publishStackHeight(dock);
+	}
+
+	function buildChrome() {
+		const root = el("div", { id: "dsh-zoom-root" });
+		toasts = el("div", { class: "toasts" });
+		body = el("div", { class: "body" });
+		panel = el("div", { class: "panel", hidden: true },
+			el("div", { class: "head" },
+				el("div", { class: "title", text: T("title") }),
+				el("button", { text: T("close"), onclick: toggle })),
+			body);
+		root.append(toasts, panel);
+		document.body.append(root);
+		if (showLauncher()) buildLauncher();
+	}
+
+	/** True when the host half answers — the panel is useless without it. */
+	async function reachable() {
+		try {
+			const data = await getJson("/dsh-zoom/api/settings");
+			return data?.ok === true;
+		} catch {
+			return false;
+		}
+	}
+
+	async function boot() {
+		if (!(await reachable())) return;
+		try {
+			await prepare();
+		} catch {
+			/* a settings read that fails must not hide the panel */
+		}
+		buildChrome();
+	}
+
+	// The injected script lands at the end of <body>; defer only if that is not
+	// true, so the launcher appears with the rest of the UI.
+	if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => void boot(), { once: true });
+	else void boot();
+})();

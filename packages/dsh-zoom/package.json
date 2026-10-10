@@ -1,0 +1,52 @@
+{
+  "name": "dsh-zoom",
+  "version": "0.1.0",
+  "description": "Page zoom for the DeepSeek Harness web UI with rebindable shortcuts (press a key to record one), adjustable level and step. Ships a panel and the /zoom command. dsh-zoom：dsh 网页界面缩放，快捷键可自定义，自带面板与 /zoom 命令。",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib",
+    "assets",
+    "locale",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "zoom",
+    "shortcuts",
+    "keybinding",
+    "缩放",
+    "快捷键"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-atomic-write": "^0.2.0-rc.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LBurny/dsh-plugin.git",
+    "directory": "packages/dsh-zoom"
+  },
+  "homepage": "https://github.com/LBurny/dsh-plugin/tree/main/packages/dsh-zoom#readme",
+  "bugs": {
+    "url": "https://github.com/LBurny/dsh-plugin/issues"
+  }
+}

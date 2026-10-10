@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP",
+    "description": "Manage MCP servers from inside dsh: add, edit, delete, enable/disable, and import from other agent tool configs — editing the active profile's cordis.patch.yml while preserving comments and !!js tags. Ships a panel and the /mcp command."
+  }
+}

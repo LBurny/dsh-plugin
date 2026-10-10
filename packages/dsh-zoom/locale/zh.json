@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "页面缩放",
+    "description": "在 dsh 网页界面里缩放页面，快捷键可自定义（录制器直接按键绑定）。缩放级别与步进可调，设置落在 $DSH_HOME/dsh-zoom.json。自带面板与 /zoom 命令。"
+  }
+}

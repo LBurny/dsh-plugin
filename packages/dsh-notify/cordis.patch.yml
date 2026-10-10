@@ -1,0 +1,5 @@
+# dsh-notify layer: one row, mounting this package as a plugin.
+# Row ids are first-come, first-served across the whole tree — keep it specific.
+- insert:
+    - id: notify
+      name: dsh-notify

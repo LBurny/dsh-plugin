@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Reminders",
+    "description": "Four reminder kinds (approval, question, task done, answer ready) as an in-page popup, a sound and a browser notification — with timing and volume controls and a bundled 17-sound pack. Subscribed host-side from dsh's own events and pushed to the page over SSE. Ships a panel and the /notify command."
+  }
+}

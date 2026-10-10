@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Doctor",
+    "description": "Harness diagnostics from inside dsh: version, port, pid, uptime, memory, profile and a log tail — reading the desktop shell's events.log when running under DSHDesktop. Ships a panel and the /doctor command."
+  }
+}

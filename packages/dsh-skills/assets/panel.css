@@ -1,0 +1,319 @@
+/*
+ * dsh-skills panel styles.
+ *
+ * Two scopes, on purpose:
+ *   #dsh-launchers / .dsh-launch   the shared corner dock — the one DOM
+ *                                 convention the dsh-plugin packages share, so
+ *                                 six launchers stack instead of overlapping
+ *   #dsh-skills-root               this plugin's panel, fully scoped so the
+ *                                 injected stylesheet cannot reach dsh's own UI
+ *                                 (or a sibling package's).
+ *
+ * Colours are CSS variables with a dark override, so the panel follows the host
+ * page's light/dark scheme instead of forcing one.
+ */
+
+/* ------------------------------------------------------------- launchers */
+
+#dsh-launchers {
+	--dsh-p-bg: #ffffff;
+	--dsh-p-fg: #1c1f23;
+	--dsh-p-border: #e4e6eb;
+	--dsh-p-hover: #f3f4f6;
+	--dsh-p-accent: #4d6bfe;
+	--dsh-p-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+	position: fixed;
+	right: 18px;
+	bottom: 18px;
+	z-index: 2147483000;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 8px;
+	font: 13px/1.4 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+	#dsh-launchers {
+		--dsh-p-bg: #1e2126;
+		--dsh-p-fg: #e8eaed;
+		--dsh-p-border: #34383e;
+		--dsh-p-hover: #2a2e34;
+		--dsh-p-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+	}
+}
+
+.dsh-launch {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	height: 38px;
+	padding: 0 14px 0 6px;
+	border-radius: 999px;
+	border: 1px solid var(--dsh-p-border);
+	background: var(--dsh-p-bg);
+	color: var(--dsh-p-fg);
+	box-shadow: var(--dsh-p-shadow);
+	cursor: pointer;
+	font: inherit;
+}
+
+.dsh-launch:hover {
+	background: var(--dsh-p-hover);
+}
+
+.dsh-launch-icon {
+	display: grid;
+	place-items: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 50%;
+	background: var(--dsh-p-hover);
+	font-weight: 700;
+	font-size: 12px;
+}
+
+.dsh-launch[data-open="true"] {
+	border-color: var(--dsh-p-accent);
+}
+
+/* ---------------------------------------------------------------- panel */
+
+#dsh-skills-root,
+#dsh-skills-root * {
+	box-sizing: border-box;
+}
+
+#dsh-skills-root {
+	--dsh-bg: #ffffff;
+	--dsh-fg: #1c1f23;
+	--dsh-muted: #6b7280;
+	--dsh-border: #e4e6eb;
+	--dsh-hover: #f3f4f6;
+	--dsh-accent: #4d6bfe;
+	--dsh-danger: #d64545;
+	--dsh-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+	font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+	color: var(--dsh-fg);
+}
+
+@media (prefers-color-scheme: dark) {
+	#dsh-skills-root {
+		--dsh-bg: #1e2126;
+		--dsh-fg: #e8eaed;
+		--dsh-muted: #9aa0a6;
+		--dsh-border: #34383e;
+		--dsh-hover: #2a2e34;
+		--dsh-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+	}
+}
+
+#dsh-skills-root button {
+	font: inherit;
+	color: inherit;
+	background: transparent;
+	border: 1px solid var(--dsh-border);
+	border-radius: 8px;
+	padding: 5px 10px;
+	cursor: pointer;
+}
+
+#dsh-skills-root button:hover {
+	background: var(--dsh-hover);
+}
+
+#dsh-skills-root button:disabled {
+	opacity: 0.45;
+	cursor: default;
+}
+
+#dsh-skills-root button.primary {
+	background: var(--dsh-accent);
+	border-color: var(--dsh-accent);
+	color: #fff;
+}
+
+#dsh-skills-root button.danger {
+	color: var(--dsh-danger);
+	border-color: color-mix(in srgb, var(--dsh-danger) 40%, transparent);
+}
+
+#dsh-skills-root input,
+#dsh-skills-root select,
+#dsh-skills-root textarea {
+	font: inherit;
+	color: inherit;
+	background: var(--dsh-bg);
+	border: 1px solid var(--dsh-border);
+	border-radius: 8px;
+	padding: 5px 8px;
+	width: 100%;
+}
+
+#dsh-skills-root input[type="checkbox"] {
+	width: auto;
+	flex-shrink: 0;
+	margin-top: 3px;
+}
+
+/* The panel sits above the launcher stack, whose height varies with how many
+   packages are installed; the scripts publish it as --dsh-launcher-stack. */
+#dsh-skills-root .panel {
+	position: fixed;
+	right: 18px;
+	bottom: calc(26px + var(--dsh-launcher-stack, 46px));
+	width: min(540px, calc(100vw - 36px));
+	max-height: min(660px, calc(100vh - 140px));
+	display: flex;
+	flex-direction: column;
+	background: var(--dsh-bg);
+	border: 1px solid var(--dsh-border);
+	border-radius: 14px;
+	box-shadow: var(--dsh-shadow);
+	overflow: hidden;
+	z-index: 2147483001;
+}
+
+#dsh-skills-root .panel[hidden] {
+	display: none;
+}
+
+#dsh-skills-root .head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 12px;
+	border-bottom: 1px solid var(--dsh-border);
+}
+
+#dsh-skills-root .title {
+	font-weight: 600;
+	flex: 1;
+}
+
+#dsh-skills-root .body {
+	padding: 12px;
+	overflow: auto;
+	flex: 1;
+}
+
+#dsh-skills-root .row {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	padding: 8px;
+	border: 1px solid var(--dsh-border);
+	border-radius: 10px;
+	margin-bottom: 8px;
+}
+
+#dsh-skills-root .row-main {
+	flex: 1;
+	min-width: 0;
+}
+
+#dsh-skills-root .row-name {
+	font-weight: 600;
+	word-break: break-all;
+}
+
+#dsh-skills-root .row-sub {
+	color: var(--dsh-muted);
+	font-size: 12px;
+	word-break: break-all;
+}
+
+#dsh-skills-root .row-actions {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	flex-shrink: 0;
+}
+
+#dsh-skills-root .muted {
+	color: var(--dsh-muted);
+}
+
+#dsh-skills-root .note {
+	color: var(--dsh-muted);
+	font-size: 12px;
+	margin: 0 0 10px;
+}
+
+#dsh-skills-root .field {
+	margin-bottom: 8px;
+}
+
+#dsh-skills-root .field > label {
+	display: block;
+	font-size: 12px;
+	color: var(--dsh-muted);
+	margin-bottom: 3px;
+}
+
+#dsh-skills-root .actions {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 10px;
+	flex-wrap: wrap;
+}
+
+#dsh-skills-root .switch {
+	position: relative;
+	width: 34px;
+	height: 20px;
+	border-radius: 999px;
+	background: var(--dsh-border);
+	cursor: pointer;
+	flex-shrink: 0;
+	transition: background 0.15s;
+}
+
+#dsh-skills-root .switch[data-on="true"] {
+	background: var(--dsh-accent);
+}
+
+#dsh-skills-root .switch::after {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background: #fff;
+	transition: transform 0.15s;
+}
+
+#dsh-skills-root .switch[data-on="true"]::after {
+	transform: translateX(14px);
+}
+
+#dsh-skills-root .toasts {
+	position: fixed;
+	left: 50%;
+	transform: translateX(-50%);
+	bottom: calc(26px + var(--dsh-launcher-stack, 46px));
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	pointer-events: none;
+	width: min(420px, calc(100vw - 40px));
+	z-index: 2147483002;
+}
+
+#dsh-skills-root .toast {
+	pointer-events: auto;
+	background: var(--dsh-bg);
+	border: 1px solid var(--dsh-border);
+	border-left: 3px solid var(--dsh-accent);
+	border-radius: 10px;
+	padding: 10px 12px;
+	box-shadow: var(--dsh-shadow);
+	cursor: pointer;
+}
+
+#dsh-skills-root .toast-title {
+	font-weight: 600;
+	margin-bottom: 2px;
+}

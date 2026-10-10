@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Zoom",
+    "description": "Page zoom for the dsh web UI with rebindable shortcuts (press a key to record one). Level and step are adjustable; settings live in $DSH_HOME/dsh-zoom.json. Ships a panel and the /zoom command."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "诊断",
+    "description": "在 dsh 本体里查看运行状态：版本、端口、PID、运行时长、内存、profile 与日志尾部。桌面壳下直接读它的 events.log。自带面板与 /doctor 命令。"
+  }
+}
