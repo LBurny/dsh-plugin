@@ -112,6 +112,34 @@ for (const pkg of FEATURES) {
 	check(style.includes("var(--dsw-alias-label-primary, #1c1f23)"), `${pkg}: prefers the shell's text token`, "");
 	check(style.includes("var(--dsw-alias-border-l2, #e4e6eb)"), `${pkg}: prefers the shell's border token`, "");
 	check(style.includes("var(--dsw-alias-bg-base, #1e2126)"), `${pkg}: keeps a dark-OS fallback for the token`, "");
+	// Typography and controls mirror the official plugin page and settings form
+	// (tokens extracted from dsh-client-ui-plugin-manager / -primitives), so an
+	// opened feature reads as dsh's own page, not a bolted-on panel.
+	check(style.includes("--dsh-accent: var(--dsw-alias-brand-primary,"), `${pkg}: the accent follows the shell's brand token`, "");
+	check(style.includes("border: 0.5px solid var(--dsw-alias-border-l3,"), `${pkg}: buttons wear the shell's hairline outline`, "");
+	check(style.includes("font-size: 14px;\n\tfont-weight: 500;\n\tline-height: 20px;"), `${pkg}: row titles use the official 14px/500 scale`, "");
+	check(style.includes("-webkit-line-clamp: 2;") && style.includes("overflow-wrap: break-word;"), `${pkg}: long subtitles clamp to two lines at word boundaries`, "");
+	check(!style.includes("overflow-wrap: anywhere") && !/\.row-(?:name|sub)\s*\{[^}]*word-break: break-all/u.test(style), `${pkg}: no mid-word breaking in row text`, "");
+	check(style.includes("width: 36px;") && style.includes("translateX(16px)"), `${pkg}: the switch matches the official 36px control`, "");
+	// The clamp hides the tail of a long text, so the full string rides on the
+	// row's tooltip.
+	check(panel.includes('el("div", { class: "row-name", text: name, title: name })'), `${pkg}: a clamped row name keeps its tooltip`, "");
+	check(panel.includes('el("div", { class: "row-sub", text: subtitle, title: subtitle })'), `${pkg}: a clamped row subtitle keeps its tooltip`, "");
+}
+
+/* ------------------------------------------- one shared stylesheet block */
+
+// All six panels share one stylesheet block up to the toast rule (only the
+// package tails differ); after normalizing the header comment and the scope id
+// the blocks must be byte-identical, so the design tokens cannot drift.
+const sharedBlock = (pkg) => {
+	const style = read(join(pkg, "assets", "panel.css"));
+	const upto = style.slice(0, style.indexOf("}", style.indexOf(".toast-title {")) + 1);
+	return upto.replace(/^\/\*[\s\S]*?\*\//u, "/* header */").replaceAll(`#${pkg}-root`, "#SCOPE");
+};
+const canonicalBlock = sharedBlock(FEATURES[0]);
+for (const pkg of FEATURES) {
+	check(sharedBlock(pkg) === canonicalBlock, `${pkg}: shares the one panel stylesheet block`, "");
 }
 
 /* ------------------------------------------------------------- the skin */

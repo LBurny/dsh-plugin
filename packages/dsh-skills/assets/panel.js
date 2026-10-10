@@ -155,8 +155,8 @@
 	/** One list row: name, subtitle, optional action buttons and a switch. */
 	function row(name, subtitle, enabled, toggle, actions) {
 		const children = [el("div", { class: "row-main" },
-			el("div", { class: "row-name", text: name }),
-			subtitle ? el("div", { class: "row-sub", text: subtitle }) : undefined)];
+			el("div", { class: "row-name", text: name, title: name }),
+			subtitle ? el("div", { class: "row-sub", text: subtitle, title: subtitle }) : undefined)];
 		const side = [...(actions ?? [])];
 		if (toggle !== undefined) {
 			const control = el("div", { class: "switch", dataset: { on: String(enabled === true) }, role: "switch" });

@@ -9,11 +9,12 @@
  *                                 injected stylesheet cannot reach dsh's own UI
  *                                 (or a sibling package's).
  *
- * Colours are CSS variables. Each one prefers the host shell's own theme token
- * (`--dsw-alias-*`, which follows dsh's light/dark setting) and falls back to the
- * hardcoded value, itself overridden for a dark OS by `prefers-color-scheme` — so
- * the panel matches dsh when dsh defines a theme and still looks right when it
- * does not.
+ * The panel follows dsh's own design tokens (`--dsw-alias-*`, `--dsw-radius-*`),
+ * which track dsh's light/dark setting; every var() carries a hardcoded fallback
+ * that is itself swapped for a dark OS by `prefers-color-scheme`. Metrics mirror
+ * the official plugin page and settings form (14px/500 row titles, 13px/18px
+ * tertiary subtitles clamped to two lines, 32px outlined buttons, the 36x20
+ * switch), so the panel reads as dsh's own UI even without them.
  */
 
 /* ------------------------------------------------------------- launchers */
@@ -23,7 +24,7 @@
 	--dsh-p-fg: var(--dsw-alias-label-primary, #1c1f23);
 	--dsh-p-border: var(--dsw-alias-border-l2, #e4e6eb);
 	--dsh-p-hover: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
-	--dsh-p-accent: #4d6bfe;
+	--dsh-p-accent: var(--dsw-alias-brand-primary, #4d6bfe);
 	--dsh-p-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
 	position: fixed;
 	right: 18px;
@@ -91,10 +92,12 @@
 	--dsh-bg: var(--dsw-alias-bg-base, #ffffff);
 	--dsh-fg: var(--dsw-alias-label-primary, #1c1f23);
 	--dsh-muted: var(--dsw-alias-label-caption, #6b7280);
+	--dsh-tertiary: var(--dsw-alias-label-tertiary, #8f959e);
 	--dsh-border: var(--dsw-alias-border-l2, #e4e6eb);
 	--dsh-hover: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
-	--dsh-accent: #4d6bfe;
-	--dsh-danger: #d64545;
+	--dsh-accent: var(--dsw-alias-brand-primary, #4d6bfe);
+	--dsh-accent-fg: var(--dsw-alias-label-primary-foreground, #ffffff);
+	--dsh-danger: var(--dsw-alias-state-error-primary, #d64545);
 	--dsh-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
 	font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
 	color: var(--dsh-fg);
@@ -105,19 +108,25 @@
 		--dsh-bg: var(--dsw-alias-bg-base, #1e2126);
 		--dsh-fg: var(--dsw-alias-label-primary, #e8eaed);
 		--dsh-muted: var(--dsw-alias-label-caption, #9aa0a6);
+		--dsh-tertiary: var(--dsw-alias-label-tertiary, #73787f);
 		--dsh-border: var(--dsw-alias-border-l2, #34383e);
 		--dsh-hover: var(--dsw-alias-interactive-bg-hover, #2a2e34);
 		--dsh-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 	}
 }
 
+/* Buttons are the official outlined control: hairline l3 stroke, 32px tall,
+   radius-md, transparent fill that picks up the hover wash. */
 #dsh-notify-root button {
 	font: inherit;
+	font-size: 13px;
+	line-height: 20px;
 	color: inherit;
 	background: transparent;
-	border: 1px solid var(--dsh-border);
-	border-radius: 8px;
-	padding: 5px 10px;
+	border: 0.5px solid var(--dsw-alias-border-l3, var(--dsh-border));
+	border-radius: var(--dsw-radius-md, 12px);
+	height: 32px;
+	padding: 0 12px;
 	cursor: pointer;
 }
 
@@ -126,37 +135,69 @@
 }
 
 #dsh-notify-root button:disabled {
-	opacity: 0.45;
+	opacity: 0.4;
 	cursor: default;
 }
 
-#dsh-notify-root button.primary {
-	background: var(--dsh-accent);
-	border-color: var(--dsh-accent);
-	color: #fff;
+#dsh-notify-root button:focus-visible {
+	outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsh-accent));
+	outline-offset: 1px;
 }
 
+#dsh-notify-root button.primary {
+	background: var(--dsw-alias-button-primary-fill, var(--dsh-accent));
+	border-color: transparent;
+	color: var(--dsw-alias-label-primary-foreground, var(--dsh-accent-fg));
+}
+
+#dsh-notify-root button.primary:hover:not(:disabled) {
+	background: var(--dsw-alias-button-primary-hover, var(--dsh-accent));
+}
+
+/* Destructive action: the official danger tint, 30% stroke and 8% hover fill. */
 #dsh-notify-root button.danger {
 	color: var(--dsh-danger);
-	border-color: color-mix(in srgb, var(--dsh-danger) 40%, transparent);
+	border-color: color-mix(in srgb, var(--dsh-danger) 30%, transparent);
+}
+
+#dsh-notify-root button.danger:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--dsh-danger) 8%, transparent);
+}
+
+/* Controls inside a list row stay compact, the scale of dsh's small button. */
+#dsh-notify-root .row-actions button {
+	height: 28px;
+	padding: 0 10px;
+	font-size: 12px;
+	line-height: 18px;
+	border-radius: var(--dsw-radius-sm, 8px);
 }
 
 #dsh-notify-root input,
 #dsh-notify-root select,
 #dsh-notify-root textarea {
 	font: inherit;
-	color: inherit;
-	background: var(--dsh-bg);
-	border: 1px solid var(--dsh-border);
-	border-radius: 8px;
-	padding: 5px 8px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--dsh-fg);
+	background: var(--dsw-alias-bg-layer-3, var(--dsh-bg));
+	border: 0.5px solid var(--dsw-alias-border-l4, var(--dsh-border));
+	border-radius: var(--dsw-radius-md, 12px);
+	padding: 6px 12px;
 	width: 100%;
+}
+
+#dsh-notify-root input:focus,
+#dsh-notify-root select:focus,
+#dsh-notify-root textarea:focus {
+	border-color: var(--dsw-alias-state-business-primary, var(--dsh-accent));
+	outline: none;
 }
 
 #dsh-notify-root input[type="checkbox"] {
 	width: auto;
 	flex-shrink: 0;
-	margin-top: 3px;
+	accent-color: var(--dsh-accent);
 }
 
 /* The panel sits above the launcher stack, whose height varies with how many
@@ -171,7 +212,7 @@
 	flex-direction: column;
 	background: var(--dsh-bg);
 	border: 1px solid var(--dsh-border);
-	border-radius: 14px;
+	border-radius: var(--dsw-radius-lg, 16px);
 	box-shadow: var(--dsh-shadow);
 	overflow: hidden;
 	z-index: 2147483001;
@@ -185,7 +226,7 @@
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	padding: 10px 12px;
+	padding: 10px 22px;
 	border-bottom: 1px solid var(--dsh-border);
 }
 
@@ -195,81 +236,110 @@
 }
 
 #dsh-notify-root .body {
-	padding: 12px;
+	padding: 4px 22px 24px;
 	overflow: auto;
 	flex: 1;
 }
 
+/* A row is one flat line like the official plugin list: no card box, a 2px
+   rhythm between rows, and an -8px bleed so the hover surface of tappable rows
+   extends past the text while the text stays on the shared gutter. */
 #dsh-notify-root .row {
 	display: flex;
-	align-items: flex-start;
-	gap: 12px;
-	padding: 10px 12px;
-	border: 1px solid var(--dsh-border);
-	border-radius: 10px;
-	margin-bottom: 8px;
+	align-items: center;
+	gap: 14px;
+	padding: 8px;
+	margin: 0 -8px 2px;
+	border-radius: var(--dsw-radius-xl, 20px);
+}
+
+#dsh-notify-root label.row {
+	cursor: pointer;
+}
+
+#dsh-notify-root label.row:hover {
+	background: var(--dsh-hover);
 }
 
 #dsh-notify-root .row-main {
 	flex: 1;
 	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
 }
 
 #dsh-notify-root .row-name {
-	font-weight: 600;
-	line-height: 1.4;
-	word-break: break-all;
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 20px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
+/* Long descriptions clamp to two lines at word boundaries (never mid-word);
+   the full text rides on the row's title tooltip. */
 #dsh-notify-root .row-sub {
-	color: var(--dsh-muted);
-	font-size: 12px;
-	line-height: 1.6;
-	overflow-wrap: anywhere;
+	color: var(--dsh-tertiary);
+	font-size: 13px;
+	line-height: 18px;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow-wrap: break-word;
 }
 
 #dsh-notify-root .row-actions {
 	display: flex;
-	gap: 6px;
+	gap: 8px;
 	align-items: center;
 	flex-shrink: 0;
 }
 
 #dsh-notify-root .muted {
-	color: var(--dsh-muted);
+	color: var(--dsh-tertiary);
+	font-size: 13px;
+	line-height: 20px;
+	margin: 0 0 12px;
+	font-variant-numeric: tabular-nums;
 }
 
 #dsh-notify-root .note {
-	color: var(--dsh-muted);
+	color: var(--dsh-tertiary);
 	font-size: 12px;
-	line-height: 1.7;
-	margin: 0 0 10px;
+	line-height: 1.6;
+	margin: 0 0 12px;
 }
 
 #dsh-notify-root .field {
-	margin-bottom: 8px;
+	margin-bottom: 14px;
 }
 
 #dsh-notify-root .field > label {
 	display: block;
-	font-size: 12px;
-	color: var(--dsh-muted);
-	margin-bottom: 3px;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.5;
+	color: var(--dsh-fg);
+	margin-bottom: 6px;
 }
 
 #dsh-notify-root .actions {
 	display: flex;
 	gap: 8px;
-	margin-bottom: 10px;
+	margin-bottom: 12px;
 	flex-wrap: wrap;
 }
 
+/* The official 36x20 switch: l3 track, brand fill when on, 16px thumb. */
 #dsh-notify-root .switch {
 	position: relative;
-	width: 34px;
+	width: 36px;
 	height: 20px;
 	border-radius: 999px;
-	background: var(--dsh-border);
+	background: var(--dsw-alias-border-l3, var(--dsh-border));
 	cursor: pointer;
 	flex-shrink: 0;
 	transition: background 0.15s;
@@ -287,12 +357,13 @@
 	width: 16px;
 	height: 16px;
 	border-radius: 50%;
-	background: #fff;
+	background: var(--dsw-alias-switch-thumb, #ffffff);
 	transition: transform 0.15s;
 }
 
 #dsh-notify-root .switch[data-on="true"]::after {
-	transform: translateX(14px);
+	transform: translateX(16px);
+	background: var(--dsw-alias-label-primary-foreground, #ffffff);
 }
 
 #dsh-notify-root .toasts {
@@ -313,7 +384,7 @@
 	background: var(--dsh-bg);
 	border: 1px solid var(--dsh-border);
 	border-left: 3px solid var(--dsh-accent);
-	border-radius: 10px;
+	border-radius: var(--dsw-radius-md, 12px);
 	padding: 10px 12px;
 	box-shadow: var(--dsh-shadow);
 	cursor: pointer;

@@ -61,6 +61,12 @@ anything here; it is short and most of it is a trap someone already walked into.
     standalone floating panel's button: without the hub it is the only refresh.
   - Nothing a panel or the hub shows may contain an em dash — `test/hub-contract.test.mjs` fails on
     one in any non-comment line. Comment prose is exempt.
+  - The six `panel.css` files share **one byte-identical block** (everything up to the toast rule;
+    only per-package tails differ) whose metrics mirror the official plugin page and settings form —
+    the tokens were extracted from `dsh-client-ui-plugin-manager` and `dsh-client-ui-primitives`
+    (14px/500 row titles, 13px/18px tertiary subtitles, hairline `0.5px` outlines, 32px buttons,
+    the 36×20 switch, brand-token accent). Row text never breaks mid-word (`overflow-wrap: anywhere`
+    is banned): subtitles clamp to two lines and keep the full string on the row's `title` tooltip.
   - `test/panel-embed.test.mjs` boots every panel's script in a DOM stub for both directions (hub
     present and absent). Its stubs are load-bearing: panels append with `child instanceof Node`, read
     `panel.hidden`/`element.id` as *properties* (the `hidden` and `id` attributes are reflected), and
