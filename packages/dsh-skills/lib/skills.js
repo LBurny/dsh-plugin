@@ -24,9 +24,9 @@ const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
 /**
  * Directories the kit can import skills from, i.e. the same ecosystems the
  * desktop shell offers. Missing directories are reported so the UI greys them out.
+ * @param home - user home to derive from (overridable in tests).
  */
-export function importSources() {
-	const home = homedir();
+export function importSources(home = homedir()) {
 	return [
 		{ id: "codex", label: "Codex (~/.codex/skills)", dir: join(home, ".codex", "skills") },
 		{ id: "claude", label: "Claude Code (~/.claude/skills)", dir: join(home, ".claude", "skills") },
@@ -145,28 +145,30 @@ export async function deleteSkill(layout, name) {
 }
 
 /** List what each import source would contribute, marking conflicts. */
-export async function listImportable(layout) {
+export async function listImportable(layout, sources = importSources()) {
 	const existing = new Set((await listSkills(layout)).map((skill) => skill.name));
-	const sources = [];
-	for (const source of importSources()) {
+	const reported = [];
+	for (const source of sources) {
 		let entries;
 		try {
 			entries = await readdir(source.dir, { withFileTypes: true });
 		} catch {
-			sources.push({ ...source, available: false, skills: [] });
+			reported.push({ ...source, available: false, skills: [] });
 			continue;
 		}
 		const skills = [];
 		for (const entry of entries) {
-			if (!entry.isDirectory()) continue;
+			// A symlink is a skill: these farms are commonly built by linking one
+			// shared checkout into every agent tool (cc-switch does exactly that).
+			if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 			const dir = join(source.dir, entry.name);
 			if (!(await isSkillDir(dir))) continue;
 			const described = await describeSkill(dir, true);
 			skills.push({ ...described, conflict: existing.has(described.name) });
 		}
-		sources.push({ ...source, available: true, skills: skills.sort((a, b) => a.name.localeCompare(b.name)) });
+		reported.push({ ...source, available: true, skills: skills.sort((a, b) => a.name.localeCompare(b.name)) });
 	}
-	return sources;
+	return reported;
 }
 
 /**
@@ -175,9 +177,10 @@ export async function listImportable(layout) {
  * @param sourceId - one of {@link importSources} ids.
  * @param names - skill directory names to copy.
  * @param onConflict - `"skip"` (default) or `"overwrite"`.
+ * @param sources - the source list to resolve `sourceId` against.
  */
-export async function importSkills(layout, sourceId, names, onConflict = "skip") {
-	const source = importSources().find((entry) => entry.id === sourceId);
+export async function importSkills(layout, sourceId, names, onConflict = "skip", sources = importSources()) {
+	const source = sources.find((entry) => entry.id === sourceId);
 	if (source === undefined) throw new Error(`unknown import source: ${sourceId}`);
 	await mkdir(layout.skillsDir, { recursive: true });
 	const imported = [];
@@ -199,7 +202,9 @@ export async function importSkills(layout, sourceId, names, onConflict = "skip")
 				await rm(join(root, name), { recursive: true, force: true });
 			}
 		}
-		await cp(from, join(layout.skillsDir, name), { recursive: true });
+		// dereference: the managed root must hold real files, not a link back into
+		// the tool the skill was imported from (source farms are often symlinked).
+		await cp(from, join(layout.skillsDir, name), { recursive: true, dereference: true });
 		imported.push(name);
 	}
 	return { imported, skipped };

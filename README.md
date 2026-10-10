@@ -59,7 +59,7 @@ cd packages/<name> && node test/<name>.test.mjs
 node test/hub-contract.test.mjs          # repo-wide: the hub agreement, from the root
 ```
 
-Offline suites: 54 (dsh-features) / 47 / 20 / 23 / 23 / 38 / 73 checks, plus 143 repo-wide contract
+Offline suites: 55 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 73 checks, plus 168 repo-wide contract
 checks. `dsh-features`' suite evaluates its browser half for real (a vm with a minimal React), so the
 sidebar slot, its order and the mount hand-off are asserted without a browser. `dsh-remote` also ships
 a live suite (`test/remote-live.mjs`) that needs a sandbox instance with remote access enabled.

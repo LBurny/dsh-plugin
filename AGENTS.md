@@ -56,6 +56,12 @@ anything here; it is short and most of it is a trap someone already walked into.
   touching the bundle.
 - **Command registration is guarded** (a name clash degrades to a warning). Do not "fix" that by
   registering unguarded: an exception during `apply` kills dsh.
+- **`readdir({ withFileTypes: true })` reports lstat, so a symlinked directory is not
+  `isDirectory()`.** Skill farms are usually one shared checkout linked into every agent tool, so any
+  directory scan must accept `isSymbolicLink()` too and follow it with `stat` before deciding. Getting
+  this wrong reports an empty source instead of an error; `cp` must pass `dereference: true` so the
+  managed root ends up with real files, not links into a foreign farm. This is what made 导入技能 show
+  "没有找到技能" while `~/.codex/skills` held ten skills.
 - Never log a remote link or token; `/dsh-remote/api/status` exists precisely so there is a
   credential-free status.
 

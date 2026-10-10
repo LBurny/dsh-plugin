@@ -7,11 +7,21 @@
  *   node test/skills.test.mjs
  */
 import { deflateRawSync } from "node:zlib";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discoverZipSkills, extractZipPrefix, listEntries, normalizeEntryName, readEntry, ZipError } from "../lib/zip.js";
-import { deleteSkill, importZipSkills, inspectZipSkills, listSkills, setSkillEnabled, skillStats } from "../lib/skills.js";
+import {
+	deleteSkill,
+	importSkills,
+	importSources,
+	importZipSkills,
+	inspectZipSkills,
+	listImportable,
+	listSkills,
+	setSkillEnabled,
+	skillStats
+} from "../lib/skills.js";
 
 const results = [];
 const check = (ok, label, detail = "") => results.push({ ok, label, detail });
@@ -216,6 +226,58 @@ try {
 check(traversalRejected, "a traversing skill name is rejected");
 
 await rm(storeDir, { recursive: true, force: true });
+
+/* --------------------------------------------------- importing from a farm */
+
+// The other agent tools usually share one checkout and link it into every root
+// (that is what cc-switch does), so an import source is full of symlinks. A
+// symlinked entry is a skill, and importing it must land real files in the
+// managed root instead of a link back into the foreign farm.
+const homeDir = await mkdtemp(join(tmpdir(), "kit-farm-home-"));
+const derived = importSources(homeDir);
+check(derived.length === 3 && derived.map((s) => s.id).join(",") === "codex,claude,opencode", "the default sources are the three agent tools", derived.map((s) => s.id).join(","));
+check(derived[0].dir === join(homeDir, ".codex", "skills"), "a source path hangs off the home directory", derived[0].dir);
+
+const sharedDir = join(homeDir, "shared", "alpha");
+await mkdir(sharedDir, { recursive: true });
+await writeFile(join(sharedDir, "SKILL.md"), "---\nname: alpha\ndescription: \"From the farm\"\n---\n\nBody\n", "utf8");
+const sourceDir = join(homeDir, ".codex", "skills");
+await mkdir(sourceDir, { recursive: true });
+let sourceIsLink = true;
+try {
+	await symlink(sharedDir, join(sourceDir, "alpha"), "junction");
+} catch {
+	sourceIsLink = false;
+	await mkdir(join(sourceDir, "alpha"), { recursive: true });
+	await writeFile(join(sourceDir, "alpha", "SKILL.md"), "---\nname: alpha\ndescription: \"From the farm\"\n---\n", "utf8");
+}
+await mkdir(join(sourceDir, "not-a-skill"), { recursive: true });
+await writeFile(join(sourceDir, "not-a-skill", "SKILL.md.bak"), "no marker\n", "utf8");
+
+const importStore = { skillsDir: join(homeDir, "store", "skills"), skillsDisabledDir: join(homeDir, "store", "skills-disabled") };
+const offered = await listImportable(importStore, importSources(homeDir));
+check(offered[0].available === true, "a readable source is reported as available", JSON.stringify(offered[0]));
+check(offered[0].skills.length === 1 && offered[0].skills[0].name === "alpha", `a ${sourceIsLink ? "symlinked " : ""}skill in a source is offered for import`, JSON.stringify(offered[0].skills.map((s) => s.name)));
+check(offered[0].skills[0].description === "From the farm", "the offered skill carries its description", offered[0].skills[0].description);
+check(offered[0].skills[0].conflict === false, "nothing installed yet means no conflict");
+check(offered[1].available === false && offered[1].skills.length === 0, "an absent source is reported as unavailable with no skills", JSON.stringify(offered[1]));
+
+const imported = await importSkills(importStore, "codex", ["alpha"], "skip", importSources(homeDir));
+check(imported.imported.length === 1 && imported.imported[0] === "alpha", "the offered skill imports", JSON.stringify(imported));
+check((await lstat(join(importStore.skillsDir, "alpha"))).isDirectory(), "the imported copy is a real directory, not a link into the source farm");
+check((await readFile(join(importStore.skillsDir, "alpha", "SKILL.md"), "utf8")).includes("From the farm"), "the imported copy holds the skill's files");
+check((await listImportable(importStore, importSources(homeDir)))[0].skills[0].conflict === true, "a second import reports the conflict");
+check((await listSkills(importStore)).length === 1, "the imported skill is listed by the store", JSON.stringify((await listSkills(importStore)).map((s) => s.name)));
+
+let unknownSource = false;
+try {
+	await importSkills(importStore, "nope", ["alpha"], "skip", importSources(homeDir));
+} catch (error) {
+	unknownSource = String(error?.message ?? error).includes("unknown import source");
+}
+check(unknownSource, "an unknown source id is rejected");
+
+await rm(homeDir, { recursive: true, force: true });
 
 /* -------------------------------------------------------------- reporting */
 
