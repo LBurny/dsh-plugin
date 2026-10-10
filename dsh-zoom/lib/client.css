@@ -409,6 +409,26 @@
 	margin-bottom: 2px;
 }
 
+/* The current level: a filled value badge in the same box as the buttons beside it
+   (32px, 12px radius, hairline stroke), with tabular digits and a floor on the width
+   so it does not jitter while the slider moves. Deliberately the filled half of the
+   control language, so it does not read as a button that does nothing. */
+#dsh-zoom-root .level {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 32px;
+	min-width: 64px;
+	padding: 0 12px;
+	border: 0.5px solid var(--dsw-alias-border-l4, var(--dsh-border));
+	border-radius: var(--dsw-radius-md, 12px);
+	background: var(--dsw-alias-bg-layer-3, var(--dsh-hover));
+	color: var(--dsh-fg);
+	font-size: 13px;
+	line-height: 20px;
+	font-variant-numeric: tabular-nums;
+}
+
 #dsh-zoom-root .keycap {
 	font: 11px/1.4 ui-monospace, Consolas, monospace;
 	border: 1px solid var(--dsh-border);

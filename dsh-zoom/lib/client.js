@@ -413,7 +413,10 @@
 
 	function renderSettings() {
 		const top = ceiling();
-		const levelLabel = el("span", { class: "muted", text: `${Math.round(config.level * 100)}${T("percent")}` });
+		// The level is a value badge, not bare text: same 32px box and padding as the
+		// buttons beside it, so the row reads as one line of controls instead of a
+		// number floating next to a button.
+		const levelLabel = el("span", { class: "level", text: `${Math.round(config.level * 100)}${T("percent")}` });
 		const slider = el("input", {
 			type: "range",
 			min: String(config.min),

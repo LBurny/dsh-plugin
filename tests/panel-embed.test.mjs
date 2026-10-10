@@ -381,6 +381,16 @@ check(
 	String(zoomedTo(measured))
 );
 
+// The level used to be bare 13px text sitting beside two 32px buttons, which read as a
+// stray number rather than the value of the control above it. It is a chip now: the same
+// box as those buttons. Asserted on the mounted panel, so a class rename cannot pass.
+const chip = descendants(measured.host).find((node) => node.className === "level");
+check(
+	chip !== undefined && /^\d+%$/u.test(chip.textContent ?? ""),
+	"dsh-zoom: the current level is a boxed chip, not bare text beside the buttons",
+	chip === undefined ? "(no .level element)" : chip.textContent
+);
+
 // A rail (narrow window) and an expanded sidebar with more footer rows differ by
 // hundreds of px; the cap has to follow the one that is mounted, not a constant.
 const rail = await zoomWith(900, 216);

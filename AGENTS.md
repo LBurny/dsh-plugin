@@ -106,6 +106,10 @@ both source and published artifact, and `main` points straight at `lib/index.js`
     and 8px rhythm the hub draws for its own rows — and `.row .row-sub` holds a two-line slot, so every
     entry in a list is one height whatever each description's length.
     `tests/hub-contract.test.mjs` pins the card's metrics and the hub's, so the two cannot drift apart.
+    A read-only value that sits inside a row of controls is a **badge in the same box as those controls**
+    (`dsh-zoom`'s `.level`: 32px, hairline stroke, tinted fill, tabular digits) — bare text beside a
+    button reads as a stray number, which is what 106% looked like next to 重置为 100%. The badge keeps
+    the filled half of the control language so it cannot be mistaken for a button that does nothing.
   - `tests/panel-embed.test.mjs` boots every panel's script in a DOM stub for both directions (hub
     present and absent). Its stubs are load-bearing: panels append with `child instanceof Node`, read
     `panel.hidden`/`element.id` as *properties* (the `hidden` and `id` attributes are reflected), and

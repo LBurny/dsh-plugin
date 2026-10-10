@@ -225,6 +225,27 @@ for (const pkg of FEATURES) {
 	check(horizontalPadding(style, `#${pkg}-root .body {`) === headGutter, `${pkg}: an embedded panel's content lands on the hub's gutter`, String(horizontalPadding(style, `#${pkg}-root .body {`)));
 }
 
+// The zoom panel shows the live level as a badge next to its buttons. A badge in a
+// different box than the buttons is exactly the misalignment the reader reported, so
+// the two boxes are pinned together — the panel's own control height and its chip.
+const zoomStyle = read(join("dsh-zoom", "lib", "client.css"));
+const boxHeight = (source, selector) => {
+	const at = source.indexOf(selector);
+	if (at < 0) return undefined;
+	// The property, not `line-height` — which is what a bare `height:` search finds first.
+	return /(?:^|[;{\s])height:\s*(\d+)px;/u.exec(source.slice(at, source.indexOf("}", at)))?.[1];
+};
+check(
+	boxHeight(zoomStyle, "#dsh-zoom-root .level {") === boxHeight(zoomStyle, "#dsh-zoom-root button {"),
+	"dsh-zoom: the level badge is the same 32px box as the buttons it sits beside",
+	`${boxHeight(zoomStyle, "#dsh-zoom-root .level {")} vs ${boxHeight(zoomStyle, "#dsh-zoom-root button {")}`
+);
+check(
+	/#dsh-zoom-root .level \{[^}]*font-variant-numeric: tabular-nums;/su.test(zoomStyle),
+	"dsh-zoom: the badge is as wide for 99% as for 100%, so the row does not shift",
+	""
+);
+
 /* -------------------------------------------------------------- the tab set */
 
 const hubInventory = read(join("dsh-features", "lib", "inventory.js"));
