@@ -56,9 +56,12 @@ both source and published artifact, and `main` points straight at `lib/index.js`
 - **`package.json` must declare `dsh.bundle.patch`.** Without it `dsh plugin add` installs the package
   as a plain dependency and mounts no layer — the symptom is silence, not an error. This happened
   during the split; `--dump-config` is how you catch it.
-- **A module-level failure takes the whole plugin tree down** — dsh will not start at all. Verify in a
-  sandbox (`$TEMP\dshprobe`, see `DSHPlugin/.agents/skills/dsh-plugin-authoring/references/repo-delivery.md` §4)
-  before touching a real `DSH_HOME`.
+- **A module-level failure does not stop dsh from booting, which is worse for an author than a crash:
+  it costs that one row and says almost nothing.** An import that throws, a module that throws while it
+  evaluates, and an `apply` that throws each print one `warning: N entries did not activate` and the
+  boot carries on (measured on 0.2.0-rc.1 and rc.2; the rule is written out in full further down, with
+  the seven row ids that *are* fatal). Verify in a sandbox — `node tools/sandbox/sandbox.mjs up`, which
+  prints the ready line and says whether any row failed — before touching a real `DSH_HOME`.
 - **Colours prefer the shell's theme tokens.** `--dsw-alias-bg-base` / `-label-primary` /
   `-label-caption` / `-border-l2` / `-interactive-bg-hover` are defined on `body` (light) and
   `body[data-ds-dark-theme]` (dark) by `@deepseek-ai/dsh-client-ui-theme`, so `var(--dsw-…, <hardcoded
@@ -265,6 +268,53 @@ change needs only `up --restart` — the profile and the packages stay. `url` pr
 silently and creates a profile there), and after installing it re-reads the profile manifest and fails
 if the packages are not in both `dependencies` and `dsh.profile.bundles`. It also refuses a home outside
 this repository unless `--allow-foreign-home` is passed. Never point it at `~/.dsh`.
+
+### The phone path is tested in a browser sized like a phone
+
+`dsh-remote` has no honest offline test for its whole point — the rewritten page a phone gets — so it is
+driven through the **browser MCP against the running sandbox**, with the viewport resized to a phone.
+What the layer keys off is **width**, not the user agent (`mobile.js`: `matchMedia("(max-width: 700px)")`),
+so `browser_resize 390x844` *is* a phone environment for this purpose.
+
+1. **Enable remote in LAN mode** on the sandbox and read the proxy URL from the answer — never print it
+   (`lanUrls[0]` and `snapshot.link` carry the token, which is the only credential):
+
+   ```bash
+   TOKEN=$(node -e "console.log(require('./.sandbox/sandbox.state.json').token)")
+   curl -s -X POST -H "content-type: application/json" -d '{"action":"enable","mode":"lan"}' \
+     "http://127.0.0.1:25499/dsh-remote/api/remote?token=$TOKEN"
+   ```
+
+   LAN only. A tunnel publishes the harness to the internet (the link is the credential) and is the
+   user's decision, never a test fixture.
+2. **Resize, then open the proxy origin** with its token (`browser_resize 390x844`, then
+   `browser_navigate` to `http://127.0.0.1:<proxyPort>/?token=<proxy token>`).
+3. **Enter a session that has content before asserting anything.** The layer is progressive by design:
+   every step that cannot find its anchor gives up silently, and the blank new-session page has no
+   `对话 / 轨迹` tab list and no composer stats row. Send one message (or open an existing session) and
+   wait for the view.
+4. **What it must show**, asserted through `browser_evaluate` (and a screenshot as the record):
+   `html[data-dshmobile-enhanced]`; a tab strip reading `对话 / 轨迹 / 项目 / 信息` (the last two are the
+   layer's, in that order); `[data-composer-stats]` present but `display: none` (the info tab took it
+   over, `mobile.css` hides the original); the injected attach button on the composer's tool row.
+5. **Known and expected: `/manifest.webmanifest` answers 403** on the proxy origin, which is the whole
+   of the phone page's console noise. dsh serves that file unauthenticated; the proxy gates every path
+   on its own cookie, and the browser fetches a manifest **without credentials**. It costs the PWA
+   metadata ("add to home screen" gets no name or icon), not the chat. Do not "fix" it by loosening the
+   proxy's gate as a side effect of a test run; that is an auth policy decision.
+6. **Clean up**: disable remote and rotate the token, then confirm the port is free. A LAN listener left
+   running on a test machine is the kind of thing that outlives the test.
+
+   ```bash
+   for action in disable reset-token; do curl -s -X POST -H "content-type: application/json" \
+     -d "{\"action\":\"$action\"}" "http://127.0.0.1:25499/dsh-remote/api/remote?token=$TOKEN"; done
+   ```
+
+For stills rather than interaction, `tools/visual/shot.mjs --sizes 390x844` with
+`--css dsh-remote/lib/assets/mobile.css --script dsh-remote/lib/assets/mobile.js` reproduces the phone
+look against fixtures, and `--browser-arg "--host-resolver-rules=MAP phone.test 127.0.0.1"` shoots the
+page from a phone *origin* (dsh scopes client settings by `location.hostname`, which the proxy rewrites,
+so the server cannot be asked which origin it thinks it is).
 
 Offline suites need `@deepseek-ai/*` (and `yaml` for dsh-mcp) to resolve. Either run them from an
 installed copy, or create junctions in the package's `node_modules` pointing at the runtime's

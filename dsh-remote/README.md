@@ -157,6 +157,13 @@ node tests/proxy.test.mjs     # frame bridge, HTML/gzip/SSE rewrites, project ro
 `tests/remote-live.mjs <baseUrl> <proxyPort> <token>` is a live suite; it opens and closes remote
 access on the instance it targets, so point it at a sandbox — never at a harness someone is using.
 
+For the phone page itself, the rewritten UI this plugin exists for, drive a **browser at a phone
+viewport against the running sandbox** (the layer keys off `max-width: 700px`, not the user agent):
+resize to 390x844, open the proxy origin with its token, then **enter a session with content before
+asserting anything**, because the layer gives up silently when its anchors are missing. The full
+procedure, what it must show, and the one console error that is expected are in the repository's
+AGENTS.md, under "The phone path is tested in a browser sized like a phone".
+
 ## License
 
 MIT. The mobile assets under `lib/assets/` are vendored from DSHDesktop (also MIT).
