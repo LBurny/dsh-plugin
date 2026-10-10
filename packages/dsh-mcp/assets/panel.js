@@ -221,7 +221,8 @@
 		fragment.append(el("div", { class: "actions" },
 			el("button", { text: T("add"), onclick: () => showServerForm(undefined) }),
 			el("button", { text: T("importServers"), onclick: () => showServerImport(data.sources) }),
-			el("button", { text: T("refresh"), onclick: () => void render() })));
+			// The hub's own header refreshes an embedded panel, so it hides this one.
+			inHub ? undefined : el("button", { text: T("refresh"), onclick: () => void render() })));
 		fragment.append(el("div", { class: "note", text: `${T("patch")}: ${data.patchPath} — ${T("savedReload")}` }));
 		if (data.servers.length === 0) fragment.append(el("div", { class: "note", text: T("noServers") }));
 		for (const server of data.servers) {
@@ -447,6 +448,7 @@
 		window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
 			mcp: {
 				title: T("title"),
+				icon: "M6 2.5V6M10 2.5V6M4 6h8v2.5a4 4 0 01-8 0V6zM8 12.5V14",
 				order: 20,
 				mount: mountInline
 			}

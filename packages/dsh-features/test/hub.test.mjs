@@ -166,13 +166,24 @@ check(degraded.status === 200 && degraded.json.features.length === 0, "without a
 
 const bundle = readFileSync(join(here, "..", "assets", "client.js"), "utf8");
 
+/** A localStorage stand-in: Map-backed, inspectable, shareable between browsers. */
+function makeStorage() {
+	const data = new Map();
+	return {
+		getItem: (key) => (data.has(key) ? data.get(key) : null),
+		setItem: (key, value) => void data.set(key, String(value)),
+		removeItem: (key) => void data.delete(key),
+		dump: () => Object.fromEntries(data)
+	};
+}
+
 /**
  * One browser's worth of stubs: element objects plus state/effect/ref slots, a
  * document whose created nodes record what is appended to them, and a `fetch`.
  * A `ref` in `createElement` is bound to a stub node right there, which is what
  * React does for real and what the page's mount effect depends on.
  */
-function createBrowser({ language = "zh-CN", registry, fetchImpl }) {
+function createBrowser({ language = "zh-CN", registry, fetchImpl, storage = makeStorage() }) {
 	let hooks = [];
 	let cursor = 0;
 	let dirty = false;
@@ -239,6 +250,7 @@ function createBrowser({ language = "zh-CN", registry, fetchImpl }) {
 		navigator: { language },
 		document,
 		fetch: fetchImpl,
+		localStorage: storage,
 		__dshFeatures: registry,
 		__ModuleLoader__: { load: (registration) => registrations.push(registration) }
 	};
@@ -288,7 +300,7 @@ function createBrowser({ language = "zh-CN", registry, fetchImpl }) {
 		return { exports, slots, dictionaries };
 	};
 
-	return { React, document, styles, created, registrations, render, wire, makeNode };
+	return { React, document, styles, created, registrations, render, wire, makeNode, storage };
 }
 
 /** Find every rendered node a predicate accepts. */
@@ -301,8 +313,8 @@ function findAll(element, predicate, found = []) {
 
 const browser = createBrowser({
 	registry: {
-		doctor: { title: "诊断", order: 30, mount: (host) => browser.mounted.push({ key: "doctor", host }) },
-		mcp: { title: "MCP", order: 20, mount: (host) => browser.mounted.push({ key: "mcp", host }) }
+		doctor: { title: "诊断", order: 30, icon: "M-doctor", mount: (host) => browser.mounted.push({ key: "doctor", host }) },
+		mcp: { title: "MCP", order: 20, icon: "M-mcp", mount: (host) => browser.mounted.push({ key: "mcp", host }) }
 	},
 	fetchImpl: async () => ({
 		json: async () => ({
@@ -352,10 +364,20 @@ const T = (key) => ({
 })[key] ?? key;
 
 let element = await browser.render(main.component, { t: T });
-const tabs = () => findAll(element, (node) => node.props?.className === "tab");
-check(tabs().length === 3, "a tab per feature: two registered plus one installed-only", String(tabs().length));
-check(tabs().map((tab) => tab.props.children).join(",") === "技能,MCP,诊断", "tabs are ordered by the feature's own order", tabs().map((tab) => tab.props.children).join(","));
-check(tabs()[0].props["data-active"] === "true", "the first tab is selected by default", String(tabs()[0].props["data-active"]));
+const items = () => findAll(element, (node) => node.props?.className === "item");
+const itemLabel = (item) => item.props.children[1]?.props.children?.join("") ?? "";
+const itemLabels = () => items().map(itemLabel).join(",");
+const glyphOf = (item) => item.props.children[0]?.props.children[0]?.props.d;
+const endPad = () => findAll(element, (node) => node.props?.className === "nav-end")[0];
+check(items().length === 3, "a nav row per feature: two registered plus one installed-only", String(items().length));
+check(itemLabels() === "技能,MCP,诊断", "nav rows follow the default order", itemLabels());
+check(items()[0].props["data-active"] === "true", "the first row is selected by default", String(items()[0].props["data-active"]));
+check(items().every((item) => item.props.draggable === true), "every nav row is draggable", "");
+check(glyphOf(items()[1]) === "M-mcp", "a registered icon leads its nav row", String(glyphOf(items()[1])));
+check(glyphOf(items()[0]) === "M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z", "an iconless feature gets the fallback grid", String(glyphOf(items()[0])));
+check(endPad() !== undefined, "the nav ends in a drop pad for move-to-last", "");
+const refreshButtons = () => findAll(element, (node) => node.type === "button" && node.props?.children?.[0] === T("refresh"));
+check(refreshButtons().length === 1, "exactly one refresh button survives on the page", String(refreshButtons().length));
 
 const stageHost = findAll(element, (node) => node.props?.ref !== undefined)[0].props.ref.current;
 check(stageHost !== undefined && typeof stageHost.append === "function", "the stage owns a node it can hand to a feature", typeof stageHost?.append);
@@ -363,17 +385,60 @@ check(browser.mounted.length === 0, "an installed-only feature is not mounted (i
 check(stageHost.children[0]?.textContent === T("unloaded"), "an installed-only feature is named on the page instead of silently missing", stageHost.children[0]?.textContent);
 check(findAll(element, (node) => node.props?.className === "stage-title")[0].props.children.join("") === "技能", "the stage header names the selected feature");
 
-// Selecting a registered feature mounts it, into the node the page owns.
-tabs()[1].props.onClick();
+// Dragging a row onto another moves it in front of the target, persists the
+// order, and neither remounts nor deselects the open panel — even though the
+// selection here was never clicked and is only positional (the drag pins it).
+const dragEvent = { dataTransfer: { setData() {}, effectAllowed: "" } };
+items()[0].props.onDragStart(dragEvent);
+items()[2].props.onDragOver({ preventDefault() {} });
 element = await browser.render(main.component, { t: T });
-check(browser.mounted.at(-1).key === "mcp", "switching tabs mounts that feature", browser.mounted.at(-1).key);
+check(items()[2].props["data-drop"] === "true", "the row under the cursor is marked as the drop target", String(items()[2].props["data-drop"]));
+items()[2].props.onDrop({ preventDefault() {} });
+element = await browser.render(main.component, { t: T });
+check(itemLabels() === "MCP,技能,诊断", "dropping moves the row in front of its target", itemLabels());
+check(browser.mounted.length === 0, "reordering never remounts the open panel", String(browser.mounted.length));
+check(items()[1].props["data-active"] === "true", "a positional selection is pinned across the shuffle", String(items()[1].props["data-active"]));
+check(findAll(element, (node) => node.props?.className === "stage-title")[0].props.children.join("") === "技能", "the stage still shows the same feature after its row moved");
+const saved = JSON.parse(browser.storage.dump()["dsh-features:nav-order"] ?? "[]");
+check(saved.join(",") === "mcp,skills,doctor", "the dragged order lands in localStorage", saved.join(","));
+
+// The end pad accepts move-to-last.
+items()[0].props.onDragStart(dragEvent);
+endPad().props.onDragOver({ preventDefault() {} });
+element = await browser.render(main.component, { t: T });
+check(endPad().props["data-drop"] === "true", "the end pad marks itself as the drop target", String(endPad().props["data-drop"]));
+endPad().props.onDrop({ preventDefault() {} });
+element = await browser.render(main.component, { t: T });
+check(itemLabels() === "技能,诊断,MCP", "dropping on the end pad moves the row last", itemLabels());
+
+// Selecting a registered feature mounts it, into the node the page owns.
+items()[2].props.onClick();
+element = await browser.render(main.component, { t: T });
+check(browser.mounted.at(-1).key === "mcp", "switching rows mounts that feature", browser.mounted.at(-1).key);
 check(browser.mounted.at(-1).host === stageHost, "the feature is handed the stage's own node", String(browser.mounted.at(-1).host === stageHost));
 check(stageHost.children.length === 0, "the host node is cleared before each mount", String(stageHost.children.length));
 
-tabs()[2].props.onClick();
+items()[1].props.onClick();
 element = await browser.render(main.component, { t: T });
-check(browser.mounted.at(-1).key === "doctor", "every tab reaches its own feature", browser.mounted.at(-1).key);
+check(browser.mounted.at(-1).key === "doctor", "every row reaches its own feature", browser.mounted.at(-1).key);
 check(findAll(element, (node) => node.props?.className === "stage-title")[0].props.children.join("") === "诊断", "the stage header follows the selection");
+
+// A fresh page over the same storage restores the dragged order; a feature
+// installed after the order was saved appends by its default.
+const revived = createBrowser({
+	storage: browser.storage,
+	registry: {
+		zoom: { title: "缩放", order: 40, mount: () => {} },
+		doctor: { title: "诊断", order: 30, mount: () => {} },
+		mcp: { title: "MCP", order: 20, mount: () => {} },
+		skills: { title: "技能", order: 10, mount: () => {} }
+	},
+	fetchImpl: async () => ({ json: async () => ({ ok: true, features: [] }) })
+});
+const revivedWired = revived.wire(revived.registrations[0]);
+const revivedElement = await revived.render(revivedWired.slots.find((item) => item.slot === "main").component, { t: T });
+const revivedLabels = findAll(revivedElement, (node) => node.props?.className === "item").map(itemLabel).join(",");
+check(revivedLabels === "技能,诊断,MCP,缩放", "a fresh page restores the saved order and appends new features", revivedLabels);
 
 // A feature that throws is reported on the page, not into the console.
 const broken = createBrowser({
@@ -390,7 +455,8 @@ check(brokenHost.children[0]?.textContent === `${T("failed")}: nope`, "a throwin
 const empty = createBrowser({ language: "en", registry: {}, fetchImpl: async () => ({ json: async () => ({ ok: true, features: [] }) }) });
 const emptyWired = empty.wire(empty.registrations[0]);
 const emptyElement = await empty.render(emptyWired.slots.find((item) => item.slot === "main").component, { t: (key) => `en:${key}` });
-check(findAll(emptyElement, (node) => node.props?.className === "rail").length === 0, "an empty inventory renders no tab rail");
+check(findAll(emptyElement, (node) => node.props?.className === "nav").length === 0, "an empty inventory renders no nav");
+check(findAll(emptyElement, (node) => node.type === "button" && node.props?.children?.[0] === "en:refresh").length === 0, "an empty inventory renders no refresh button either");
 check(findAll(emptyElement, (node) => node.props?.className === "empty").length === 1, "an empty inventory renders the hint block");
 check(emptyWired.dictionaries[0].dict.en.panel === "Features", "the English dictionary is registered too", emptyWired.dictionaries[0].dict.en.panel);
 check(emptyWired.slots.find((item) => item.slot === "sidebar.panellist").options.label() === "Features", "the sidebar label follows the language");
@@ -405,7 +471,7 @@ const offline = createBrowser({
 const offlineWired = offline.wire(offline.registrations[0]);
 const offlineElement = await offline.render(offlineWired.slots.find((item) => item.slot === "main").component, { t: T });
 check(offlineWired.slots.length === 2, "a failing inventory request still registers both slots", String(offlineWired.slots.length));
-check(findAll(offlineElement, (node) => node.props?.className === "tab").length === 1, "the page still lists what the registry registered", String(findAll(offlineElement, (node) => node.props?.className === "tab").length));
+check(findAll(offlineElement, (node) => node.props?.className === "item").length === 1, "the page still lists what the registry registered", String(findAll(offlineElement, (node) => node.props?.className === "item").length));
 
 /* ----------------------------------------------------------------- report */
 

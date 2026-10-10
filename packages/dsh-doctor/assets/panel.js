@@ -208,7 +208,8 @@
 		const value = (label, text) => [el("dt", { text: label }), el("dd", { text: text ?? "?" })];
 		return el("div", {},
 			el("div", { class: "actions" },
-				el("button", { text: T("refresh"), onclick: () => void render() })),
+				// The hub's own header refreshes an embedded panel, so it hides this one.
+				inHub ? undefined : el("button", { text: T("refresh"), onclick: () => void render() })),
 			el("dl", { class: "grid" },
 				...value("dsh", `${status.version}`, ),
 				...value("node", status.node),
@@ -321,6 +322,7 @@
 		window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
 			doctor: {
 				title: T("title"),
+				icon: "M2 8.5h3l1.5-4 2.5 7 1.5-3h3.5",
 				order: 30,
 				mount: mountInline
 			}

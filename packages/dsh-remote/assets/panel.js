@@ -287,7 +287,8 @@
 			remote.enabled
 				? el("button", { class: "danger", text: T("resetLink"), title: T("resetLinkHint"), onclick: () => void act({ action: "reset-token" }) })
 				: undefined,
-			el("button", { text: T("refresh"), onclick: () => void render() })));
+			// The hub's own header refreshes an embedded panel, so it hides this one.
+			inHub ? undefined : el("button", { text: T("refresh"), onclick: () => void render() })));
 
 		if (cloudflared === null && remote.mode === "tunnel") fragment.append(el("div", { class: "note", text: T("cloudflaredMissing") }));
 
@@ -399,6 +400,7 @@
 		window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
 			remote: {
 				title: T("title"),
+				icon: "M5.5 2h5a1 1 0 011 1v10a1 1 0 01-1 1h-5a1 1 0 01-1-1V3a1 1 0 011-1zM7.2 12.3h1.6",
 				order: 60,
 				mount: mountInline
 			}

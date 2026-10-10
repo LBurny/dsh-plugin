@@ -41,11 +41,19 @@ anything here; it is short and most of it is a trap someone already walked into.
   `/dsh-remote/project/api/*` while this plugin's own API is `/dsh-remote/api/*`.
 - **The hub contract is two DOM-level facts, and both directions must stay optional** — no package
   may assume the other exists.
-  - A feature publishes itself to `window.__dshFeatures[key] = { title, order, mount(host) }` and
+  - A feature publishes itself to `window.__dshFeatures[key] = { title, icon?, order, mount(host) }`
+    (`icon` is a 16×16 stroke SVG path for the nav row) and
     declares `dsh.ui.feature` in its package.json (`key`, `order`, bilingual `title`/`summary`). The
     key and the order must match in both places; `test/hub-contract.test.mjs` fails if they drift.
   - `mount(host)` is called again on every visit and the hub drops the DOM when you leave the page, so
     it must rebuild from scratch (see `mountInline` in any feature's `panel.js`).
+  - The hub page is a vertical nav plus a stage. The reader's drag order lives in
+    `localStorage["dsh-features:nav-order"]` (an array of keys; new features append by their default
+    order). Reordering must not remount the open panel — the mount effect depends on the merged
+    snapshot, and the positional default selection is pinned to its key before a shuffle.
+  - The hub's stage header owns the single refresh button (rescan + remount re-fetches a panel's
+    data), so a panel with its own refresh button must hide it when embedded: `inHub ? undefined : …`.
+    Keep the standalone floating panel's button — without the hub it is the only refresh.
   - A feature probes `GET /dsh-features/api/status` at boot and **skips its floating panel when the
     hub answers**. Without the hub (bare dsh, or the package uninstalled) the launcher must still be
     built exactly as before — that path is what the panels were originally written for.

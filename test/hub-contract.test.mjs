@@ -51,6 +51,8 @@ check(client.includes('ctx.slots.inject("sidebar.panellist"'), "dsh-features: re
 check(client.includes(`const ORDER = ${SIDEBAR_ORDER.features};`), "dsh-features: the sidebar order sits between 插件 (0) and 自动化任务 (10)", String(SIDEBAR_ORDER.features));
 check(client.includes("order: ORDER,"), "dsh-features: the sidebar entry uses that order", "");
 check(client.includes('ctx.slots.inject("main"'), "dsh-features: registers the page it opens", "");
+check(client.includes('"dsh-features:nav-order"'), "dsh-features: the reader's drag order persists in localStorage", "");
+check(client.includes("draggable:") && client.includes("onDragStart:") && client.includes("onDrop:"), "dsh-features: nav rows are draggable", "");
 check(client.includes("#dsh-launchers { display: none !important; }"), "dsh-features: the skin hides the corner launcher dock", "");
 check(!/\bimport\s|\bexport\s/u.test(client.split("\n").filter((line) => !line.trimStart().startsWith("*") && !line.trimStart().startsWith("//")).join("\n")), "dsh-features: the bundle is a classic script, not a module", "");
 
@@ -77,10 +79,12 @@ for (const pkg of FEATURES) {
 	check(panel.includes("window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {"), `${pkg}: publishes its panel to the hub registry`, "");
 	check(panel.includes(`\t\t\t${marker.key}: {`), `${pkg}: registers under the marker's key`, marker.key);
 	check(panel.includes(`order: ${marker.order},`), `${pkg}: registers the marker's tab order`, String(marker.order));
+	check(/\t\t\t\ticon: "M/u.test(panel), `${pkg}: registers its nav icon`, "");
 	check(panel.includes("mount: mountInline"), `${pkg}: registers an inline mount for the hub`, "");
 	check(panel.includes("function buildChrome(host = document.body, inline = false)"), `${pkg}: can render into a host node instead of the document`, "");
 	check(panel.includes('getJson("/dsh-features/api/status")'), `${pkg}: probes the hub before docking its own button`, "");
 	check(panel.includes("if (await hubInstalled()) return;"), `${pkg}: leaves the floating panel to the hub when it is installed`, "");
+	check(!panel.includes('text: T("refresh")') || panel.includes('inHub ? undefined : el("button", { text: T("refresh")'), `${pkg}: an embedded panel hides its own refresh (the hub header owns it)`, "");
 	// The standalone path must survive: the launcher conventions are still there.
 	check(panel.includes("if (showLauncher()) buildLauncher();"), `${pkg}: still docks its own button without a hub`, "");
 	check(panel.includes("function publishStackHeight(dock)"), `${pkg}: still publishes the launcher stack height`, "");

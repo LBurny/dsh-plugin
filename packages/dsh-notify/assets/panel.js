@@ -463,6 +463,7 @@
 		window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
 			notify: {
 				title: T("title"),
+				icon: "M8 2.5a3.5 3.5 0 00-3.5 3.5v2.7L3 12h10l-1.5-3.3V6A3.5 3.5 0 008 2.5zM6.8 13.5a1.3 1.3 0 002.4 0",
 				order: 50,
 				mount: mountInline
 			}

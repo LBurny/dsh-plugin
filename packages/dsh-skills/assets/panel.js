@@ -213,7 +213,8 @@
 		fragment.append(el("div", { class: "actions" },
 			el("button", { text: T("importSkills"), onclick: () => showSkillImport(data.sources) }),
 			el("button", { text: T("importZip"), onclick: () => showZipImport() }),
-			el("button", { text: T("refresh"), onclick: () => void render() })));
+			// The hub's own header refreshes an embedded panel, so it hides this one.
+			inHub ? undefined : el("button", { text: T("refresh"), onclick: () => void render() })));
 		fragment.append(el("div", { class: "muted", text: `${data.skills.length} ${T("summary")} · ${data.counts?.enabled ?? "?"}/${data.counts?.total ?? "?"} ${T("enabled")}` }));
 		if (data.skills.length === 0) fragment.append(el("div", { class: "note", text: T("noSkills") }));
 		for (const skill of data.skills) {
@@ -444,6 +445,7 @@
 		window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
 			skills: {
 				title: T("title"),
+				icon: "M8 2l1.5 4.5L14 8l-4.5 1.5L8 14l-1.5-4.5L2 8l4.5-1.5L8 2z",
 				order: 10,
 				mount: mountInline
 			}

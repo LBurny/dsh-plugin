@@ -24,8 +24,13 @@ no flag. Restart dsh afterwards — plugins have no HMR.
 
 - **A real nav entry.** `sidebar.panellist` at `order: 5`; the official entries are 插件 (`0`) and
   自动化任务 (`10`), and the sidebar sorts that slot by `order`.
-- **A page that hosts the features.** A tab per installed feature plugin; the selected feature's own
-  UI is mounted into a node this page owns. Features stay standalone — the hub calls into them.
+- **A page that hosts the features.** A vertical nav row per installed feature plugin (icon + title)
+  on the left; the selected feature's own UI is mounted into a node this page owns on the right.
+  Rows are **draggable into your own order**, kept in `localStorage` (`dsh-features:nav-order`) — the
+  same per-origin storage dsh itself uses for UI preferences. One refresh button lives in the stage
+  header: it rescans the inventory and remounts the open panel, so embedded panels hide their own.
+  Below 620px the nav folds back into a horizontal strip (the phone remote view). Features stay
+  standalone — the hub calls into them.
 - **One skin.** The stylesheet hides `#dsh-launchers` (no more stacked buttons) and publishes the
   same `--dsh-*` token palette the feature panels already use, so a feature looks the same inline as
   it does in its own floating panel. Every colour prefers the shell's own theme token
@@ -56,8 +61,9 @@ mounts it):
 ```js
 window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
   doctor: {
-    title: "诊断",                      // tab label (already localized by the feature)
-    order: 30,                          // tab order
+    title: "诊断",                      // nav label (already localized by the feature)
+    icon: "M2 8.5h3l1.5-4 2.5 7 ...",   // optional 16×16 stroke SVG path for the nav row
+    order: 30,                          // default nav order (the reader's drag order wins)
     mount(host) { /* render into host */ }   // called on every visit; must be re-mountable
   }
 });

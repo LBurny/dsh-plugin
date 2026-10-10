@@ -456,6 +456,7 @@
 		window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
 			zoom: {
 				title: T("title"),
+				icon: "M7 3a4 4 0 100 8 4 4 0 000-8zM9.9 9.9L14 14",
 				order: 40,
 				mount: mountInline
 			}

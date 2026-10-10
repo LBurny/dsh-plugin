@@ -55,7 +55,7 @@ cd packages/<包名> && node test/<包名>.test.mjs
 node test/hub-contract.test.mjs          # 仓级：基座约定，在仓根跑
 ```
 
-离线检查分别为 55（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 73 项，另有 168 项仓级契约检查。
+离线检查分别为 70（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 73 项，另有 182 项仓级契约检查。
 `dsh-features` 的套件会**真跑**它的浏览器端（vm + 极简 React 打桩），所以侧栏槽位、顺序与挂载交接
 不用浏览器也能断言。`dsh-remote` 另有实时套件（`test/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
 
