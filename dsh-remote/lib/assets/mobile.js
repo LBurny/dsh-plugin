@@ -515,3 +515,52 @@
     /* 静默：增强失败不影响页面 */
   }
 })()
+
+/**
+ * 设置页「加载提供商目录失败: settings are unavailable in this browser」（手机截图实测：
+ * 模型分区永远这一行 + 重试按钮）。
+ *
+ * 上游设置页读的是 describeFace 快照，远程浏览器拿不到 view（源码分支
+ * `mirrored.view === void 0` → `failLoad("settings are unavailable in this browser")`）：
+ * 作用域按传输方式分，本机回环读宿主持久段，经代理/隧道的来源拿到 memory 模式、
+ * 连读都不给。点「重试」不会成功。这是上游刻意的边界，**本层不能伪造回环**——否则
+ * 拿到链接的人就能改写宿主设置与 API 密钥。
+ *
+ * 能做且只该做的：把话说清楚。在失败卡片下面补一句，指明去电脑端应用窗口里改。
+ * 上游改文案 → 本模块静默失配，只是没有这句说明。
+ */
+;(() => {
+  try {
+    const FAILED = /settings are unavailable in this browser/u
+    const zh = () => (document.documentElement.lang || '').toLowerCase().startsWith('zh')
+    const TEXT = () =>
+      zh()
+        ? '手机端读不到设置：dsh 只让本机窗口读写设置，点「重试」不会成功。请在电脑端的窗口里改。'
+        : "This browser cannot read settings: dsh only lets the machine's own window read and write them, so Retry will not help. Change it in the desktop window."
+    /** 在失败卡片之后补一句说明；已补过就什么都不做。 */
+    const annotate = () => {
+      const content = document.querySelector('[class*="_overlay"] [class*="_content"]')
+      if (!content) return
+      const scroller = content.querySelector('[class*="_options"]') || content
+      if (scroller.querySelector('[data-dshmobile-unavailable]')) return
+      // 先按整段文字做一次廉价判断，再逐节点找那行（面板开着时观察器会被频繁唤醒）。
+      if (!FAILED.test(scroller.textContent || '')) return
+      const hit = [...scroller.querySelectorAll('*')].find(
+        (item) => item.children.length === 0 && FAILED.test(item.textContent || '')
+      )
+      if (!hit) return
+      // 走到滚动区下的那一层卡片，说明句跟着卡片走（跟着滚动，不飘在面板底部）。
+      let card = hit
+      while (card.parentElement && card.parentElement !== scroller) card = card.parentElement
+      const note = document.createElement('p')
+      note.setAttribute('data-dshmobile-unavailable', '')
+      note.textContent = TEXT()
+      card.insertAdjacentElement('afterend', note)
+    }
+    annotate()
+    // 面板每次打开都会重挂子树：观察器长期在，卡片被换掉后说明句会自动补回。
+    new MutationObserver(annotate).observe(document.documentElement, { childList: true, subtree: true })
+  } catch {
+    /* 静默：增强失败不影响页面 */
+  }
+})()

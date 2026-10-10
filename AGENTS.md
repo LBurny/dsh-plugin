@@ -76,13 +76,31 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   and served with the inventory (one round trip), with `localStorage` kept only as the first-frame cache:
   the host answers and the page reconciles. Anything of that shape has the same trap, dsh's own client
   store included.
-- **The phone gets a rewritten page, so its fixes live in the proxy's layer, never in dsh.** Two rules are
-  there because upstream will not change: the preview notice is re-shown on every remote load (upstream
-  keeps its acknowledgement in a memory-mode settings scope for remote transports, so it never persists —
-  `mobile.js` clicks its Continue control and hides its portal), and the settings sheet's tab strip sits
-  flush against the viewport top (made a flex column with a safe-area inset, so the tabs can never cover
-  the close row). `mobile.js` is injected before `</head>`, which is why it can catch a modal before the
-  first paint.
+- **The phone gets a rewritten page, so its fixes live in the proxy's layer, never in dsh.** Three rules
+  are there because upstream will not change: the preview notice is re-shown on every remote load
+  (upstream keeps its acknowledgement in a memory-mode settings scope for remote transports, so it never
+  persists — `mobile.js` clicks its Continue control and hides its portal); the settings sheet's tab strip
+  is left-packed and clips its last tab at 390px (four tabs measure 401px of content in a 390px screen, so
+  the strip centres its tabs and wraps rather than scrolling, which nobody would find); and the models page
+  cannot read settings from a remote origin at all, so the layer adds a line under the failure pointing at
+  the desktop window. `mobile.js` is injected before `</head>`, which is why it can catch a modal before
+  the first paint.
+- **Reproduce the phone's origin instead of guessing what a phone does.** `shot.mjs --browser-arg` exists
+  for this: point the URL at a fake host and let the browser map it to the proxy
+  (`--browser-arg "--host-resolver-rules=MAP phone.test 127.0.0.1"` plus `--browser-arg "--no-proxy-server"`,
+  or the machine's HTTP proxy swallows the fake host). It matters because **the proxy always rewrites `Host`
+  to the loopback authority** (`headers.host = upstream().authority`), so the server cannot tell the two
+  apart — dsh decides the settings scope from the client's own `location.hostname`. That is why a loopback
+  run shows a working models page and a phone-origin run shows
+  `加载提供商目录失败: settings are unavailable in this browser`: upstream's models page fails its load when
+  the settings "describe face" has no view (`mirrored.view === void 0`), which is exactly what a remote
+  transport gets. **Never make a remote page look like loopback to fix that** — the same scope is what keeps
+  a link-holder from rewriting host settings and API keys. Explain it in the layer; nothing else.
+- **The official app's own dsh is inside `app.asar`.** When a fix must target the build the phone actually
+  runs (hashes and local-name prefixes differ per build), read it without Electron:
+  `node tools/visual/asar.mjs <app.asar> --list|--cat|--grep <text>`. `--grep` names the packed file that
+  carries a string — that is how the settings nav was found in `dsh-client-ui-settings-general` and the
+  failure wording in `dsh-client-ui-settings-models`.
 - **A feature may need something neither app ships, and the reader must not be sent into a config
   file.** cloudflared is the case that bit: tunnel mode spawns it, the shell bundles one beside its node,
   the official desktop app bundles nothing, and it is usually not on PATH either. So `findCloudflared`
@@ -220,14 +238,20 @@ The phone is not a separate app — the proxy rewrites dsh's own page — so it 
 sandbox at a phone viewport with that layer injected:
 
 ```bash
-node tools/visual/shot.mjs --url "$URL" --sizes 390x844 --css dsh-remote/lib/assets/mobile.css      --script dsh-remote/lib/assets/mobile.js --theme dark      --eval "document.querySelector('[class*=\"_settingsArea\"] button').click()"      --ask "(() => { const nav = document.querySelector('[class*=\"_nav\"]'); return nav.getBoundingClientRect().toJSON(); })()"
+node tools/visual/shot.mjs --url "$URL" --sizes 390x844 --css dsh-remote/lib/assets/mobile.css      --script dsh-remote/lib/assets/mobile.js --theme dark      --eval "document.querySelector('[aria-label=\"设置\"]').click()"      --ask "(() => { const nav = document.querySelector('[class*=\"_navList\"]'); return nav.getBoundingClientRect().toJSON(); })()"
 ```
+
+Better still, shoot the real thing: the running instance's proxy answers on its port with
+`?token=<token>` (read the token out of the plugin's settings file, never print it), and the deployed layer is
+already in the page — so a screenshot with no `--css`/`--script` is exactly what the phone shows. To see what
+a *phone origin* does, add the fake host (see the `--browser-arg` note above).
 
 `--ask` runs after `--eval`/`--click` and prints JSON, which is how a rule gets written against the real DOM
 instead of a guess; a browser or computer MCP driver works the same way when interactive poking is genuinely
-cheaper, but this scripted loop is repeatable and leaves the numbers behind. What it cannot show is iOS's own
-viewport behaviour (the toolbar collapsing moves the visual viewport): say so instead of claiming a phone-side
-fix is verified.
+cheaper, but this scripted loop is repeatable and leaves the numbers behind. Panels and sheets open from
+`aria-label` labels (设置, 插件, 功能管理) — at a phone viewport the trigger is a 36px icon with no text, so a
+text click finds nothing. What this loop cannot show is iOS's own viewport behaviour (the toolbar collapsing
+moves the visual viewport): say so instead of claiming a phone-side fix is verified.
 
 Two numbers decide most zoom work, and both are easy to misread: `getBoundingClientRect` reports
 **viewport** px while `scrollHeight`/`clientHeight` report **layout** px (at zoom 2 a 50 px row reports

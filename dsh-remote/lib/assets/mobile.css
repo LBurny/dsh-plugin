@@ -15,6 +15,21 @@
   display: none !important;
 }
 
+/*
+ * 「加载提供商目录失败: settings are unavailable in this browser」（mobile.js 补写说明）。
+ * 上游设置页在非本机来源下读不到 settings 作用域（远程拿到的是 memory 模式、没有 view），
+ * 重试也不会成功。这里把补的那句说明排成卡片下的灰字，宽度任何断点都适用。
+ */
+[data-dshmobile-unavailable] {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.12));
+  color: var(--dsw-alias-label-secondary, inherit);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 /* mobile.js 注入的信息标签/面板：仅 ≤700px 生效，宽屏（含窗口拉窄后又放大）隐藏 */
 [data-dshmobile-tab],
 [data-dshmobile-info] {
@@ -93,16 +108,31 @@
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navTitle"] {
     display: none;
   }
+  /*
+   * 标签条：手机实测（390px 真机页面）四个标签 104/76/104/117px 合计 401px，
+   * 超过 390px 视口——原来左对齐一排，最后一个「Agent 预设」被屏幕右缘切掉，
+   * 看着既不居中也不整齐。这里让它居中、放不下时换行：标签永远整枚可见，
+   * 既不会被切，也不需要横滑去够（横滑条在手机上几乎没人会发现）。字号 13px、
+   * 内边距 8px、零间距后四个标签实测 354px < 374px 可用宽度，一行且居中；
+   * 上游将来多出几个设置分区就自动折成居中两行，不截断、不溢出。
+   */
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navList"] {
     flex: 1 1 auto;
     flex-direction: row;
-    gap: 2px;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0;
     overflow-x: auto;
+    scrollbar-width: none;
+  }
+  [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navList"]::-webkit-scrollbar {
+    display: none;
   }
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navCell"] {
     flex: 0 0 auto;
     height: 36px;
-    padding: 6px 12px;
+    padding: 6px 8px;
+    font-size: 13px;
     white-space: nowrap;
   }
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) > [class*="_content"] {
@@ -551,10 +581,9 @@
    * 自己滚（options 本就是滚动容器），并给标签条留出安全区，两行永不相叠。
    */
   /*
-   * 设置弹窗标签条：手机截图里"通用设置/模型"在药丸内不居中。本机同版渲染下每个
-   * cell 贴合内容（实测 104/76/104/117px，内容恰好填满内边距框）看不出问题；上游
-   * 把 cell 做成等宽 flex（flex:1）时，内容贴左、药丸右侧一片空——用户手机上正是
-   * 这样。给 cell 加居中：贴合内容时是空操作，等宽时把图标与文字居中，两种形态都对。
+   * 设置弹窗标签条：cell 自身内容居中。上游 cell 是「图标 + 标签」的 flex 行，
+   * 贴合内容时居中与否看不出差别；一旦上游把 cell 拉成等宽（flex:1），内容会
+   * 贴在药丸左侧、右边空一片，居中规则让它两种形态都齐。
    */
   [class*="_overlay"] [class*="_navCell"] {
     justify-content: center;

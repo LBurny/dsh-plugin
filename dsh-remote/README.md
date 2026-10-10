@@ -87,18 +87,25 @@ Cloudflare assigns a new hostname each time).
 
 The proxy rewrites dsh's HTML: it injects `assets/mobile.css` + `assets/mobile.js` before `</head>`, which
 is where the phone-only fixes live — the project browser tab, the attachment button, the viewport reset,
-and two compensations for upstream behaviour that will not change:
+and three compensations for upstream behaviour that will not change:
 
 - **The preview notice is re-shown on every remote load.** Upstream stores its acknowledgement in a
   settings scope whose persistence follows the transport, and for a remote browser that scope is
   memory-mode ("the acknowledgement stays process-local here"), so it never persists. `mobile.js` clicks
   its Continue control as soon as the modal appears and marks its portal, which `mobile.css` hides — the
   click matters as much as the hide, because the modal holds `#root` inert while it is up.
-- **The settings sheet's tab strip sits flush against the viewport top**, where a phone's status bar or
-  browser chrome can cover it. The sheet is made a flex column with a safe-area inset on the tabs, so the
-  tabs and the close row can never overlap.
+- **The settings sheet cannot work as designed at 390 px.** Its panel is 800 px wide with a fixed 188 px nav
+  column beside the content, which on a phone leaves the content a sliver; the sheet is made a full-screen
+  flex column whose nav becomes a centred tab strip with a safe-area inset at the top. Measured on the real
+  page, four tabs are 401 px of content in a 390 px screen, so the strip centres them and wraps rather than
+  scrolling — a scrollbar at that size just means the last tab is invisible and nobody discovers it.
+- **The models tab cannot read settings from a remote page at all.** Upstream loads the provider directory
+  from a settings "describe face", and a remote transport has no view for it, so the page fails with
+  `加载提供商目录失败: settings are unavailable in this browser` and Retry never helps. That boundary is
+  deliberate — it is what stops a link-holder from rewriting the host's settings and API keys — so the layer
+  does not fake a loopback origin. It only adds a line under the failure saying where to change it.
 
-Both match on the exact wording of the notice and on `[class*="_…"]` local-name substrings, so an upstream
+All three match on the exact upstream wording and on `[class*="_…"]` local-name substrings, so an upstream
 rename degrades to "the phone looks like it did before" rather than breaking the page.
 
 ## Caveats

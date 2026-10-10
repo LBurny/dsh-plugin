@@ -406,6 +406,46 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	check(findCloudflared("", home, (candidate) => candidate === shellCopy) === shellCopy, "the first candidate that exists is the one used", "");
 }
 
+/* ------------------------------------------------- the mobile layer's own rules */
+
+// The mobile layer is the product on a phone (the proxy injects it into dsh's document),
+// so the rules a real 390px run taught are pinned here rather than left as decoration.
+{
+	const css = await readFile(new URL("../lib/assets/mobile.css", import.meta.url), "utf8");
+	const js = await readFile(new URL("../lib/assets/mobile.js", import.meta.url), "utf8");
+	/** The declaration block of the first rule whose selector ends with `tail`. */
+	const block = (source, tail) => {
+		const at = source.indexOf(tail);
+		return at === -1 ? "" : source.slice(at, source.indexOf("}", at));
+	};
+	// Measured on the real page: four tabs are 104/76/104/117px = 401px inside a 390px
+	// screen, so a left-packed row clipped "Agent 预设" at the right edge.
+	const strip = block(css, '[class*="_navList"] {');
+	check(
+		/flex-wrap:\s*wrap/u.test(strip) && /justify-content:\s*center/u.test(strip),
+		"the settings tab strip centres its tabs and wraps instead of clipping the last one",
+		strip.replace(/\s+/gu, " ").slice(0, 80)
+	);
+	const cell = block(css, '[class*="_navCell"] {\n    flex: 0 0 auto');
+	check(
+		/flex:\s*0 0 auto/u.test(cell) && /font-size:\s*13px/u.test(cell),
+		"tabs hug their content at a size that fits one centred row at 390px",
+		cell.replace(/\s+/gu, " ").slice(0, 80)
+	);
+	// The models page cannot read settings from a remote origin (upstream: no view for a
+	// memory-mode scope). The layer must not fake loopback — only explain.
+	check(
+		css.includes("[data-dshmobile-unavailable]") && js.includes("settings are unavailable in this browser"),
+		"the settings-unavailable note is styled and its upstream wording is what gets matched",
+		""
+	);
+	check(
+		js.includes("data-dshmobile-unavailable") && /电脑端|desktop window/u.test(js),
+		"the note tells the reader to change it in the desktop window rather than retrying",
+		""
+	);
+}
+
 /* -------------------------------------------------------------- reporting */
 
 const failed = results.filter((result) => !result.ok);

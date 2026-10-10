@@ -41,7 +41,28 @@ sidebar's bottom block still fits. `FOOTER CLIPPED` means it does not.
 | `--panel <pkg>` | render that package's panel **inside a copy of the hub page** (see below) |
 | `--theme dark\|light\|keep` | toggles `body[data-ds-dark-theme]` (default keep) |
 | `--settle <ms>` | wait after each change (default 500) |
+| `--browser-arg <flag>` | pass a browser flag verbatim (repeatable) — see *Shooting a phone origin* |
 | `--keep` | leave the browser running for a follow-up run |
+
+## Shooting a phone origin
+
+The proxy injects the mobile layer into dsh's HTML, so the phone's page is shot through the proxy's own port
+(`http://127.0.0.1:<proxyPort>/?token=<token>`); the deployed layer is already in the document, which makes
+that screenshot exactly what the phone shows. Give the browser the phone's *origin* as well when the question
+is about what dsh lets a remote page do — dsh scopes settings from the client's `location.hostname`, and the
+proxy rewrites `Host` to loopback, so the server cannot be asked:
+
+```bash
+node tools/visual/shot.mjs --url "http://phone.test:29274/?token=$TOKEN" \
+  --browser-arg "--host-resolver-rules=MAP phone.test 127.0.0.1" --browser-arg "--no-proxy-server" \
+  --sizes 390x844 --ask 'location.origin'
+```
+
+`--no-proxy-server` matters: without it the machine's HTTP proxy swallows the fake host and the page fails to
+load. A phone viewport has no text labels on the rail's buttons, so open panels with `--eval` on an
+`aria-label` (`document.querySelector('[aria-label=设置]').click()`) rather than `--click`. At that origin the
+settings sheet's own limits show up: the models tab fails its load with
+*settings are unavailable in this browser* — upstream's transport boundary, not something a stylesheet fixes.
 
 ## Reviewing a panel
 
@@ -86,5 +107,22 @@ dom-stub assertion can see.
   plugins that are not installed in it. The harness never touches a running app.
 - Zoom changes never fire `resize`, so a shot taken right after `--zooms` needs the
   settle delay; the harness sleeps for you.
+
+## Reading the app's own dsh
+
+When a fix has to match the build the phone actually runs, that build is inside the
+official app's `app.asar` — not in `app.asar.unpacked`, which only carries a few
+packages. `asar.mjs` reads it without Electron:
+
+```bash
+node tools/visual/asar.mjs "<app>/resources/app.asar" --grep "navCell"     # which packed file
+node tools/visual/asar.mjs "<app>/resources/app.asar" --cat "<that path>"  # read it
+node tools/visual/asar.mjs "<app>/resources/app.asar" --list "dsh/node_modules/@deepseek-ai" 
+```
+
+The header size field is a pickle frame (`[payload size][string length][JSON][padding]`); the script scans
+for the JSON's braces instead of trusting its offsets, because a wrong guess reads gigabytes of nonsense.
+Hashes and local-name prefixes differ per build — `wCInkW_navCell` in the app versus a bare `navCell` in a
+sandbox copy of the same geometry — which is why every rule matches on `[class*="_navCell"]`.
 
 Artifacts (`shots/`, `browser-profile/`) are gitignored.

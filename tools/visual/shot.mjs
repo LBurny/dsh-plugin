@@ -28,6 +28,9 @@
  *                      reconnaissance half of the loop, before writing any rule
  *   --settle <ms>      wait after each change (default 500)
  *   --port <n>         CDP port for the browser it launches (default 9400)
+ *   --browser-arg <f>  extra browser flag, verbatim (repeatable). Point the URL at a
+ *                      fake host and pass `--host-resolver-rules=MAP phone.test 127.0.0.1`
+ *                      to look like a phone origin without a real tunnel.
  *   --keep             leave the browser running
  *   --json             print only the report
  */
@@ -79,6 +82,11 @@ const scriptFiles = all("script").map(String);
 const asks = all("ask").map(String);
 const settle = Number(arg("settle", 500));
 const browserPort = Number(arg("port", 9400));
+// Read these raw: the values are themselves `--flags`, which `all()` would reject.
+const browserArgs = [];
+argv.forEach((item, at) => {
+	if (item === "--browser-arg" && argv[at + 1] !== undefined) browserArgs.push(argv[at + 1]);
+});
 const name = String(arg("name", "shot"));
 const panelName = arg("panel", null);
 const fixturePath = arg("fixture", null);
@@ -100,6 +108,10 @@ if (!browserPath) {
 
 const profileDir = join(outDir, "..", "browser-profile");
 mkdirSync(outDir, { recursive: true });
+// Extra browser flags, verbatim. The one that matters in practice is
+// `--host-resolver-rules=MAP phone.test 127.0.0.1`: it makes `location.hostname`
+// non-loopback while the socket still lands on the proxy, which is the only way
+// to reproduce what a phone sees when dsh scopes a page by transport.
 const child = spawn(
 	browserPath,
 	[
@@ -111,6 +123,7 @@ const child = spawn(
 		"--disable-extensions",
 		"--hide-scrollbars",
 		"--window-size=1280,900",
+		...browserArgs,
 		url
 	],
 	{ stdio: "ignore", windowsHide: true }
