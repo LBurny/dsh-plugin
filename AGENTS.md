@@ -5,16 +5,39 @@ anything here; it is short and most of it is a trap someone already walked into.
 
 ## Shape
 
-- `packages/<name>/` is a **complete, standalone dsh plugin**. Nothing may import from a sibling
-  package — that is the whole point of the split. Shared helpers are duplicated on purpose.
-- Each package ships the three-file core (`package.json` with `dsh.bundle.patch`, `cordis.patch.yml`,
-  `index.js`) plus `lib/` (host logic), `assets/` (browser half, plain DOM, no build step),
-  `locale/` (bilingual name/description for dsh's plugin management page) and `test/`.
+One directory per feature at the repository root, each a **complete, standalone dsh plugin** you can
+install on its own (`dsh plugin add <that dir>`). Nothing may import from a sibling package — that is
+the whole point of the split. Shared helpers are duplicated on purpose.
+
+```
+<name>/
+  package.json       dsh.bundle.patch + main: lib/index.js + files: lib/**
+  cordis.patch.yml   the `- insert:` row that mounts the package
+  README.md  LICENSE
+  lib/               host half — every module flat, one responsibility per file
+    index.js         the plugin body (name/inject/apply) + routes + index injection
+    <role>.js        http.js, layout.js, the feature's own modules …
+    client.js        browser half (plain DOM, no build step), served by this package's routes
+    client.css       its stylesheet
+    sounds/          an asset cluster that ships as a set (dsh-notify)
+    assets/          page assets served verbatim (dsh-remote: mobile/splash/project)
+  tests/             sibling suite: <name>.test.mjs (+ remote-live.mjs)
+  locale/            bilingual name/description for dsh's plugin management page
+```
+
+This is the official dsh package shape: `lib/` is flat and modules are named by **role**, not grouped
+by feature — `packages/core/tools/src/` upstream is `index / code-mode / json-schema / presentation /
+py-types / schema / testing / types`, and across the 286 packages in a dsh runtime the only
+directories under `lib/` are `lib/types/` (build output), asset clusters (`markdown/`,
+`settings-form/`, `styles/`) and a separate execution entrypoint (`worker/`). Tests live in a sibling
+`tests/`, never co-located. Our packages are hand-written JavaScript with no build step, so `lib/` is
+both source and published artifact, and `main` points straight at `lib/index.js`.
+
 - The package name is the npm name; the module's exported `name` and the patch row `id` are the short
   name (`dsh-skills` → `skills`). Row ids are first-come, first-served across the whole plugin tree.
-- `packages/dsh-features/` is the exception in shape, not in independence: it is the **hub** (功能管理)
+- `dsh-features/` is the exception in shape, not in independence: it is the **hub** (功能管理)
   and the only package with a browser *client* half (`dsh.client` + `exports["./client"]` →
-  `assets/client.js`, a `__ModuleLoader__.load({id, factory})` classic script, not a module). A real
+  `lib/client.js`, a `__ModuleLoader__.load({id, factory})` classic script, not a module). A real
   sidebar entry can only be added by a dsh client plugin, which is why the hub cannot be an injected
   script like the rest. It imports no sibling and needs none.
 
@@ -33,7 +56,7 @@ anything here; it is short and most of it is a trap someone already walked into.
   `prefers-color-scheme` block beside it: a shell without those tokens must still look right.
 - **The browser halves share exactly two things, both DOM-level:** the `#dsh-launchers` corner
   container and the `--dsh-launcher-stack` custom property, plus the `.dsh-launch` button class whose
-  styles are duplicated identically in every `panel.css`. Panel styles are scoped under
+  styles are duplicated identically in every `client.css`. Panel styles are scoped under
   `#<package>-root` so six stylesheets cannot fight. Keep both properties when adding a package.
 - **A package's own routes must not collide with the remote proxy's project routes.** The proxy
   forwards a request to dsh unless it claims it, so anything under the proxy's project prefixes is
@@ -44,9 +67,9 @@ anything here; it is short and most of it is a trap someone already walked into.
   - A feature publishes itself to `window.__dshFeatures[key] = { title, icon?, order, mount(host) }`
     (`icon` is a 16×16 stroke SVG path for the nav row) and
     declares `dsh.ui.feature` in its package.json (`key`, `order`, bilingual `title`/`summary`). The
-    key and the order must match in both places; `test/hub-contract.test.mjs` fails if they drift.
+    key and the order must match in both places; `tests/hub-contract.test.mjs` fails if they drift.
   - `mount(host)` is called again on every visit and the hub drops the DOM when you leave the page, so
-    it must rebuild from scratch (see `mountInline` in any feature's `panel.js`).
+    it must rebuild from scratch (see `mountInline` in any feature's `client.js`).
   - The hub page is a **list of rows plus a drill-down**, modelled on dsh's own 插件 page: one row per
     feature (glyph, name, summary, chevron), clicking one opens it and puts a back control in the
     head. It is deliberately *not* a left-hand nav rail — that reads as a second level of dsh's own
@@ -59,15 +82,15 @@ anything here; it is short and most of it is a trap someone already walked into.
     (`stripDuplicateRefresh`: the marker, or a bare 刷新/Refresh label) on every mutation, because a
     panel copy predating this rule must not be able to put two refresh buttons on the page. Keep the
     standalone floating panel's button: without the hub it is the only refresh.
-  - Nothing a panel or the hub shows may contain an em dash — `test/hub-contract.test.mjs` fails on
+  - Nothing a panel or the hub shows may contain an em dash — `tests/hub-contract.test.mjs` fails on
     one in any non-comment line. Comment prose is exempt.
-  - The six `panel.css` files share **one byte-identical block** (everything up to the toast rule;
+  - The six `client.css` files share **one byte-identical block** (everything up to the toast rule;
     only per-package tails differ) whose metrics mirror the official plugin page and settings form —
     the tokens were extracted from `dsh-client-ui-plugin-manager` and `dsh-client-ui-primitives`
     (14px/500 row titles, 13px/18px tertiary subtitles, hairline `0.5px` outlines, 32px buttons,
     the 36×20 switch, brand-token accent). Row text never breaks mid-word (`overflow-wrap: anywhere`
     is banned): subtitles clamp to two lines and keep the full string on the row's `title` tooltip.
-  - `test/panel-embed.test.mjs` boots every panel's script in a DOM stub for both directions (hub
+  - `tests/panel-embed.test.mjs` boots every panel's script in a DOM stub for both directions (hub
     present and absent). Its stubs are load-bearing: panels append with `child instanceof Node`, read
     `panel.hidden`/`element.id` as *properties* (the `hidden` and `id` attributes are reflected), and
     the hub sweeps through `querySelectorAll` + `MutationObserver`. Feeding them a thin `{ ok: true }`
@@ -99,22 +122,22 @@ installed copy, or create junctions in the package's `node_modules` pointing at 
 packages. Then:
 
 ```bash
-cd packages/<name> && node test/<name>.test.mjs
+cd <name> && node tests/<name>.test.mjs
 ```
 
-`packages/dsh-features` needs no runtime at all: its suite evaluates the browser bundle in a `vm` with a
+`dsh-features` needs no runtime at all: its suite evaluates the browser bundle in a `vm` with a
 minimal React (state/effect/ref), so the sidebar slot, its order, the skin and the `mount` hand-off are
 asserted without a browser. The cross-package agreement cannot live in a package suite (an installed
 copy has no siblings), so it is checked from the repository root:
 
 ```bash
-node test/hub-contract.test.mjs
+node tests/hub-contract.test.mjs
 ```
 
 Verification is per package and the totals are in the root README. Two things are worth re-checking
 after any change: all six installed **together** still boot (`--dump-config` then `web --port N
 --no-open`, and look for the ready line), and dsh-remote's live suite
-(`node test/remote-live.mjs <baseUrl> <proxyPort> <token>` against a sandbox with remote access on).
+(`node tests/remote-live.mjs <baseUrl> <proxyPort> <token>` against a sandbox with remote access on).
 
 ## Not here
 

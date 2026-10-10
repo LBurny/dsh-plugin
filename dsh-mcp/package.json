@@ -1,0 +1,63 @@
+{
+  "name": "dsh-mcp",
+  "version": "0.1.0",
+  "description": "Manage MCP servers from inside DeepSeek Harness: add, edit, delete, enable/disable, and import from other agent tool configs, editing the active profile's cordis.patch.yml. Ships a panel and the /mcp command. dsh-mcp：在 dsh 本体里管理 MCP 服务——增删改、启停、导入，直接编辑 profile 的 cordis.patch.yml，自带面板与 /mcp 命令。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "ui": {
+      "feature": {
+        "key": "mcp",
+        "order": 20,
+        "title": {
+          "zh": "MCP 服务管理",
+          "en": "MCP"
+        },
+        "summary": {
+          "zh": "MCP 服务的增删改与状态",
+          "en": "Add, edit and inspect MCP servers"
+        }
+      }
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "mcp",
+    "model-context-protocol",
+    "cordis",
+    "MCP",
+    "服务管理"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-atomic-write": "^0.2.0-rc.1",
+    "yaml": "^2.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LBurny/dsh-plugin.git",
+    "directory": "dsh-mcp"
+  },
+  "homepage": "https://github.com/LBurny/dsh-plugin/tree/main/dsh-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/LBurny/dsh-plugin/issues"
+  }
+}

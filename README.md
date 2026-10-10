@@ -19,23 +19,23 @@ Small, independent [deepseek-harness](https://github.com/deepseek-ai/deepseek-ha
 Each one is a normal dsh plugin: it declares `dsh.bundle.patch`, so `dsh plugin add` mounts its layer automatically. They never import each other, so any subset works.
 
 `dsh-features` is not a feature: it is the hub the other packages plug into. It is the only one with a
-browser half (`dsh.client` → `assets/client.js`), because a real navigation entry can only be added by
+browser half (`dsh.client` → `lib/client.js`), because a real navigation entry can only be added by
 a dsh client plugin. With it installed, a feature panel moves onto the hub's page and its floating
 corner button disappears; uninstall it and the buttons come back, unchanged.
 
 ## Install
 
 ```bash
-dsh plugin --profile web add github:LBurny/dsh-plugin#path:/packages/dsh-skills
+dsh plugin --profile web add github:LBurny/dsh-plugin#path:/dsh-skills
 # pin a commit:
-dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/packages/dsh-skills
+dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/dsh-skills
 dsh plugin --profile web remove dsh-skills
 ```
 
 `--profile web` is DSHDesktop's shell profile; the official desktop app uses `--profile desktop`. The plugin panel accepts the same specs, one at a time.
 
 **Pinning a commit on Windows.** `dsh plugin` there runs through the app's `dsh.cmd` shim, and cmd.exe
-eats the `&` in `#<sha>&path:/packages/…`, so pnpm is handed a bare `#<sha>` and refuses it. Pin from
+eats the `&` in `#<sha>&path:/dsh…`, so pnpm is handed a bare `#<sha>` and refuses it. Pin from
 the app's plugin panel (the spec goes straight to pnpm) or install the branch spec above.
 
 Restart dsh afterwards — plugins have no HMR.
@@ -55,9 +55,9 @@ Development notes and the traps worth knowing live in [AGENTS.md](AGENTS.md).
 ## Test
 
 ```bash
-cd packages/<name> && node test/<name>.test.mjs
-node test/hub-contract.test.mjs          # repo-wide: the hub agreement, from the root
-node test/panel-embed.test.mjs           # repo-wide: every panel boots without the hub
+cd <name> && node tests/<name>.test.mjs
+node tests/hub-contract.test.mjs          # repo-wide: the hub agreement, from the root
+node tests/panel-embed.test.mjs           # repo-wide: every panel boots without the hub
 ```
 
 Offline suites: 75 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 73 checks, plus 246 repo-wide contract
@@ -65,9 +65,9 @@ checks and 63 cross-package panel checks. `dsh-features`' suite evaluates its br
 (a vm with a minimal React), so the sidebar slot, its order, the list, the drill-down and the mount
 hand-off are asserted without a browser; `panel-embed.test.mjs` runs all six feature panels' scripts
 in a DOM stub to prove none of them docks a corner button or a second refresh control while the hub
-is installed. `dsh-remote` also ships a live suite (`test/remote-live.mjs`) that needs a sandbox
+is installed. `dsh-remote` also ships a live suite (`tests/remote-live.mjs`) that needs a sandbox
 instance with remote access enabled.
 
 ## License
 
-MIT. Sounds under `packages/dsh-notify/sounds/` come from opencode via DSHDesktop; the mobile assets under `packages/dsh-remote/assets/` are vendored from DSHDesktop.
+MIT. Sounds under `dsh-notify/lib/sounds/` come from opencode via DSHDesktop; the mobile assets under `dsh-remote/lib/assets/` are vendored from DSHDesktop.
