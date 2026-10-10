@@ -26,6 +26,11 @@ anything here; it is short and most of it is a trap someone already walked into.
 - **A module-level failure takes the whole plugin tree down** — dsh will not start at all. Verify in a
   sandbox (`$TEMP\dshprobe`, see `DSHPlugin/.agents/skills/dsh-plugin-authoring/references/repo-delivery.md` §4)
   before touching a real `DSH_HOME`.
+- **Colours prefer the shell's theme tokens.** `--dsw-alias-bg-base` / `-label-primary` /
+  `-label-caption` / `-border-l2` / `-interactive-bg-hover` are defined on `body` (light) and
+  `body[data-ds-dark-theme]` (dark) by `@deepseek-ai/dsh-client-ui-theme`, so `var(--dsw-…, <hardcoded
+  fallback>)` follows dsh's own light/dark setting. Keep the fallback, and keep the
+  `prefers-color-scheme` block beside it: a shell without those tokens must still look right.
 - **The browser halves share exactly two things, both DOM-level:** the `#dsh-launchers` corner
   container and the `--dsh-launcher-stack` custom property, plus the `.dsh-launch` button class whose
   styles are duplicated identically in every `panel.css`. Panel styles are scoped under

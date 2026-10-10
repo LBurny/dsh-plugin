@@ -43,7 +43,7 @@ dsh plugin --profile web remove dsh-skills
 - **从一开始就独立。** 任何包都不 import 别的包，各自复制所需的那点 layout/HTTP 辅助代码——某个包缺席、落后版本或未安装，都不会影响别人。
 - **跨包约定都在 DOM 层。** 各插件的入口停靠进共用的 `#dsh-launchers` 角落容器，面板通过发布的 `--dsh-launcher-stack` 高度避开它。
 - **基座约定。** 功能插件把自己的 `{ title, order, mount(host) }` 发布到 `window.__dshFeatures`，并在 package.json 里声明 `dsh.ui.feature`；基座据此就地挂载它，并隐藏 `#dsh-launchers`。双向都没有 import。
-- **面板双语、跟随配色方案。** 语言取自 `navigator.language`，配色跟随 `prefers-color-scheme`——刻意**不**读 dsh 的 `locale` / `ui-theme`，那要求每个包都去解析 profile patch。
+- **面板双语、配色跟随 dsh 主题。** 语言取自 `navigator.language`——刻意**不**读 dsh 的 `locale`，那要求每个包都去解析 profile patch；配色优先用壳自己的 `--dsw-alias-*` 令牌（所以跟着 dsh 的明暗设置走），取不到时回落到硬编码值并按 `prefers-color-scheme` 切换。
 - **相比单包的 `dsh-desktop-kit`：** 没有页面错误上报，也没有兜底 `/init`。
 
 改代码前值得知道的约定与坑写在 [AGENTS.md](AGENTS.md)。

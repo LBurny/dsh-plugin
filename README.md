@@ -47,7 +47,7 @@ Restart dsh afterwards — plugins have no HMR.
 - **Independent by construction.** No package imports another; each duplicates the small layout and HTTP helpers it needs, so nothing breaks because a sibling is missing, drifted or uninstalled.
 - **One DOM-level agreement.** Launchers dock into a shared `#dsh-launchers` corner container and panels clear it via the published `--dsh-launcher-stack` height.
 - **The hub agreement.** A feature publishes `{ title, order, mount(host) }` to `window.__dshFeatures` and declares `dsh.ui.feature` in its package.json; the hub mounts it inline and hides `#dsh-launchers`. Nothing is imported in either direction.
-- **Bilingual, scheme-aware panels.** Language from `navigator.language`, colours from `prefers-color-scheme` — deliberately *not* dsh's `locale` / `ui-theme`, which would mean parsing the profile patch from every package.
+- **Bilingual panels, theme-following colours.** Language from `navigator.language` — deliberately *not* dsh's `locale`, which would mean parsing the profile patch from every package. Colours prefer the shell's own `--dsw-alias-*` tokens (so a panel follows dsh's light/dark setting) and fall back to hardcoded values under `prefers-color-scheme`.
 - **Compared to the single-package `dsh-desktop-kit`:** no page-error reporting, no fallback `/init`.
 
 Development notes and the traps worth knowing live in [AGENTS.md](AGENTS.md).

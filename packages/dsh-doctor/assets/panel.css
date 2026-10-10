@@ -9,17 +9,20 @@
  *                                 injected stylesheet cannot reach dsh's own UI
  *                                 (or a sibling package's).
  *
- * Colours are CSS variables with a dark override, so the panel follows the host
- * page's light/dark scheme instead of forcing one.
+ * Colours are CSS variables. Each one prefers the host shell's own theme token
+ * (`--dsw-alias-*`, which follows dsh's light/dark setting) and falls back to the
+ * hardcoded value, itself overridden for a dark OS by `prefers-color-scheme` — so
+ * the panel matches dsh when dsh defines a theme and still looks right when it
+ * does not.
  */
 
 /* ------------------------------------------------------------- launchers */
 
 #dsh-launchers {
-	--dsh-p-bg: #ffffff;
-	--dsh-p-fg: #1c1f23;
-	--dsh-p-border: #e4e6eb;
-	--dsh-p-hover: #f3f4f6;
+	--dsh-p-bg: var(--dsw-alias-bg-base, #ffffff);
+	--dsh-p-fg: var(--dsw-alias-label-primary, #1c1f23);
+	--dsh-p-border: var(--dsw-alias-border-l2, #e4e6eb);
+	--dsh-p-hover: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
 	--dsh-p-accent: #4d6bfe;
 	--dsh-p-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
 	position: fixed;
@@ -35,10 +38,10 @@
 
 @media (prefers-color-scheme: dark) {
 	#dsh-launchers {
-		--dsh-p-bg: #1e2126;
-		--dsh-p-fg: #e8eaed;
-		--dsh-p-border: #34383e;
-		--dsh-p-hover: #2a2e34;
+		--dsh-p-bg: var(--dsw-alias-bg-base, #1e2126);
+		--dsh-p-fg: var(--dsw-alias-label-primary, #e8eaed);
+		--dsh-p-border: var(--dsw-alias-border-l2, #34383e);
+		--dsh-p-hover: var(--dsw-alias-interactive-bg-hover, #2a2e34);
 		--dsh-p-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
 	}
 }
@@ -85,11 +88,11 @@
 }
 
 #dsh-doctor-root {
-	--dsh-bg: #ffffff;
-	--dsh-fg: #1c1f23;
-	--dsh-muted: #6b7280;
-	--dsh-border: #e4e6eb;
-	--dsh-hover: #f3f4f6;
+	--dsh-bg: var(--dsw-alias-bg-base, #ffffff);
+	--dsh-fg: var(--dsw-alias-label-primary, #1c1f23);
+	--dsh-muted: var(--dsw-alias-label-caption, #6b7280);
+	--dsh-border: var(--dsw-alias-border-l2, #e4e6eb);
+	--dsh-hover: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
 	--dsh-accent: #4d6bfe;
 	--dsh-danger: #d64545;
 	--dsh-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
@@ -99,11 +102,11 @@
 
 @media (prefers-color-scheme: dark) {
 	#dsh-doctor-root {
-		--dsh-bg: #1e2126;
-		--dsh-fg: #e8eaed;
-		--dsh-muted: #9aa0a6;
-		--dsh-border: #34383e;
-		--dsh-hover: #2a2e34;
+		--dsh-bg: var(--dsw-alias-bg-base, #1e2126);
+		--dsh-fg: var(--dsw-alias-label-primary, #e8eaed);
+		--dsh-muted: var(--dsw-alias-label-caption, #9aa0a6);
+		--dsh-border: var(--dsw-alias-border-l2, #34383e);
+		--dsh-hover: var(--dsw-alias-interactive-bg-hover, #2a2e34);
 		--dsh-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 	}
 }

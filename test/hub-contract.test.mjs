@@ -87,7 +87,17 @@ for (const pkg of FEATURES) {
 	const style = read(join(pkg, "assets", "panel.css"));
 	check(style.includes("#dsh-launchers {") && style.includes(".dsh-launch {"), `${pkg}: keeps the shared launcher styles`, "");
 	check(style.includes(`#dsh-${marker.key}-root`), `${pkg}: its styles stay scoped to its own root`, "");
+	// Colours prefer the shell's own theme tokens and keep the hardcoded fallback,
+	// so a panel follows dsh's light/dark setting without breaking elsewhere.
+	check(style.includes("var(--dsw-alias-bg-base, #ffffff)"), `${pkg}: prefers the shell's surface token`, "");
+	check(style.includes("var(--dsw-alias-label-primary, #1c1f23)"), `${pkg}: prefers the shell's text token`, "");
+	check(style.includes("var(--dsw-alias-border-l2, #e4e6eb)"), `${pkg}: prefers the shell's border token`, "");
+	check(style.includes("var(--dsw-alias-bg-base, #1e2126)"), `${pkg}: keeps a dark-OS fallback for the token`, "");
 }
+
+/* ------------------------------------------------------------- the skin */
+
+check(client.includes("var(--dsw-alias-bg-base, #ffffff)") && client.includes("var(--dsw-alias-bg-base, #1e2126)"), "dsh-features: the hub skin follows the shell theme tokens too, with fallbacks", "");
 
 /* -------------------------------------------------------------- the tab set */
 

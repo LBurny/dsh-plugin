@@ -87,20 +87,22 @@ window.__ModuleLoader__.load({
 		const STYLE_ID = "dsh-features-skin";
 		/**
 		 * The one stylesheet this plugin owns. The token palette is the same one the
-		 * feature panels define under their own roots, so a feature mounted here
-		 * looks identical to its standalone panel — the hub adds the frame, not a
-		 * second look. Only `#dsh-launchers` is touched outside this plugin's root,
-		 * and deliberately so.
+		 * feature panels define under their own roots, so a feature mounted here looks
+		 * identical to its standalone panel — the hub adds the frame, not a second
+		 * look. Every colour prefers the shell's own theme token (`--dsw-alias-*`,
+		 * which follows dsh's light/dark setting rather than the OS) and falls back to
+		 * the value the feature panels hardcode. Only `#dsh-launchers` is touched
+		 * outside this plugin's root, and deliberately so.
 		 */
 		const SKIN = `
 #dsh-launchers { display: none !important; }
 
 #dsh-features-root {
-	--dsh-bg: #ffffff;
-	--dsh-fg: #1c1f23;
-	--dsh-muted: #6b7280;
-	--dsh-border: #e4e6eb;
-	--dsh-hover: #f3f4f6;
+	--dsh-bg: var(--dsw-alias-bg-base, #ffffff);
+	--dsh-fg: var(--dsw-alias-label-primary, #1c1f23);
+	--dsh-muted: var(--dsw-alias-label-caption, #6b7280);
+	--dsh-border: var(--dsw-alias-border-l2, #e4e6eb);
+	--dsh-hover: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
 	--dsh-accent: #4d6bfe;
 	--dsh-danger: #d64545;
 	display: flex;
@@ -113,11 +115,11 @@ window.__ModuleLoader__.load({
 
 @media (prefers-color-scheme: dark) {
 	#dsh-features-root {
-		--dsh-bg: #1e2126;
-		--dsh-fg: #e8eaed;
-		--dsh-muted: #9aa0a6;
-		--dsh-border: #34383e;
-		--dsh-hover: #2a2e34;
+		--dsh-bg: var(--dsw-alias-bg-base, #1e2126);
+		--dsh-fg: var(--dsw-alias-label-primary, #e8eaed);
+		--dsh-muted: var(--dsw-alias-label-caption, #9aa0a6);
+		--dsh-border: var(--dsw-alias-border-l2, #34383e);
+		--dsh-hover: var(--dsw-alias-interactive-bg-hover, #2a2e34);
 	}
 }
 

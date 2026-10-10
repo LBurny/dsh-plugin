@@ -28,7 +28,9 @@ no flag. Restart dsh afterwards — plugins have no HMR.
   UI is mounted into a node this page owns. Features stay standalone — the hub calls into them.
 - **One skin.** The stylesheet hides `#dsh-launchers` (no more stacked buttons) and publishes the
   same `--dsh-*` token palette the feature panels already use, so a feature looks the same inline as
-  it does in its own floating panel.
+  it does in its own floating panel. Every colour prefers the shell's own theme token
+  (`--dsw-alias-*`, which follows dsh's light/dark setting) and falls back to a hardcoded value, so
+  the hub matches dsh's theme instead of guessing from the OS.
 - **Named failures.** A feature that is installed but whose browser half never loaded is listed as
   *installed, but its panel did not load* rather than silently missing.
 
