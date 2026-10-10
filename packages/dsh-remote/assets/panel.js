@@ -249,10 +249,11 @@
 		}
 	}
 
-	/** A read-only URL with a copy button. */
+	/** A read-only URL with a copy button. The URL clamps to two lines, so the
+	    full link rides on the tooltip. */
 	function linkRow(url) {
 		return el("div", { class: "row" },
-			el("div", { class: "row-main" }, el("div", { class: "row-sub", text: url })),
+			el("div", { class: "row-main" }, el("div", { class: "row-sub", text: url, title: url })),
 			el("div", { class: "row-actions" }, el("button", { text: T("copy"), onclick: () => void copy(url) })));
 	}
 
