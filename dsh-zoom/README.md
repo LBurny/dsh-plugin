@@ -16,15 +16,28 @@ conventions (`window.__dshFeatures`, `#dsh-launchers`), described in the reposit
 
 ## Install
 
+Installed straight from this repository, as a normal public package — `#path:` picks this package out of
+the monorepo, since all seven live in one:
+
 ```bash
 dsh plugin --profile web add github:LBurny/dsh-plugin#path:/dsh-zoom
 # pin a commit:
 dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/dsh-zoom
+dsh plugin --profile web remove dsh-zoom
 ```
 
-`--profile web` = DSHDesktop's shell, `--profile desktop` = the official desktop app; the panel needs no flag.
+`--profile web` = DSHDesktop's shell, `--profile desktop` = the official desktop app; the panel needs no
+flag. The pinned form is the reproducible one, and it is also how a fix reaches you: re-add the spec with
+the newer commit.
 
-Restart dsh afterwards — plugins have no HMR.
+Restart dsh afterwards — plugins have no HMR. (This package's browser half is served from disk on every
+request, so a plain window reload is enough once dsh is up; a host-side change needs the restart.)
+
+Two traps, both spelled out with their workarounds in the repository README: on Windows `dsh.cmd` eats
+the `&` of the pinned form, so pin from the app's own plugin panel instead; and pnpm fetches with its own
+TLS stack that ignores the system proxy, so a TLS-intercepting network needs a `proxy=` /
+`https-proxy=` line in `$DSH_HOME/profiles/<profile>/.npmrc` — or no network at all, by copying the
+package into `$DSH_HOME/profiles/plugins/dsh-zoom/` and adding that path.
 
 ## What it does
 
