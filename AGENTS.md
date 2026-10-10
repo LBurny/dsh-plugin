@@ -44,9 +44,9 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   browser half, no panel, no `dsh.ui.feature` marker, so the hub does not list it. That is supported
   rather than accidental (`dsh-features/lib/inventory.js` skips any package without the marker), which
   is what lets a host-only plugin skip the DOM work entirely. Two things there are load-bearing: its
-  row id is `init`, a name DSHDesktop's preseeded `dsh-command-init` and the desktop kit's opt-in
-  fallback also claim (first-come, first-served; a clash is survivable, an exception out of `apply` is
-  not, so registration is guarded), and its message source is `plugin:dsh-init` because session format
+  row id is `init`, a name DSHDesktop's preseeded `dsh-command-init` also claims (first-come,
+  first-served; a clash only deactivates the loser, so registration is guarded to leave one readable
+  line instead of a stack), and its message source is `plugin:dsh-init` because session format
   V4 refuses the retired generic `kind:"plugin"` wrapper. A refused write fails the whole turn, the
   nastiest shape a bug takes here: the command registers, answers the palette, and does nothing.
   `tests/init.test.mjs` runs the runtime's own admission as the probe.
@@ -222,8 +222,12 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   is the whole wiring; the bundle URL, its revision and the boot-graph row are dsh's business. If the
   entry does not appear, check `node --dump-config | grep features` (the row must be mounted) before
   touching the bundle.
-- **Command registration is guarded** (a name clash degrades to a warning). Do not "fix" that by
-  registering unguarded: an exception during `apply` kills dsh.
+- **Command registration is guarded** (a name clash degrades to a warning). A broken plugin row never
+  stops dsh from booting: an import failure, a throw while the module evaluates, a throw from `apply`,
+  and an unresolvable entry in `dsh.profile.bundles` each print `warning: N entries did not activate`
+  and the boot continues (verified on dsh 0.2.0-rc.1 and rc.2, 2026-10-10). Only the seven ids in
+  `dsh-app-boot`'s `requiredStartupEntryIds` (`agent-loop webserver modules connection
+  headless-runner acp sdk-jsonrpc-server`) are fatal, so never take one of those row ids.
 - **`readdir({ withFileTypes: true })` reports lstat, so a symlinked directory is not
   `isDirectory()`.** Skill farms are usually one shared checkout linked into every agent tool, so any
   directory scan must accept `isSymbolicLink()` too and follow it with `stat` before deciding. Getting
@@ -310,6 +314,8 @@ expanded sidebar at ≥ 1400 px wide or the answer is about a different sidebar.
 
 ## Not here
 
-`dsh-desktop-kit` in the DSHPlugin repository is the original single-package version; this repository
-is the per-feature split. Language/theme following, page-error reporting and the `/init` fallback
-were dropped in the split — see the root README for why.
+`dsh-desktop-kit`, the original single-package version, was retired on 2026-10-10 and removed from the
+DSHPlugin working tree; this repository is the only line still in development. Language and theme
+following, page-error reporting and the `/init` fallback were dropped in the split, and `/init` has
+since come back as its own package. The retired package is recoverable from its tag
+`archive/kit-final` in the DSHPlugin repository.

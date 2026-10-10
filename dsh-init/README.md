@@ -40,12 +40,10 @@ Restart dsh afterwards, since plugins have no HMR.
 
 ## Name ownership
 
-`init` is a first-come, first-served command name, and two other things claim it:
+`init` is a first-come, first-served command name, and one other plugin claims it:
 
 - **DSHDesktop's built-in `dsh-command-init`**, preseeded into the shell's own profile. If both are
   installed, dsh registers whichever loads first, warns, and deactivates the other. Pick one.
-- **`dsh-desktop-kit`'s fallback**, which only registers when its row sets `provideInit: true`. Do not
-  turn that on next to this package either.
 
 This package logs a line instead of throwing when the name is already taken, because an exception
 during `apply` would take the whole plugin tree down.

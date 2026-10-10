@@ -90,7 +90,7 @@ proxy, so a TLS-intercepting network fails with `TypeError: fetch failed`. Write
 - **One DOM-level agreement.** Launchers dock into a shared `#dsh-launchers` corner container, and panels clear it via the published `--dsh-launcher-stack` height.
 - **The hub agreement.** A feature publishes `{ title, order, mount(host) }` to `window.__dshFeatures` and declares `dsh.ui.feature` in its package.json; the hub mounts it inline and hides `#dsh-launchers`. Nothing is imported in either direction.
 - **Bilingual panels, theme-following colours.** Language comes from `navigator.language`, deliberately not dsh's `locale`, which would make every package parse the profile patch. Colours prefer the shell's own `--dsw-alias-*` tokens, so a panel follows dsh's light/dark setting, and fall back to hardcoded values under `prefers-color-scheme`.
-- **Compared to the single-package `dsh-desktop-kit`:** no page-error reporting, and `/init` lives in its own package instead of behind the kit's fallback flag. Both register the same command name, so install one or the other, never both.
+- **Compared to the retired single-package `dsh-desktop-kit`:** no page-error reporting. That package was the origin these were split from and is no longer developed.
 
 Development notes and the traps worth knowing live in [AGENTS.md](AGENTS.md).
 
