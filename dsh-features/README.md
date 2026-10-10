@@ -1,8 +1,10 @@
 # dsh-features
 
-One home for this repository's feature plugins: a single sidebar entry (功能管理, between 插件 and
-自动化任务) whose page mounts every installed feature plugin inline, under one skin — instead of a
-stack of floating corner buttons over dsh's own UI.
+English | [中文](README.zh.md)
+
+One home for this repository's feature plugins: a single sidebar entry, **Features**, between Plugins
+and Scheduled tasks, whose page mounts every installed feature plugin inline under one skin — instead
+of a stack of floating corner buttons over dsh's own UI.
 
 This package is not a feature itself. It is the hub the other `dsh-*` packages plug into, and it is
 built as a **client plugin**: the page, the sidebar glyph and the stylesheet are a browser bundle
@@ -22,10 +24,10 @@ no flag. Restart dsh afterwards — plugins have no HMR.
 
 ## What it does
 
-- **A real nav entry.** `sidebar.panellist` at `order: 5`; the official entries are 插件 (`0`) and
-  自动化任务 (`10`), and the sidebar sorts that slot by `order`.
+- **A real nav entry.** `sidebar.panellist` at `order: 5`; the official entries are Plugins (`0`) and
+  Scheduled tasks (`10`), and the sidebar sorts that slot by `order`.
 - **A page that hosts the features.** A list of rows, one per installed feature plugin, laid out like
-  dsh's own 插件 page: glyph, name, summary, chevron. **Clicking a row opens that feature's settings**
+  dsh's own Plugins page: glyph, name, summary, chevron. **Clicking a row opens that feature's settings**
   on the same page, with a back control in the head. Rows are **draggable into your own order**, kept
   in `localStorage` (`dsh-features:nav-order`) — the same per-origin storage dsh itself uses for UI
   preferences. **One refresh control exists at a time**, in the page head: it rescans the inventory
@@ -62,7 +64,7 @@ mounts it):
 ```js
 window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
   doctor: {
-    title: "诊断",                      // nav label (already localized by the feature)
+    title: "Doctor",                    // nav label (already localized by the feature)
     icon: "M2 8.5h3l1.5-4 2.5 7 ...",   // optional 16×16 stroke SVG path for the nav row
     order: 30,                          // default nav order (the reader's drag order wins)
     mount(host) { /* render into host */ }   // called on every visit; must be re-mountable
@@ -76,8 +78,8 @@ feature whose script failed):
 ```json
 "dsh": { "ui": { "feature": {
   "key": "doctor", "order": 30,
-  "title": { "zh": "诊断", "en": "Doctor" },
-  "summary": { "zh": "运行状态与日志尾部", "en": "Status and log tail" }
+  "title": { "zh": "<Chinese label>", "en": "Doctor" },
+  "summary": { "zh": "<Chinese summary>", "en": "Status and log tail" }
 } } }
 ```
 
@@ -97,8 +99,8 @@ Nothing. This plugin reads `package.json` manifests to build the inventory and w
   it is open.
 - Feature panels are third-party code running in the page. The hub hands them a node and calls
   `mount`; it does not sandbox them (dsh's own client plugins share the page the same way).
-- The hub removes any bare 刷新/Refresh button a mounted feature renders, and anything marked
-  `data-dsh-refresh`: the page head owns the only refresh control. A feature with a control of its
+- The hub removes any bare refresh button a mounted feature renders (the `Refresh` literal, or its
+  localized form), and anything marked `data-dsh-refresh`: the page head owns the only refresh control. A feature with a control of its
   own that must survive should label it something else.
 - The sidebar position is a number (`order: 5`). If a future dsh release adds an entry between 0 and
   10, that entry and this one swap places.
@@ -116,15 +118,6 @@ The browser half is evaluated for real in that suite (a vm with a minimal React)
 slot, the order, the skin, the list, the drill-down, the drag order and the mount hand-off are all
 asserted without a browser. The repository root has one more suite that runs every feature panel's
 browser script against the hub's behaviour: `node tests/panel-embed.test.mjs`.
-
-## 中文速览
-
-`dsh-features`〔功能管理〕是本仓功能插件的统一入口：侧栏一项（在「插件」与「自动化任务」之间），
-页面是一列功能卡片（图标、名称、说明、箭头），**点进去**才是该功能的设置页，返回按钮回到列表；
-卡片可拖拽排序（存在 localStorage），整页只有一个刷新按钮，风格与 dsh 的「插件」页一致。
-它自己不是功能，而是其余 `dsh-*` 包挂靠的基座；装了它，功能插件的浮动按钮自动消失，卸载即恢复。
-新增功能插件只需两条约定：把自己的 `mount(host)` 注册到 `window.__dshFeatures`（可选 `icon`），
-并在 `package.json` 的 `dsh.ui.feature` 里声明名称、摘要与顺序。
 
 ## License
 

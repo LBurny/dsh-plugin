@@ -35,7 +35,7 @@ both source and published artifact, and `main` points straight at `lib/index.js`
 
 - The package name is the npm name; the module's exported `name` and the patch row `id` are the short
   name (`dsh-skills` → `skills`). Row ids are first-come, first-served across the whole plugin tree.
-- `dsh-features/` is the exception in shape, not in independence: it is the **hub** (功能管理)
+- `dsh-features/` is the exception in shape, not in independence: it is the **hub** (the Features page)
   and the only package with a browser *client* half (`dsh.client` + `exports["./client"]` →
   `lib/client.js`, a `__ModuleLoader__.load({id, factory})` classic script, not a module). A real
   sidebar entry can only be added by a dsh client plugin, which is why the hub cannot be an injected
@@ -70,7 +70,7 @@ both source and published artifact, and `main` points straight at `lib/index.js`
     key and the order must match in both places; `tests/hub-contract.test.mjs` fails if they drift.
   - `mount(host)` is called again on every visit and the hub drops the DOM when you leave the page, so
     it must rebuild from scratch (see `mountInline` in any feature's `client.js`).
-  - The hub page is a **list of rows plus a drill-down**, modelled on dsh's own 插件 page: one row per
+  - The hub page is a **list of rows plus a drill-down**, modelled on dsh's own Plugins page: one row per
     feature (glyph, name, summary, chevron), clicking one opens it and puts a back control in the
     head. It is deliberately *not* a left-hand nav rail — that reads as a second level of dsh's own
     sidebar. The reader's drag order lives in `localStorage["dsh-features:nav-order"]` (an array of
@@ -79,7 +79,8 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   - The page head owns the **only** refresh control (rescan + remount re-fetches the panel's data).
     A panel that has one of its own hides it while embedded — `inHub ? undefined : …` — and marks it
     `data-dsh-refresh` so the hub can drop it either way. The hub additionally sweeps the mount point
-    (`stripDuplicateRefresh`: the marker, or a bare 刷新/Refresh label) on every mutation, because a
+    (`stripDuplicateRefresh`: the marker, or a bare refresh label, localized or not) on every mutation,
+    because a
     panel copy predating this rule must not be able to put two refresh buttons on the page. Keep the
     standalone floating panel's button: without the hub it is the only refresh.
   - Nothing a panel or the hub shows may contain an em dash — `tests/hub-contract.test.mjs` fails on
@@ -110,8 +111,8 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   `isDirectory()`.** Skill farms are usually one shared checkout linked into every agent tool, so any
   directory scan must accept `isSymbolicLink()` too and follow it with `stat` before deciding. Getting
   this wrong reports an empty source instead of an error; `cp` must pass `dereference: true` so the
-  managed root ends up with real files, not links into a foreign farm. This is what made 导入技能 show
-  "没有找到技能" while `~/.codex/skills` held ten skills.
+  managed root ends up with real files, not links into a foreign farm. This is what made the Import
+  skills dialog report that it found no skills while `~/.codex/skills` held ten skills.
 - Never log a remote link or token; `/dsh-remote/api/status` exists precisely so there is a
   credential-free status.
 

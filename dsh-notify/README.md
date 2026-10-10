@@ -14,7 +14,7 @@ likely to break on a dsh upgrade — and SSE reconnects on its own.
 
 ## Placement
 
-With **[dsh-features](../dsh-features)** (功能管理) installed, this panel appears on that hub's single
+With **[dsh-features](../dsh-features)** (the Features hub) installed, this panel appears on that hub's single
 page and no longer docks its own corner button; without the hub — a bare dsh, or a profile where it is
 not installed — the floating panel is built exactly as before. The coupling is two DOM-level
 conventions (`window.__dshFeatures`, `#dsh-launchers`), described in the repository's AGENTS.md.
