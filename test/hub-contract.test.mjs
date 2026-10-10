@@ -52,7 +52,18 @@ check(client.includes(`const ORDER = ${SIDEBAR_ORDER.features};`), "dsh-features
 check(client.includes("order: ORDER,"), "dsh-features: the sidebar entry uses that order", "");
 check(client.includes('ctx.slots.inject("main"'), "dsh-features: registers the page it opens", "");
 check(client.includes('"dsh-features:nav-order"'), "dsh-features: the reader's drag order persists in localStorage", "");
-check(client.includes("draggable:") && client.includes("onDragStart:") && client.includes("onDrop:"), "dsh-features: nav rows are draggable", "");
+check(client.includes("draggable:") && client.includes("onDragStart:") && client.includes("onDrop:"), "dsh-features: list rows are draggable", "");
+check(client.includes('className: "row"') && client.includes('className: "tile"'), "dsh-features: the page is a list of rows, not a nav rail", "");
+check(client.includes('"aria-label": t("back")'), "dsh-features: an opened feature can be left again", "");
+check(client.includes("function stripDuplicateRefresh(node)"), "dsh-features: a duplicate refresh in an embedded panel is swept away", "");
+// Nothing a reader sees may use an em dash: it reads as a typo in a UI. Only the
+// dictionary values and code strings matter, so comment prose is exempt.
+const visibleLines = (source) => source.split(/\r?\n/u).filter((line) => !/^\s*(\*|\/\/|\/\*)/u.test(line));
+check(!visibleLines(client).some((line) => line.includes("—")), "dsh-features: no em dash in anything the page shows", "");
+for (const pkg of FEATURES) {
+	const visible = visibleLines(read(join(pkg, "assets", "panel.js")));
+	check(!visible.some((line) => line.includes("—")), `${pkg}: no em dash in anything the panel shows`, "");
+}
 check(client.includes("#dsh-launchers { display: none !important; }"), "dsh-features: the skin hides the corner launcher dock", "");
 check(!/\bimport\s|\bexport\s/u.test(client.split("\n").filter((line) => !line.trimStart().startsWith("*") && !line.trimStart().startsWith("//")).join("\n")), "dsh-features: the bundle is a classic script, not a module", "");
 
@@ -84,7 +95,11 @@ for (const pkg of FEATURES) {
 	check(panel.includes("function buildChrome(host = document.body, inline = false)"), `${pkg}: can render into a host node instead of the document`, "");
 	check(panel.includes('getJson("/dsh-features/api/status")'), `${pkg}: probes the hub before docking its own button`, "");
 	check(panel.includes("if (await hubInstalled()) return;"), `${pkg}: leaves the floating panel to the hub when it is installed`, "");
-	check(!panel.includes('text: T("refresh")') || panel.includes('inHub ? undefined : el("button", { text: T("refresh")'), `${pkg}: an embedded panel hides its own refresh (the hub header owns it)`, "");
+	check(
+		!panel.includes('text: T("refresh")') || panel.includes('inHub ? undefined : el("button", { "data-dsh-refresh": ""'),
+		`${pkg}: an embedded panel hides its own refresh (the hub head owns the only one)`,
+		""
+	);
 	// The standalone path must survive: the launcher conventions are still there.
 	check(panel.includes("if (showLauncher()) buildLauncher();"), `${pkg}: still docks its own button without a hub`, "");
 	check(panel.includes("function publishStackHeight(dock)"), `${pkg}: still publishes the launcher stack height`, "");

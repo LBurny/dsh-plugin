@@ -209,7 +209,7 @@
 		return el("div", {},
 			el("div", { class: "actions" },
 				// The hub's own header refreshes an embedded panel, so it hides this one.
-				inHub ? undefined : el("button", { text: T("refresh"), onclick: () => void render() })),
+				inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })),
 			el("dl", { class: "grid" },
 				...value("dsh", `${status.version}`, ),
 				...value("node", status.node),

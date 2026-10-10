@@ -8,7 +8,7 @@
 
 | 包 | 做什么 | 命令 |
 | --- | ------ | ---- |
-| `dsh-features` | 功能管理：基座插件——侧栏一项（在「插件」与「自动化任务」之间），用一个页面统一承载下面所有已安装的功能插件；装上它，浮动按钮就没了 | — |
+| `dsh-features` | 功能管理：基座插件——侧栏一项（在「插件」与「自动化任务」之间），把每个已安装的功能插件列成一行卡片（和 dsh 自己的「插件」页一样），点进去才是设置页，卡片可拖拽排序；装上它，浮动按钮就没了 | — |
 | `dsh-skills` | 技能管理：启停 / 删除 / 导入，含本地 ZIP 压缩包 | `/skills` |
 | `dsh-mcp` | 管理当前 profile 补丁层里的 MCP 服务：增删改 / 启停 / 导入 | `/mcp` |
 | `dsh-doctor` | 诊断：版本、端口、PID、profile、日志尾部 | `/doctor` |
@@ -53,11 +53,14 @@ dsh plugin --profile web remove dsh-skills
 ```bash
 cd packages/<包名> && node test/<包名>.test.mjs
 node test/hub-contract.test.mjs          # 仓级：基座约定，在仓根跑
+node test/panel-embed.test.mjs           # 仓级：六个面板在装了基座时的行为
 ```
 
-离线检查分别为 70（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 73 项，另有 182 项仓级契约检查。
-`dsh-features` 的套件会**真跑**它的浏览器端（vm + 极简 React 打桩），所以侧栏槽位、顺序与挂载交接
-不用浏览器也能断言。`dsh-remote` 另有实时套件（`test/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
+离线检查分别为 75（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 73 项，另有 192 项仓级契约检查与
+63 项跨包面板检查。`dsh-features` 的套件会**真跑**它的浏览器端（vm + 极简 React 打桩），所以侧栏槽位、
+顺序、列表、点进去、拖拽排序与挂载交接不用浏览器也能断言；`panel-embed.test.mjs` 把六个功能面板的
+浏览器脚本都放进 DOM 打桩里跑，证明装了基座时它们既不会挂浮动按钮、也不会多出第二个刷新控件。
+`dsh-remote` 另有实时套件（`test/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
 
 ## License
 

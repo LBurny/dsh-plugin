@@ -47,13 +47,26 @@ anything here; it is short and most of it is a trap someone already walked into.
     key and the order must match in both places; `test/hub-contract.test.mjs` fails if they drift.
   - `mount(host)` is called again on every visit and the hub drops the DOM when you leave the page, so
     it must rebuild from scratch (see `mountInline` in any feature's `panel.js`).
-  - The hub page is a vertical nav plus a stage. The reader's drag order lives in
-    `localStorage["dsh-features:nav-order"]` (an array of keys; new features append by their default
-    order). Reordering must not remount the open panel — the mount effect depends on the merged
-    snapshot, and the positional default selection is pinned to its key before a shuffle.
-  - The hub's stage header owns the single refresh button (rescan + remount re-fetches a panel's
-    data), so a panel with its own refresh button must hide it when embedded: `inHub ? undefined : …`.
-    Keep the standalone floating panel's button — without the hub it is the only refresh.
+  - The hub page is a **list of rows plus a drill-down**, modelled on dsh's own 插件 page: one row per
+    feature (glyph, name, summary, chevron), clicking one opens it and puts a back control in the
+    head. It is deliberately *not* a left-hand nav rail — that reads as a second level of dsh's own
+    sidebar. The reader's drag order lives in `localStorage["dsh-features:nav-order"]` (an array of
+    keys; new features append by their default order). Reordering must not remount the open panel:
+    the mount effect depends on the merged snapshot, and the open feature is looked up by key.
+  - The page head owns the **only** refresh control (rescan + remount re-fetches the panel's data).
+    A panel that has one of its own hides it while embedded — `inHub ? undefined : …` — and marks it
+    `data-dsh-refresh` so the hub can drop it either way. The hub additionally sweeps the mount point
+    (`stripDuplicateRefresh`: the marker, or a bare 刷新/Refresh label) on every mutation, because a
+    panel copy predating this rule must not be able to put two refresh buttons on the page. Keep the
+    standalone floating panel's button: without the hub it is the only refresh.
+  - Nothing a panel or the hub shows may contain an em dash — `test/hub-contract.test.mjs` fails on
+    one in any non-comment line. Comment prose is exempt.
+  - `test/panel-embed.test.mjs` boots every panel's script in a DOM stub for both directions (hub
+    present and absent). Its stubs are load-bearing: panels append with `child instanceof Node`, read
+    `panel.hidden`/`element.id` as *properties* (the `hidden` and `id` attributes are reflected), and
+    the hub sweeps through `querySelectorAll` + `MutationObserver`. Feeding them a thin `{ ok: true }`
+    payload makes the render throw, and then every "no refresh button here" assertion passes
+    vacuously — so each package declares its real payload shape (see `PAYLOADS` there).
   - A feature probes `GET /dsh-features/api/status` at boot and **skips its floating panel when the
     hub answers**. Without the hub (bare dsh, or the package uninstalled) the launcher must still be
     built exactly as before — that path is what the panels were originally written for.

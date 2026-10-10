@@ -15,10 +15,10 @@
  *
  *   `window.__dshFeatures`  the registry a feature panel publishes itself to:
  *                           `{ [key]: { title, summary, order, icon?, mount(host) } }`.
- *                           `icon` is a 16×16 stroke SVG path for the nav row.
- *                           The hub mounts the selected feature by calling
- *                           `mount` with a plain div it owns; the reader's own
- *                           drag order lives in localStorage, not in here.
+ *                           `icon` is a 16×16 stroke SVG path for the list row.
+ *                           The hub mounts the opened feature by calling `mount`
+ *                           with a plain div it owns; the reader's own drag order
+ *                           lives in localStorage, not in here.
  *   `#dsh-launchers`        hidden while this plugin is installed: one page
  *                           listing every feature replaces the corner buttons.
  *
@@ -65,9 +65,10 @@ window.__ModuleLoader__.load({
 
 		const zh = {
 			"panel": "功能管理",
-			"subtitle": "本仓插件的统一入口：一个页面查看与设置全部功能",
+			"subtitle": "本仓插件的统一入口，一个页面查看与设置全部功能",
 			"loading": "正在加载…",
 			"refresh": "刷新",
+			"back": "返回",
 			"dragHint": "拖拽调整顺序",
 			"empty": "没有检测到功能插件。",
 			"emptyHint": "安装任意 dsh-* 功能插件后，它会自动出现在这里。",
@@ -79,6 +80,7 @@ window.__ModuleLoader__.load({
 			"subtitle": "One home for this repository's plugins: see and configure every feature here",
 			"loading": "Loading…",
 			"refresh": "Refresh",
+			"back": "Back",
 			"dragHint": "Drag to reorder",
 			"empty": "No feature plugins found.",
 			"emptyHint": "Install any dsh-* feature plugin and it appears here on its own.",
@@ -107,8 +109,8 @@ window.__ModuleLoader__.load({
 	--dsh-muted: var(--dsw-alias-label-caption, #6b7280);
 	--dsh-border: var(--dsw-alias-border-l2, #e4e6eb);
 	--dsh-hover: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
+	--dsh-subtle: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
 	--dsh-accent: #4d6bfe;
-	--dsh-danger: #d64545;
 	display: flex;
 	flex-direction: column;
 	height: 100%;
@@ -124,6 +126,7 @@ window.__ModuleLoader__.load({
 		--dsh-muted: var(--dsw-alias-label-caption, #9aa0a6);
 		--dsh-border: var(--dsw-alias-border-l2, #34383e);
 		--dsh-hover: var(--dsw-alias-interactive-bg-hover, #2a2e34);
+		--dsh-subtle: var(--dsw-alias-interactive-bg-hover, #2a2e34);
 	}
 }
 
@@ -132,153 +135,186 @@ window.__ModuleLoader__.load({
 	box-sizing: border-box;
 }
 
+/* ---------------------------------------------------------------- the head */
+
 #dsh-features-root .head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
 	padding: 18px 22px 14px;
 }
 
-#dsh-features-root .head h1 {
-	font-size: 15px;
-	font-weight: 600;
-	margin: 0 0 4px;
-}
-
-#dsh-features-root .head p {
-	color: var(--dsh-muted);
-	font-size: 12px;
-	margin: 0;
-}
-
-#dsh-features-root .main {
-	flex: 1;
-	min-height: 0;
-	display: flex;
-}
-
-#dsh-features-root .nav {
-	width: 176px;
-	flex: none;
-	min-height: 0;
-	overflow-y: auto;
-	padding: 12px 10px 12px 22px;
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	border-right: 1px solid var(--dsh-border);
-}
-
-#dsh-features-root .item {
-	display: flex;
-	align-items: center;
-	gap: 9px;
-	width: 100%;
-	padding: 7px 10px;
-	border: none;
-	border-radius: 8px;
-	background: transparent;
-	color: var(--dsh-fg);
-	font: inherit;
-	text-align: left;
-	cursor: grab;
-	user-select: none;
-}
-
-#dsh-features-root .item:hover {
-	background: var(--dsh-hover);
-}
-
-#dsh-features-root .item[data-active="true"] {
-	background: var(--dsh-hover);
-	font-weight: 600;
-}
-
-#dsh-features-root .item[data-drop="true"] {
-	box-shadow: inset 0 0 0 1px var(--dsh-accent);
-}
-
-#dsh-features-root .item .glyph {
-	flex: none;
-	opacity: 0.8;
-}
-
-#dsh-features-root .item .label {
+#dsh-features-root .titles {
 	flex: 1;
 	min-width: 0;
+}
+
+#dsh-features-root .line {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+}
+
+#dsh-features-root h1 {
+	font-size: 15px;
+	font-weight: 600;
+	line-height: 1.4;
+	margin: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-#dsh-features-root .nav-end {
-	flex: 1;
-	min-height: 16px;
-	border-radius: 8px;
+#dsh-features-root .head p {
+	color: var(--dsh-muted);
+	font-size: 12px;
+	line-height: 1.6;
+	margin: 3px 0 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-#dsh-features-root .nav-end[data-drop="true"] {
-	box-shadow: inset 0 0 0 1px var(--dsh-accent);
+#dsh-features-root .pkg {
+	flex: none;
+	color: var(--dsh-muted);
+	font-size: 11px;
+	border: 1px solid var(--dsh-border);
+	border-radius: 5px;
+	padding: 1px 6px;
 }
+
+/* Back and refresh are the same quiet square, so they line up on the grid. */
+#dsh-features-root .icon-btn {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	border: 1px solid var(--dsh-border);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--dsh-muted);
+	cursor: pointer;
+}
+
+#dsh-features-root .icon-btn:hover {
+	background: var(--dsh-hover);
+	color: var(--dsh-fg);
+}
+
+/* ----------------------------------------------------------------- the list */
 
 #dsh-features-root .stage {
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
 	overflow: auto;
-	padding: 16px 22px 24px;
 }
 
-#dsh-features-root .stage-head {
+#dsh-features-root .stage[data-view="list"] {
+	padding: 2px 22px 28px;
+}
+
+/* An embedded panel brings its own padding, so the detail view adds none. */
+#dsh-features-root .stage[data-view="feature"] {
+	padding: 0;
+}
+
+#dsh-features-root .rows {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+#dsh-features-root .row {
 	display: flex;
 	align-items: center;
 	gap: 12px;
-	margin-bottom: 12px;
-}
-
-#dsh-features-root .stage-titles {
-	flex: 1;
-	min-width: 0;
-}
-
-#dsh-features-root .stage-line {
-	display: flex;
-	align-items: baseline;
-	gap: 10px;
-	flex-wrap: wrap;
-}
-
-#dsh-features-root .stage-title {
-	font-weight: 600;
-}
-
-#dsh-features-root .stage button {
-	font: inherit;
-	color: inherit;
-	background: transparent;
+	width: 100%;
+	padding: 12px 14px;
 	border: 1px solid var(--dsh-border);
-	border-radius: 8px;
-	padding: 5px 10px;
+	border-radius: 12px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
 	cursor: pointer;
+	user-select: none;
 }
 
-#dsh-features-root .stage button:hover {
+#dsh-features-root .row:hover {
 	background: var(--dsh-hover);
 }
 
-#dsh-features-root .note {
-	color: var(--dsh-muted);
-	font-size: 12px;
-	margin: 0;
+#dsh-features-root .row[data-drop="true"] {
+	border-color: var(--dsh-accent);
+	box-shadow: 0 0 0 1px var(--dsh-accent);
 }
 
-#dsh-features-root .stage-titles p.note {
-	margin-top: 2px;
+#dsh-features-root .tile {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	border-radius: 9px;
+	background: var(--dsh-subtle);
+	color: var(--dsh-fg);
+}
+
+#dsh-features-root .row .text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+#dsh-features-root .row-name {
+	font-weight: 600;
+	line-height: 1.4;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#dsh-features-root .row-note {
+	color: var(--dsh-muted);
+	font-size: 12px;
+	line-height: 1.6;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+#dsh-features-root .go {
+	flex: none;
+	display: flex;
+	align-items: center;
+	color: var(--dsh-muted);
+}
+
+#dsh-features-root .list-end {
+	height: 16px;
+	border-radius: 8px;
+}
+
+#dsh-features-root .list-end[data-drop="true"] {
+	box-shadow: inset 0 0 0 1px var(--dsh-accent);
 }
 
 #dsh-features-root .empty {
 	border: 1px dashed var(--dsh-border);
-	border-radius: 10px;
-	padding: 16px;
+	border-radius: 12px;
+	padding: 18px;
 	color: var(--dsh-muted);
 	font-size: 12px;
+	line-height: 1.7;
 }
 
 #dsh-features-root .empty p {
@@ -289,31 +325,26 @@ window.__ModuleLoader__.load({
 	margin-bottom: 0;
 }
 
-/* Narrow screens (the phone remote view) stack the nav back on top. */
+#dsh-features-root .note {
+	color: var(--dsh-muted);
+	font-size: 12px;
+	line-height: 1.7;
+	margin: 0;
+}
+
+/* A feature mounted here never keeps a second refresh control. */
+#dsh-features-root .stage [data-dsh-refresh] {
+	display: none !important;
+}
+
+/* Narrow screens (the phone remote view) tighten the gutters. */
 @media (max-width: 620px) {
-	#dsh-features-root .main {
-		flex-direction: column;
+	#dsh-features-root .head {
+		padding: 14px 14px 10px;
 	}
 
-	#dsh-features-root .nav {
-		width: auto;
-		flex-direction: row;
-		flex-wrap: nowrap;
-		overflow-x: auto;
-		overflow-y: hidden;
-		padding: 10px 16px;
-		border-right: none;
-		border-bottom: 1px solid var(--dsh-border);
-	}
-
-	#dsh-features-root .item {
-		width: auto;
-		flex: none;
-	}
-
-	#dsh-features-root .nav-end {
-		min-width: 16px;
-		min-height: 0;
+	#dsh-features-root .stage[data-view="list"] {
+		padding: 2px 14px 20px;
 	}
 }
 `;
@@ -335,77 +366,124 @@ window.__ModuleLoader__.load({
 			return value[zhFirst ? "zh" : "en"] ?? value.en ?? value.zh;
 		}
 
-	/* ------------------------------------------------------------ nav order */
+		/* ------------------------------------------------------------ nav order */
 
-	/**
-	 * Where the reader's own feature order lives. dsh itself keeps UI preferences
-	 * in browser storage (its client store persists per origin), so the hub does
-	 * the same; the desktop shell keeps the dsh port stable across restarts,
-	 * which is what makes the order survive them.
-	 */
-	const ORDER_KEY = "dsh-features:nav-order";
+		/**
+		 * Where the reader's own feature order lives. dsh itself keeps UI preferences
+		 * in browser storage (its client store persists per origin), so the hub does
+		 * the same; the desktop shell keeps the dsh port stable across restarts,
+		 * which is what makes the order survive them.
+		 */
+		const ORDER_KEY = "dsh-features:nav-order";
 
-	/** The saved feature-key order; junk in storage degrades to no saved order. */
-	function readNavOrder() {
-		try {
-			const parsed = JSON.parse(globalThis.localStorage?.getItem(ORDER_KEY) ?? "[]");
-			return Array.isArray(parsed) ? parsed.filter((key) => typeof key === "string") : [];
-		} catch {
-			return [];
+		/** The saved feature-key order; junk in storage degrades to no saved order. */
+		function readNavOrder() {
+			try {
+				const parsed = JSON.parse(globalThis.localStorage?.getItem(ORDER_KEY) ?? "[]");
+				return Array.isArray(parsed) ? parsed.filter((key) => typeof key === "string") : [];
+			} catch {
+				return [];
+			}
 		}
-	}
 
-	/** Persist the order; denied storage (private mode) costs the sort, nothing else. */
-	function writeNavOrder(keys) {
-		try {
-			globalThis.localStorage?.setItem(ORDER_KEY, JSON.stringify(keys));
-		} catch {
-			/* the page still sorts by the default order */
+		/** Persist the order; denied storage (private mode) costs the sort, nothing else. */
+		function writeNavOrder(keys) {
+			try {
+				globalThis.localStorage?.setItem(ORDER_KEY, JSON.stringify(keys));
+			} catch {
+				/* the page still sorts by the default order */
+			}
 		}
-	}
 
-	/**
-	 * Lay the merged features out: keys the reader dragged into place keep that
-	 * order; anything new (installed after the last drag) appends by its default.
-	 */
-	function applyNavOrder(features, saved) {
-		const position = new Map(saved.map((key, index) => [key, index]));
-		return [...features].sort((left, right) => {
-			const a = position.get(left.key) ?? saved.length;
-			const b = position.get(right.key) ?? saved.length;
-			return a - b || left.order - right.order || left.key.localeCompare(right.key);
-		});
-	}
+		/**
+		 * Lay the merged features out: keys the reader dragged into place keep that
+		 * order; anything new (installed after the last drag) appends by its default.
+		 */
+		function applyNavOrder(features, saved) {
+			const position = new Map(saved.map((key, index) => [key, index]));
+			return [...features].sort((left, right) => {
+				const a = position.get(left.key) ?? saved.length;
+				const b = position.get(right.key) ?? saved.length;
+				return a - b || left.order - right.order || left.key.localeCompare(right.key);
+			});
+		}
 
-	/** A feature without an `icon` gets this grid; glyphs are 16×16 stroke paths. */
-	const FALLBACK_ICON = "M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z";
+		/* ----------------------------------------------------------------- glyphs */
 
-	/** The small glyph a nav row leads with. */
-	function navGlyph(icon) {
-		return React.createElement("svg", {
-			className: "glyph",
-			width: 15,
-			height: 15,
-			viewBox: "0 0 16 16",
-			fill: "none",
-			"aria-hidden": "true"
-		}, React.createElement("path", {
-			d: typeof icon === "string" && icon !== "" ? icon : FALLBACK_ICON,
-			stroke: "currentColor",
-			strokeWidth: 1.2,
-			strokeLinecap: "round",
-			strokeLinejoin: "round"
-		}));
-	}
+		/** A feature without an `icon` gets this grid; glyphs are 16×16 stroke paths. */
+		const FALLBACK_ICON = "M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z";
 
-	/**
-	 * Merge the two sources into what the page renders. The registry knows what
+		/** Wrap one stroke path into the SVG the frame uses for every glyph. */
+		function glyph(path, size, className) {
+			return React.createElement("svg", {
+				className,
+				width: size,
+				height: size,
+				viewBox: "0 0 16 16",
+				fill: "none",
+				"aria-hidden": "true"
+			}, React.createElement("path", {
+				d: path,
+				stroke: "currentColor",
+				strokeWidth: 1.2,
+				strokeLinecap: "round",
+				strokeLinejoin: "round"
+			}));
+		}
+
+		/** The feature's own glyph, or the grid when it published none. */
+		function featureGlyph(icon, size) {
+			return glyph(typeof icon === "string" && icon !== "" ? icon : FALLBACK_ICON, size);
+		}
+
+		/** The chevron that says "this row opens a settings page". */
+		function chevronGlyph() {
+			return glyph("M6.2 3.6L10.6 8l-4.4 4.4", 14);
+		}
+
+		/** The arrow back to the list. */
+		function backGlyph() {
+			return glyph("M9.8 3.6L5.4 8l4.4 4.4", 15);
+		}
+
+		/** The one refresh control the page owns. */
+		function refreshGlyph() {
+			return glyph("M13 8a5 5 0 11-1.6-3.7M13 2.6V5.4h-2.8", 15);
+		}
+
+		/* ----------------------------------------------------------- the refresh */
+
+		/**
+		 * The two labels a page-refresh control is known by here. A leftover one is
+		 * recognized by its text because a panel build older than the `inHub`
+		 * cooperation cannot be recognized any other way.
+		 */
+		const REFRESH_LABELS = new Set(["刷新", "Refresh"]);
+
+		/**
+		 * Drop a duplicate refresh control from an embedded panel: anything the panel
+		 * marked `data-dsh-refresh`, plus a bare button labelled 刷新/Refresh. The page
+		 * head owns the only refresh, so an embedded panel must not add a second one;
+		 * the marker lets a panel say so explicitly, the label catches the rest.
+		 * @param node - the mount point, after the feature has rendered into it.
+		 */
+		function stripDuplicateRefresh(node) {
+			if (typeof node.querySelectorAll !== "function") return;
+			for (const control of node.querySelectorAll("button")) {
+				if (control.hasAttribute("data-dsh-refresh") || REFRESH_LABELS.has((control.textContent ?? "").trim())) control.remove();
+			}
+		}
+
+		/* ------------------------------------------------------------- the merge */
+
+		/**
+		 * Merge the two sources into what the page renders. The registry knows what
 		 * it can mount and carries the feature's own already-localized title; the
 		 * inventory knows what is installed. A key only in the inventory is an
 		 * installed-but-unloaded feature, which the page says out loud.
 		 * @param registry - `window.__dshFeatures`.
 		 * @param inventory - the host half's entries.
-		 * @returns merged, ordered feature descriptors.
+		 * @returns merged features, in the default order.
 		 */
 		function mergeFeatures(registry, inventory) {
 			const byKey = new Map();
@@ -464,137 +542,164 @@ window.__ModuleLoader__.load({
 			return [snapshot, () => setNonce((value) => value + 1)];
 		}
 
-	/**
-	 * The hub page: a vertical nav row per feature on the left (draggable into
-	 * the reader's own order), the selected feature's own UI mounted on the
-	 * right. The feature owns every node under the mount point; this page only
-	 * decides when to call it. One refresh button lives in the stage header: it
-	 * rescan the inventory and remounts the current panel, which re-fetches its
-	 * own data on mount — so the panels drop their own refresh while embedded.
-	 * @param props - composed slot props; `t` is the bound dictionary.
-	 */
-	function FeaturesPage({ t }) {
-		const [snapshot, reload] = useFeatures();
-		const [navOrder, setNavOrder] = React.useState(readNavOrder);
-		const [active, setActive] = React.useState(undefined);
-		const [dropKey, setDropKey] = React.useState(undefined);
-		const dragKey = React.useRef(undefined);
-		const host = React.useRef(null);
-		const features = applyNavOrder(snapshot.features, navOrder);
-		const current = features.find((feature) => feature.key === active) ?? features[0];
-
-		React.useEffect(() => {
-			const node = host.current;
-			if (node === null) return;
-			node.replaceChildren();
-			if (current === undefined) return;
-			const note = (text) => {
-				const message = document.createElement("p");
-				message.className = "note";
-				message.textContent = text;
-				return message;
-			};
-			if (current.mount === undefined) {
-				node.append(note(t("unloaded")));
-				return;
-			}
-			try {
-				current.mount(node);
-			} catch (error) {
-				node.replaceChildren(note(`${t("failed")}: ${String(error?.message ?? error)}`));
-			}
-			// Reordering must not remount (it only shuffles the nav), so this
-			// depends on the merged snapshot, not on the ordered array.
-		}, [current?.key, snapshot.features, t]);
-
-		/** Move the dragged key in front of the target (or last), and keep it. */
-		const moveBefore = (fromKey, toKey) => {
-			if (fromKey === undefined || fromKey === toKey) return;
-			const keys = features.map((feature) => feature.key);
-			const from = keys.indexOf(fromKey);
-			if (from === -1) return;
-			keys.splice(from, 1);
-			const to = toKey === undefined ? keys.length : keys.indexOf(toKey);
-			if (to === -1) return;
-		keys.splice(to, 0, fromKey);
-		// Pin the selection first: with no explicit click the open panel is the
-		// first row positionally, and a shuffle must not silently switch it.
-		setActive((selected) => selected ?? current?.key);
-		writeNavOrder(keys);
-		setNavOrder(keys);
-		};
-
 		/**
-		 * HTML5 drag-and-drop on a nav row (or, with no key, on the end pad that
-		 * accepts "move to last"). Touch clients get no drag — the phone view
-		 * keeps the default order.
+		 * The hub page. A list of rows, one per feature plugin, laid out like dsh's
+		 * own 插件 page: glyph, name, summary, chevron. Clicking a row opens that
+		 * feature's settings — the head then shows a back control and the feature's
+		 * name, and the feature's own UI is mounted below. The feature owns every node
+		 * under the mount point; this page only decides when to call it.
+		 *
+		 * Exactly one refresh control exists at a time, in the head: it rescans the
+		 * inventory and remounts the open feature, which re-fetches its own data on
+		 * mount. Panels hide their own refresh while embedded, and
+		 * {@link stripDuplicateRefresh} removes a leftover one from a panel build that
+		 * predates that cooperation.
+		 * @param props - composed slot props; `t` is the bound dictionary.
 		 */
-		const dragHandlers = (key) => ({
-			draggable: key === undefined ? undefined : true,
-			onDragStart: (event) => {
-				dragKey.current = key;
-				event.dataTransfer?.setData?.("text/plain", key);
-				if (event.dataTransfer !== undefined) event.dataTransfer.effectAllowed = "move";
-			},
-			onDragOver: (event) => {
-				if (dragKey.current === undefined || dragKey.current === key) return;
-				event.preventDefault?.();
-				setDropKey(key ?? "end");
-			},
-			onDrop: (event) => {
-				event.preventDefault?.();
-				moveBefore(dragKey.current, key);
-				dragKey.current = undefined;
-				setDropKey(undefined);
-			},
-			onDragEnd: () => {
-				dragKey.current = undefined;
-				setDropKey(undefined);
-			}
-		});
+		function FeaturesPage({ t }) {
+			const [snapshot, reload] = useFeatures();
+			const [navOrder, setNavOrder] = React.useState(readNavOrder);
+			const [active, setActive] = React.useState(undefined);
+			const [dropKey, setDropKey] = React.useState(undefined);
+			const dragKey = React.useRef(undefined);
+			const host = React.useRef(null);
+			const features = applyNavOrder(snapshot.features, navOrder);
+			// `undefined` means the list. The open feature is looked up by key, so a
+			// reorder can never point the page at a different one.
+			const open = active === undefined ? undefined : features.find((feature) => feature.key === active);
 
-		const nav = features.map((feature) => React.createElement("button", {
-			key: feature.key,
-			type: "button",
-			className: "item",
-			"data-active": String(feature === current),
-			"data-drop": String(dropKey === feature.key),
-			title: `${feature.package ?? feature.key} — ${t("dragHint")}`,
-			onClick: () => setActive(feature.key),
-			...dragHandlers(feature.key)
-		},
-			navGlyph(feature.icon),
-			React.createElement("span", { className: "label" }, feature.title ?? feature.key)));
+			React.useEffect(() => {
+				const node = host.current;
+				if (node === null || open === undefined) return;
+				node.replaceChildren();
+				const note = (text) => {
+					const message = document.createElement("p");
+					message.className = "note";
+					message.textContent = text;
+					return message;
+				};
+				if (open.mount === undefined) {
+					node.append(note(t("unloaded")));
+					return;
+				}
+				try {
+					open.mount(node);
+				} catch (error) {
+					node.replaceChildren(note(`${t("failed")}: ${String(error?.message ?? error)}`));
+				}
+				// Panels fill their body asynchronously, so sweep now and again on every
+				// later change: a second refresh control must not survive on the page.
+				stripDuplicateRefresh(node);
+				if (typeof MutationObserver === "undefined") return;
+				const observer = new MutationObserver(() => stripDuplicateRefresh(node));
+				observer.observe(node, { childList: true, subtree: true });
+				return () => observer.disconnect();
+				// Reordering must not remount, so this depends on the merged snapshot (a
+				// new array only after a rescan) rather than on the ordered array.
+			}, [open?.key, snapshot.features, t]);
 
-		return React.createElement("div", { id: "dsh-features-root" },
-			React.createElement("div", { className: "head" },
-				React.createElement("h1", null, t("panel")),
-				React.createElement("p", null, t("subtitle"))),
-			React.createElement("div", { className: "main" },
-				features.length === 0 ? null : React.createElement("div", { className: "nav" },
-					...nav,
-					React.createElement("div", {
-						className: "nav-end",
-						"data-drop": String(dropKey === "end"),
-						onDragOver: dragHandlers(undefined).onDragOver,
-						onDrop: dragHandlers(undefined).onDrop
-					})),
-				React.createElement("div", { className: "stage" },
+			/** Move the dragged key in front of the target (or last), and keep it. */
+			const moveBefore = (fromKey, toKey) => {
+				if (fromKey === undefined || fromKey === toKey) return;
+				const keys = features.map((feature) => feature.key);
+				const from = keys.indexOf(fromKey);
+				if (from === -1) return;
+				keys.splice(from, 1);
+				const to = toKey === undefined ? keys.length : keys.indexOf(toKey);
+				if (to === -1) return;
+				keys.splice(to, 0, fromKey);
+				writeNavOrder(keys);
+				setNavOrder(keys);
+			};
+
+			/**
+			 * HTML5 drag-and-drop on a row (or, with no key, on the end pad that accepts
+			 * "move to last"). Touch clients get no drag, so the phone view keeps the
+			 * default order.
+			 */
+			const dragHandlers = (key) => ({
+				draggable: key === undefined ? undefined : true,
+				onDragStart: (event) => {
+					dragKey.current = key;
+					event.dataTransfer?.setData?.("text/plain", key);
+					if (event.dataTransfer !== undefined) event.dataTransfer.effectAllowed = "move";
+				},
+				onDragOver: (event) => {
+					if (dragKey.current === undefined || dragKey.current === key) return;
+					event.preventDefault?.();
+					setDropKey(key ?? "end");
+				},
+				onDrop: (event) => {
+					event.preventDefault?.();
+					moveBefore(dragKey.current, key);
+					dragKey.current = undefined;
+					setDropKey(undefined);
+				},
+				onDragEnd: () => {
+					dragKey.current = undefined;
+					setDropKey(undefined);
+				}
+			});
+
+			/** The list view: one card per feature, in the reader's order. */
+			const list = () => React.createElement("div", { className: "rows" },
+				...features.map((feature) => React.createElement("button", {
+					key: feature.key,
+					type: "button",
+					className: "row",
+					"data-drop": String(dropKey === feature.key),
+					title: `${feature.package ?? feature.key} · ${t("dragHint")}`,
+					onClick: () => setActive(feature.key),
+					...dragHandlers(feature.key)
+				},
+					React.createElement("span", { className: "tile" }, featureGlyph(feature.icon, 17)),
+					React.createElement("span", { className: "text" },
+						React.createElement("span", { className: "row-name" }, feature.title ?? feature.key),
+						feature.summary === undefined ? null : React.createElement("span", { className: "row-note" }, feature.summary)),
+					React.createElement("span", { className: "go" }, chevronGlyph()))),
+				React.createElement("div", {
+					className: "list-end",
+					"data-drop": String(dropKey === "end"),
+					onDragOver: dragHandlers(undefined).onDragOver,
+					onDrop: dragHandlers(undefined).onDrop
+				}));
+
+			const titles = open === undefined
+				? React.createElement("div", { className: "titles" },
+					React.createElement("h1", null, t("panel")),
+					React.createElement("p", null, t("subtitle")))
+				: React.createElement("div", { className: "titles" },
+					React.createElement("div", { className: "line" },
+						React.createElement("h1", null, open.title ?? open.key),
+						open.package === undefined ? null : React.createElement("span", { className: "pkg" }, open.package)),
+					React.createElement("p", null, open.summary ?? ""));
+
+			return React.createElement("div", { id: "dsh-features-root" },
+				React.createElement("div", { className: "head" },
+					open === undefined ? null : React.createElement("button", {
+						className: "icon-btn",
+						type: "button",
+						title: t("back"),
+						"aria-label": t("back"),
+						onClick: () => setActive(undefined)
+					}, backGlyph()),
+					titles,
+					React.createElement("button", {
+						className: "icon-btn",
+						type: "button",
+						title: t("refresh"),
+						"aria-label": t("refresh"),
+						onClick: reload
+					}, refreshGlyph())),
+				React.createElement("div", { className: "stage", "data-view": open === undefined ? "list" : "feature" },
 					features.length === 0
 						? React.createElement("div", { className: "empty" },
 							React.createElement("p", null, snapshot.loading ? t("loading") : t("empty")),
 							snapshot.loading ? null : React.createElement("p", null, t("emptyHint")))
-						: [
-							React.createElement("div", { className: "stage-head", key: "head" },
-								React.createElement("div", { className: "stage-titles" },
-									React.createElement("div", { className: "stage-line" },
-										React.createElement("span", { className: "stage-title" }, current.title ?? current.key),
-										current.package === undefined ? null : React.createElement("span", { className: "note" }, current.package)),
-									current.summary === undefined ? null : React.createElement("p", { className: "note" }, current.summary)),
-								React.createElement("button", { type: "button", onClick: reload }, t("refresh"))),
-							React.createElement("div", { key: "host", ref: host })
-						])));
-	}
+						: open === undefined
+							? list()
+							: React.createElement("div", { key: "host", ref: host })));
+		}
 
 		/**
 		 * The sidebar glyph. The shell's own icon set keeps the entry looking like
@@ -603,8 +708,8 @@ window.__ModuleLoader__.load({
 		 * @param props - slot props: `size` (and `active`, unused).
 		 */
 		function FeaturesIcon({ size }) {
-			const glyph = primitives?.IconChecklistOutlineRegular;
-			if (typeof glyph === "function") return React.createElement(glyph, { size });
+			const icon = primitives?.IconChecklistOutlineRegular;
+			if (typeof icon === "function") return React.createElement(icon, { size });
 			const pixels = size ?? 16;
 			return React.createElement("svg", {
 				width: pixels,

@@ -214,7 +214,7 @@
 			el("button", { text: T("importSkills"), onclick: () => showSkillImport(data.sources) }),
 			el("button", { text: T("importZip"), onclick: () => showZipImport() }),
 			// The hub's own header refreshes an embedded panel, so it hides this one.
-			inHub ? undefined : el("button", { text: T("refresh"), onclick: () => void render() })));
+			inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })));
 		fragment.append(el("div", { class: "muted", text: `${data.skills.length} ${T("summary")} · ${data.counts?.enabled ?? "?"}/${data.counts?.total ?? "?"} ${T("enabled")}` }));
 		if (data.skills.length === 0) fragment.append(el("div", { class: "note", text: T("noSkills") }));
 		for (const skill of data.skills) {
@@ -336,7 +336,7 @@
 		for (const skill of skills) list.append(skillChoice(skill, selected, selected.has(skill.name)));
 		const close = () => showView(renderSkills);
 		showView(async () => el("div", {},
-			el("div", { class: "note", text: `${archiveName} — ${T("zipHint")}` }),
+			el("div", { class: "note", text: `${archiveName} · ${T("zipHint")}` }),
 			list,
 			el("div", { class: "field" }, el("label", { text: T("onConflict") }), policy),
 			el("div", { class: "actions" },

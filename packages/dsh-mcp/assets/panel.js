@@ -45,7 +45,7 @@
 		importServers: ["Import servers…", "导入服务…"],
 		noServers: ["No MCP servers configured in this profile.", "本 profile 还没有配置 MCP 服务。"],
 		patch: ["Patch layer", "补丁层"],
-		savedReload: ["saved — dsh reloads it without a restart", "已保存 — dsh 会自动重载，无需重启"],
+		savedReload: ["saved, dsh reloads it without a restart", "已保存，dsh 会自动重载，无需重启"],
 		serverName: ["Name", "名称"],
 		transport: ["Transport", "传输方式"],
 		command: ["Command", "命令"],
@@ -222,8 +222,9 @@
 			el("button", { text: T("add"), onclick: () => showServerForm(undefined) }),
 			el("button", { text: T("importServers"), onclick: () => showServerImport(data.sources) }),
 			// The hub's own header refreshes an embedded panel, so it hides this one.
-			inHub ? undefined : el("button", { text: T("refresh"), onclick: () => void render() })));
-		fragment.append(el("div", { class: "note", text: `${T("patch")}: ${data.patchPath} — ${T("savedReload")}` }));
+			inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })));
+		fragment.append(el("div", { class: "note", text: `${T("patch")}: ${data.patchPath}` }));
+		fragment.append(el("div", { class: "note", text: T("savedReload") }));
 		if (data.servers.length === 0) fragment.append(el("div", { class: "note", text: T("noServers") }));
 		for (const server of data.servers) {
 			fragment.append(row(server.serverName, `${server.transport} · ${server.summary}`, server.enabled,
@@ -303,7 +304,7 @@
 							toast(T("failed"), result.error);
 							return;
 						}
-						toast(T("title"), `${result.id} — ${T("savedReload")}`);
+						toast(T("title"), `${result.id}：${T("savedReload")}`);
 						close();
 					}
 				}),

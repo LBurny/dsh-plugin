@@ -189,23 +189,71 @@ function createBrowser({ language = "zh-CN", registry, fetchImpl, storage = make
 	let dirty = false;
 	const effects = [];
 	const created = [];
+	const observers = [];
+	/** Tell every live MutationObserver, the way a real DOM would. */
+	const mutate = () => {
+		for (const observer of [...observers]) observer.callback();
+	};
 	const makeNode = (tag) => {
 		const node = {
 			tag: tag ?? "div",
 			className: "",
 			id: undefined,
 			textContent: "",
+			attrs: {},
 			children: [],
+			parent: undefined,
 			append(...added) {
-				node.children.push(...added);
+				for (const child of added) {
+					if (child === undefined || child === null || child === false) continue;
+					child.parent = node;
+					node.children.push(child);
+				}
+				mutate();
 			},
 			replaceChildren(...next) {
-				node.children = [...next];
+				node.children = [];
+				node.append(...next);
+			},
+			remove() {
+				const at = node.parent?.children.indexOf(node) ?? -1;
+				if (at !== -1) node.parent.children.splice(at, 1);
+				node.parent = undefined;
+				mutate();
+			},
+			setAttribute(key, value) {
+				node.attrs[key] = String(value);
+			},
+			hasAttribute: (key) => Object.hasOwn(node.attrs, key),
+			querySelectorAll(selector) {
+				const wanted = selector.trim();
+				const found = [];
+				const visit = (current) => {
+					for (const child of current.children) {
+						if (child.tag === wanted) found.push(child);
+						visit(child);
+					}
+				};
+				visit(node);
+				return found;
 			}
 		};
 		created.push(node);
 		return node;
 	};
+	/** The only DOM global the hub itself uses: it watches a mounted panel. */
+	class MutationObserver {
+		constructor(callback) {
+			this.callback = callback;
+		}
+		observe() {
+			observers.push(this);
+		}
+		disconnect() {
+			const at = observers.indexOf(this);
+			if (at !== -1) observers.splice(at, 1);
+		}
+	}
 	const styles = [];
 	const document = {
 		head: { append: (node) => styles.push(node) },
@@ -251,6 +299,7 @@ function createBrowser({ language = "zh-CN", registry, fetchImpl, storage = make
 		document,
 		fetch: fetchImpl,
 		localStorage: storage,
+		MutationObserver,
 		__dshFeatures: registry,
 		__ModuleLoader__: { load: (registration) => registrations.push(registration) }
 	};
@@ -321,6 +370,7 @@ const browser = createBrowser({
 			ok: true,
 			features: [
 				{ key: "doctor", order: 30, package: "dsh-doctor", title: { zh: "诊断", en: "Doctor" } },
+				{ key: "mcp", order: 20, package: "dsh-mcp", title: { zh: "MCP", en: "MCP" } },
 				{ key: "skills", order: 10, package: "dsh-skills", title: { zh: "技能", en: "Skills" }, summary: { zh: "管理技能", en: "Managed skills" } }
 			]
 		})
@@ -357,6 +407,8 @@ const T = (key) => ({
 	subtitle: "统一入口",
 	loading: "加载中…",
 	refresh: "刷新",
+	back: "返回",
+	dragHint: "拖拽调整顺序",
 	empty: "没有检测到功能插件。",
 	emptyHint: "安装任意 dsh-* 功能插件。",
 	unloaded: "已安装，但它的面板脚本没有加载。",
@@ -364,81 +416,137 @@ const T = (key) => ({
 })[key] ?? key;
 
 let element = await browser.render(main.component, { t: T });
-const items = () => findAll(element, (node) => node.props?.className === "item");
-const itemLabel = (item) => item.props.children[1]?.props.children?.join("") ?? "";
-const itemLabels = () => items().map(itemLabel).join(",");
-const glyphOf = (item) => item.props.children[0]?.props.children[0]?.props.d;
-const endPad = () => findAll(element, (node) => node.props?.className === "nav-end")[0];
-check(items().length === 3, "a nav row per feature: two registered plus one installed-only", String(items().length));
-check(itemLabels() === "技能,MCP,诊断", "nav rows follow the default order", itemLabels());
-check(items()[0].props["data-active"] === "true", "the first row is selected by default", String(items()[0].props["data-active"]));
-check(items().every((item) => item.props.draggable === true), "every nav row is draggable", "");
-check(glyphOf(items()[1]) === "M-mcp", "a registered icon leads its nav row", String(glyphOf(items()[1])));
-check(glyphOf(items()[0]) === "M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z", "an iconless feature gets the fallback grid", String(glyphOf(items()[0])));
-check(endPad() !== undefined, "the nav ends in a drop pad for move-to-last", "");
-const refreshButtons = () => findAll(element, (node) => node.type === "button" && node.props?.children?.[0] === T("refresh"));
-check(refreshButtons().length === 1, "exactly one refresh button survives on the page", String(refreshButtons().length));
+/** The row for one feature, in the list view. */
+const rows = () => findAll(element, (node) => node.props?.className === "row");
+const rowName = (row) => row.props.children[1]?.props.children[0]?.props.children?.join("") ?? "";
+const rowNames = () => rows().map(rowName).join(",");
+/** The glyph path a row leads with: row > tile span > svg > path. */
+const rowGlyph = (row) => row.props.children[0]?.props.children[0]?.props.children[0]?.props.d;
+const rowNote = (row) => row.props.children[1]?.props.children[1]?.props.children?.join("") ?? "";
+const endPad = () => findAll(element, (node) => node.props?.className === "list-end")[0];
+const headRefresh = () => findAll(element, (node) => node.props?.["aria-label"] === T("refresh"));
+const headBack = () => findAll(element, (node) => node.props?.["aria-label"] === T("back"));
+const stage = () => findAll(element, (node) => node.props?.className === "stage")[0];
+const stageHost = () => findAll(element, (node) => node.props?.ref !== undefined)[0]?.props.ref.current;
 
-const stageHost = findAll(element, (node) => node.props?.ref !== undefined)[0].props.ref.current;
-check(stageHost !== undefined && typeof stageHost.append === "function", "the stage owns a node it can hand to a feature", typeof stageHost?.append);
-check(browser.mounted.length === 0, "an installed-only feature is not mounted (it registered no mount)", String(browser.mounted.length));
-check(stageHost.children[0]?.textContent === T("unloaded"), "an installed-only feature is named on the page instead of silently missing", stageHost.children[0]?.textContent);
-check(findAll(element, (node) => node.props?.className === "stage-title")[0].props.children.join("") === "技能", "the stage header names the selected feature");
+check(rows().length === 3, "a row per feature: two registered plus one installed-only", String(rows().length));
+check(rowNames() === "技能,MCP,诊断", "rows follow the default order", rowNames());
+check(rows().every((row) => row.props.draggable === true), "every row is draggable", "");
+check(rowGlyph(rows()[1]) === "M-mcp", "a registered icon leads its row", String(rowGlyph(rows()[1])));
+check(rowGlyph(rows()[0]) === "M3 3h4v4H3zM9 3h4v4H9zM3 9h4v4H3zM9 9h4v4H9z", "an iconless feature gets the fallback grid", String(rowGlyph(rows()[0])));
+check(rowNote(rows()[0]) === "管理技能", "a row carries the feature's own summary from the inventory", rowNote(rows()[0]));
+check(rows()[0].props.children[2]?.props.children[0]?.props.children[0]?.props.d === "M6.2 3.6L10.6 8l-4.4 4.4", "a row ends in a chevron, so it reads as clickable", String(rows()[0].props.children[2]?.props.children[0]?.props.children?.[0]?.props.d));
+check(endPad() !== undefined, "the list ends in a drop pad for move-to-last", "");
+check(browser.mounted.length === 0, "the list view mounts nothing (a panel is opened, not shown by default)", String(browser.mounted.length));
+check(headBack().length === 0, "the list view has no back control", String(headBack().length));
+check(headRefresh().length === 1, "the list view has exactly one refresh control", String(headRefresh().length));
+check(stage().props["data-view"] === "list", "the stage knows it is showing the list", String(stage().props["data-view"]));
+
+// Opening a row is the whole interaction: it drills into that feature.
+rows()[1].props.onClick();
+element = await browser.render(main.component, { t: T });
+check(browser.mounted.at(-1)?.key === "mcp", "clicking a row opens that feature's settings", String(browser.mounted.at(-1)?.key));
+check(headBack().length === 1, "the detail view offers a way back", String(headBack().length));
+check(headRefresh().length === 1, "the detail view still has exactly one refresh control", String(headRefresh().length));
+check(stage().props["data-view"] === "feature", "the stage switches to the feature view", String(stage().props["data-view"]));
+check(findAll(element, (node) => node.props?.className === "rows").length === 0, "the list is gone while a feature is open", "");
+const title = findAll(element, (node) => node.props?.className === "line")[0];
+console.log('DEBUG line children:', title.props.children.map((c) => JSON.stringify([c?.props?.className, c?.props?.children])).join(' | '));
+check(title?.props.children[0]?.props.children?.join("") === "MCP", "the head names the open feature", String(title?.props.children[0]?.props.children));
+check(title?.props.children[1]?.props.children?.join("") === "dsh-mcp", "the head names the package it came from", String(title?.props.children[1]?.props.children));
+
+// Going back returns to the list, with every feature still on it.
+headBack()[0].props.onClick();
+element = await browser.render(main.component, { t: T });
+check(rows().length === 3 && stage().props["data-view"] === "list", "back returns to the list", `${rows().length} rows, ${stage().props["data-view"]}`);
+check(rowNames() === "技能,MCP,诊断", "the list still holds every feature", rowNames());
+
+// An installed-only feature opens to an explanation, not to an empty page.
+// 技能 is the one the profile declares but whose browser half never registered.
+rows()[0].props.onClick();
+element = await browser.render(main.component, { t: T });
+check(stageHost().children[0]?.textContent === T("unloaded"), "an installed-only feature explains itself in place", String(stageHost().children[0]?.textContent));
+headBack()[0].props.onClick();
+element = await browser.render(main.component, { t: T });
 
 // Dragging a row onto another moves it in front of the target, persists the
-// order, and neither remounts nor deselects the open panel — even though the
-// selection here was never clicked and is only positional (the drag pins it).
+// order, and never opens anything.
 const dragEvent = { dataTransfer: { setData() {}, effectAllowed: "" } };
-items()[0].props.onDragStart(dragEvent);
-items()[2].props.onDragOver({ preventDefault() {} });
+rows()[0].props.onDragStart(dragEvent);
+rows()[2].props.onDragOver({ preventDefault() {} });
 element = await browser.render(main.component, { t: T });
-check(items()[2].props["data-drop"] === "true", "the row under the cursor is marked as the drop target", String(items()[2].props["data-drop"]));
-items()[2].props.onDrop({ preventDefault() {} });
+check(rows()[2].props["data-drop"] === "true", "the row under the cursor is marked as the drop target", String(rows()[2].props["data-drop"]));
+rows()[2].props.onDrop({ preventDefault() {} });
 element = await browser.render(main.component, { t: T });
-check(itemLabels() === "MCP,技能,诊断", "dropping moves the row in front of its target", itemLabels());
-check(browser.mounted.length === 0, "reordering never remounts the open panel", String(browser.mounted.length));
-check(items()[1].props["data-active"] === "true", "a positional selection is pinned across the shuffle", String(items()[1].props["data-active"]));
-check(findAll(element, (node) => node.props?.className === "stage-title")[0].props.children.join("") === "技能", "the stage still shows the same feature after its row moved");
+check(rowNames() === "MCP,技能,诊断", "dropping moves the row in front of its target", rowNames());
+check(stage().props["data-view"] === "list", "reordering stays in the list view", String(stage().props["data-view"]));
 const saved = JSON.parse(browser.storage.dump()["dsh-features:nav-order"] ?? "[]");
 check(saved.join(",") === "mcp,skills,doctor", "the dragged order lands in localStorage", saved.join(","));
 
 // The end pad accepts move-to-last.
-items()[0].props.onDragStart(dragEvent);
+rows()[0].props.onDragStart(dragEvent);
 endPad().props.onDragOver({ preventDefault() {} });
 element = await browser.render(main.component, { t: T });
 check(endPad().props["data-drop"] === "true", "the end pad marks itself as the drop target", String(endPad().props["data-drop"]));
 endPad().props.onDrop({ preventDefault() {} });
 element = await browser.render(main.component, { t: T });
-check(itemLabels() === "技能,诊断,MCP", "dropping on the end pad moves the row last", itemLabels());
+check(rowNames() === "技能,诊断,MCP", "dropping on the end pad moves the row last", rowNames());
 
-// Selecting a registered feature mounts it, into the node the page owns.
-items()[2].props.onClick();
-element = await browser.render(main.component, { t: T });
-check(browser.mounted.at(-1).key === "mcp", "switching rows mounts that feature", browser.mounted.at(-1).key);
-check(browser.mounted.at(-1).host === stageHost, "the feature is handed the stage's own node", String(browser.mounted.at(-1).host === stageHost));
-check(stageHost.children.length === 0, "the host node is cleared before each mount", String(stageHost.children.length));
+/* ------------------------------------------------ the embedded refresh sweep */
 
-items()[1].props.onClick();
-element = await browser.render(main.component, { t: T });
-check(browser.mounted.at(-1).key === "doctor", "every row reaches its own feature", browser.mounted.at(-1).key);
-check(findAll(element, (node) => node.props?.className === "stage-title")[0].props.children.join("") === "诊断", "the stage header follows the selection");
-
-// A fresh page over the same storage restores the dragged order; a feature
-// installed after the order was saved appends by its default.
-const revived = createBrowser({
-	storage: browser.storage,
+/**
+ * A feature whose body renders a bare 刷新 button, the way a panel build older
+ * than the hub's cooperation would. The page must not end up showing two.
+ */
+const sweeper = createBrowser({
 	registry: {
-		zoom: { title: "缩放", order: 40, mount: () => {} },
-		doctor: { title: "诊断", order: 30, mount: () => {} },
-		mcp: { title: "MCP", order: 20, mount: () => {} },
-		skills: { title: "技能", order: 10, mount: () => {} }
+		stale: {
+			title: "陈旧",
+			order: 1,
+			mount: (host) => {
+				// Late, like a real panel: its body lands after its own fetch resolves.
+				setTimeout(() => {
+					const button = sweeper.document.createElement("button");
+					button.textContent = "刷新";
+					host.append(button);
+				}, 0);
+			}
+		},
+		marked: {
+			title: "标记",
+			order: 2,
+			mount: (host) => {
+				const button = sweeper.document.createElement("button");
+				button.setAttribute("data-dsh-refresh", "");
+				host.append(button);
+			}
+		}
 	},
 	fetchImpl: async () => ({ json: async () => ({ ok: true, features: [] }) })
 });
-const revivedWired = revived.wire(revived.registrations[0]);
-const revivedElement = await revived.render(revivedWired.slots.find((item) => item.slot === "main").component, { t: T });
-const revivedLabels = findAll(revivedElement, (node) => node.props?.className === "item").map(itemLabel).join(",");
-check(revivedLabels === "技能,诊断,MCP,缩放", "a fresh page restores the saved order and appends new features", revivedLabels);
+const sweeperWired = sweeper.wire(sweeper.registrations[0]);
+const sweeperPage = sweeperWired.slots.find((item) => item.slot === "main").component;
+let swept = await sweeper.render(sweeperPage, { t: T });
+findAll(swept, (node) => node.props?.className === "row")[0].props.onClick();
+swept = await sweeper.render(sweeperPage, { t: T });
+await new Promise((resolve) => setTimeout(resolve, 5));
+const sweptHost = findAll(swept, (node) => node.props?.ref !== undefined)[0].props.ref.current;
+console.log('DEBUG sweep children:', sweptHost.children.length, JSON.stringify(sweptHost.children.map((c) => c.tag + ":" + c.textContent)));
+check(sweptHost.children.length === 0, "a panel's bare refresh button is swept out of the mount point", String(sweptHost.children.length));
+check(
+	findAll(swept, (node) => node.props?.["aria-label"] === T("refresh")).length === 1,
+	"the sweep leaves the page's own refresh alone",
+	String(findAll(swept, (node) => node.props?.["aria-label"] === T("refresh")).length)
+);
+
+// A marked control is dropped as soon as it appears, even synchronously. Back to
+// the list first: the open feature is what the page is showing.
+findAll(swept, (node) => node.props?.["aria-label"] === T("back"))[0].props.onClick();
+swept = await sweeper.render(sweeperPage, { t: T });
+findAll(swept, (node) => node.props?.className === "row")[1].props.onClick();
+swept = await sweeper.render(sweeperPage, { t: T });
+const markedHost = findAll(swept, (node) => node.props?.ref !== undefined)[0].props.ref.current;
+check(markedHost.children.length === 0, "a marked refresh control never survives either", String(markedHost.children.length));
 
 // A feature that throws is reported on the page, not into the console.
 const broken = createBrowser({
@@ -446,7 +554,9 @@ const broken = createBrowser({
 	fetchImpl: async () => ({ json: async () => ({ ok: true, features: [] }) })
 });
 const brokenWired = broken.wire(broken.registrations[0]);
-const brokenElement = await broken.render(brokenWired.slots.find((item) => item.slot === "main").component, { t: T });
+let brokenElement = await broken.render(brokenWired.slots.find((item) => item.slot === "main").component, { t: T });
+findAll(brokenElement, (node) => node.props?.className === "row")[0].props.onClick();
+brokenElement = await broken.render(brokenWired.slots.find((item) => item.slot === "main").component, { t: T });
 const brokenHost = findAll(brokenElement, (node) => node.props?.ref !== undefined)[0].props.ref.current;
 check(brokenHost.children[0]?.textContent === `${T("failed")}: nope`, "a throwing feature is reported in place", brokenHost.children[0]?.textContent);
 
@@ -455,9 +565,9 @@ check(brokenHost.children[0]?.textContent === `${T("failed")}: nope`, "a throwin
 const empty = createBrowser({ language: "en", registry: {}, fetchImpl: async () => ({ json: async () => ({ ok: true, features: [] }) }) });
 const emptyWired = empty.wire(empty.registrations[0]);
 const emptyElement = await empty.render(emptyWired.slots.find((item) => item.slot === "main").component, { t: (key) => `en:${key}` });
-check(findAll(emptyElement, (node) => node.props?.className === "nav").length === 0, "an empty inventory renders no nav");
-check(findAll(emptyElement, (node) => node.type === "button" && node.props?.children?.[0] === "en:refresh").length === 0, "an empty inventory renders no refresh button either");
+check(findAll(emptyElement, (node) => node.props?.className === "rows").length === 0, "an empty inventory renders no list");
 check(findAll(emptyElement, (node) => node.props?.className === "empty").length === 1, "an empty inventory renders the hint block");
+check(findAll(emptyElement, (node) => node.props?.["aria-label"] === "en:refresh").length === 1, "an empty inventory keeps its one refresh, so the list can be rescanned");
 check(emptyWired.dictionaries[0].dict.en.panel === "Features", "the English dictionary is registered too", emptyWired.dictionaries[0].dict.en.panel);
 check(emptyWired.slots.find((item) => item.slot === "sidebar.panellist").options.label() === "Features", "the sidebar label follows the language");
 
@@ -471,7 +581,11 @@ const offline = createBrowser({
 const offlineWired = offline.wire(offline.registrations[0]);
 const offlineElement = await offline.render(offlineWired.slots.find((item) => item.slot === "main").component, { t: T });
 check(offlineWired.slots.length === 2, "a failing inventory request still registers both slots", String(offlineWired.slots.length));
-check(findAll(offlineElement, (node) => node.props?.className === "item").length === 1, "the page still lists what the registry registered", String(findAll(offlineElement, (node) => node.props?.className === "item").length));
+check(
+	findAll(offlineElement, (node) => node.props?.className === "row").length === 1,
+	"the page still lists what the registry registered",
+	String(findAll(offlineElement, (node) => node.props?.className === "row").length)
+);
 
 /* ----------------------------------------------------------------- report */
 

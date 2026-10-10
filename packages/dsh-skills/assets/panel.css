@@ -203,8 +203,8 @@
 #dsh-skills-root .row {
 	display: flex;
 	align-items: flex-start;
-	gap: 10px;
-	padding: 8px;
+	gap: 12px;
+	padding: 10px 12px;
 	border: 1px solid var(--dsh-border);
 	border-radius: 10px;
 	margin-bottom: 8px;
@@ -217,13 +217,15 @@
 
 #dsh-skills-root .row-name {
 	font-weight: 600;
+	line-height: 1.4;
 	word-break: break-all;
 }
 
 #dsh-skills-root .row-sub {
 	color: var(--dsh-muted);
 	font-size: 12px;
-	word-break: break-all;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
 }
 
 #dsh-skills-root .row-actions {
@@ -240,6 +242,7 @@
 #dsh-skills-root .note {
 	color: var(--dsh-muted);
 	font-size: 12px;
+	line-height: 1.7;
 	margin: 0 0 10px;
 }
 

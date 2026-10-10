@@ -24,13 +24,14 @@ no flag. Restart dsh afterwards — plugins have no HMR.
 
 - **A real nav entry.** `sidebar.panellist` at `order: 5`; the official entries are 插件 (`0`) and
   自动化任务 (`10`), and the sidebar sorts that slot by `order`.
-- **A page that hosts the features.** A vertical nav row per installed feature plugin (icon + title)
-  on the left; the selected feature's own UI is mounted into a node this page owns on the right.
-  Rows are **draggable into your own order**, kept in `localStorage` (`dsh-features:nav-order`) — the
-  same per-origin storage dsh itself uses for UI preferences. One refresh button lives in the stage
-  header: it rescans the inventory and remounts the open panel, so embedded panels hide their own.
-  Below 620px the nav folds back into a horizontal strip (the phone remote view). Features stay
-  standalone — the hub calls into them.
+- **A page that hosts the features.** A list of rows, one per installed feature plugin, laid out like
+  dsh's own 插件 page: glyph, name, summary, chevron. **Clicking a row opens that feature's settings**
+  on the same page, with a back control in the head. Rows are **draggable into your own order**, kept
+  in `localStorage` (`dsh-features:nav-order`) — the same per-origin storage dsh itself uses for UI
+  preferences. **One refresh control exists at a time**, in the page head: it rescans the inventory
+  and remounts the open feature, so embedded panels hide their own (and the hub sweeps away a
+  leftover one from an older panel build). Below 620px the gutters tighten for the phone remote view.
+  Features stay standalone — the hub calls into them.
 - **One skin.** The stylesheet hides `#dsh-launchers` (no more stacked buttons) and publishes the
   same `--dsh-*` token palette the feature panels already use, so a feature looks the same inline as
   it does in its own floating panel. Every colour prefers the shell's own theme token
@@ -91,11 +92,14 @@ Nothing. This plugin reads `package.json` manifests to build the inventory and w
 
 ## Caveats
 
-- The page mounts features into its own DOM, so a feature's UI disappears when you leave the page and
-  is rebuilt on return. A feature whose background work updates its panel only repaints while it is
-  on screen.
+- The page mounts a feature into its own DOM on open and drops it on the way back, so a feature's UI
+  is rebuilt on every visit. A feature whose background work updates its panel only repaints while
+  it is open.
 - Feature panels are third-party code running in the page. The hub hands them a node and calls
   `mount`; it does not sandbox them (dsh's own client plugins share the page the same way).
+- The hub removes any bare 刷新/Refresh button a mounted feature renders, and anything marked
+  `data-dsh-refresh`: the page head owns the only refresh control. A feature with a control of its
+  own that must survive should label it something else.
 - The sidebar position is a number (`order: 5`). If a future dsh release adds an entry between 0 and
   10, that entry and this one swap places.
 - `#dsh-launchers` is hidden globally while this package is installed. That is the point of the
@@ -109,15 +113,18 @@ node test/hub.test.mjs
 ```
 
 The browser half is evaluated for real in that suite (a vm with a minimal React), so the sidebar
-slot, the order, the skin and the mount hand-off are all asserted without a browser.
+slot, the order, the skin, the list, the drill-down, the drag order and the mount hand-off are all
+asserted without a browser. The repository root has one more suite that runs every feature panel's
+browser script against the hub's behaviour: `node test/panel-embed.test.mjs`.
 
 ## 中文速览
 
 `dsh-features`〔功能管理〕是本仓功能插件的统一入口：侧栏一项（在「插件」与「自动化任务」之间），
-页面把每个已安装的功能插件就地挂载进同一个外壳，风格统一，不再有一堆浮动按钮压住 dsh 界面。
+页面是一列功能卡片（图标、名称、说明、箭头），**点进去**才是该功能的设置页，返回按钮回到列表；
+卡片可拖拽排序（存在 localStorage），整页只有一个刷新按钮，风格与 dsh 的「插件」页一致。
 它自己不是功能，而是其余 `dsh-*` 包挂靠的基座；装了它，功能插件的浮动按钮自动消失，卸载即恢复。
-新增功能插件只需两条约定：把自己的 `mount(host)` 注册到 `window.__dshFeatures`，并在
-`package.json` 的 `dsh.ui.feature` 里声明名称与顺序。
+新增功能插件只需两条约定：把自己的 `mount(host)` 注册到 `window.__dshFeatures`（可选 `icon`），
+并在 `package.json` 的 `dsh.ui.feature` 里声明名称、摘要与顺序。
 
 ## License
 

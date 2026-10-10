@@ -8,7 +8,7 @@ Small, independent [deepseek-harness](https://github.com/deepseek-ai/deepseek-ha
 
 | Package | What it does | Command |
 | ------- | ------------ | ------- |
-| `dsh-features` | 功能管理: the hub — one sidebar entry (between 插件 and 自动化任务) listing every installed feature plugin in one vertical-nav page and one skin, with drag-to-reorder. Install it to lose the floating corner buttons | — |
+| `dsh-features` | 功能管理: the hub — one sidebar entry (between 插件 and 自动化任务) that lists every installed feature plugin as a row (like dsh's own 插件 page), opens one on click, and reorders them by drag. Install it to lose the floating corner buttons | — |
 | `dsh-skills` | Manage skills: enable / disable / delete / import, including local ZIP archives | `/skills` |
 | `dsh-mcp` | Manage MCP servers in the active profile's patch layer: add / edit / delete / enable / import | `/mcp` |
 | `dsh-doctor` | Harness diagnostics: version, port, pid, profile, log tail | `/doctor` |
@@ -57,12 +57,16 @@ Development notes and the traps worth knowing live in [AGENTS.md](AGENTS.md).
 ```bash
 cd packages/<name> && node test/<name>.test.mjs
 node test/hub-contract.test.mjs          # repo-wide: the hub agreement, from the root
+node test/panel-embed.test.mjs           # repo-wide: every panel boots without the hub
 ```
 
-Offline suites: 70 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 73 checks, plus 182 repo-wide contract
-checks. `dsh-features`' suite evaluates its browser half for real (a vm with a minimal React), so the
-sidebar slot, its order and the mount hand-off are asserted without a browser. `dsh-remote` also ships
-a live suite (`test/remote-live.mjs`) that needs a sandbox instance with remote access enabled.
+Offline suites: 75 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 73 checks, plus 192 repo-wide contract
+checks and 63 cross-package panel checks. `dsh-features`' suite evaluates its browser half for real
+(a vm with a minimal React), so the sidebar slot, its order, the list, the drill-down and the mount
+hand-off are asserted without a browser; `panel-embed.test.mjs` runs all six feature panels' scripts
+in a DOM stub to prove none of them docks a corner button or a second refresh control while the hub
+is installed. `dsh-remote` also ships a live suite (`test/remote-live.mjs`) that needs a sandbox
+instance with remote access enabled.
 
 ## License
 

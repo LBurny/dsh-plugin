@@ -51,7 +51,7 @@
 		browser: ["Browser notification", "系统通知"],
 		permission: ["Grant browser notifications", "授权系统通知"],
 		granted: ["granted", "已授权"],
-		denied: ["denied — enable it in the browser's site settings", "已拒绝 —— 请在浏览器的站点设置里打开"],
+		denied: ["denied, enable it in the browser's site settings", "已拒绝，请在浏览器的站点设置里打开"],
 		defaultSound: ["System default (no sound from here)", "系统默认（本插件不放声）"],
 		silentSound: ["Silent", "静音"],
 		noSounds: ["No sound files were found next to the plugin.", "插件目录下没有找到音效文件。"],

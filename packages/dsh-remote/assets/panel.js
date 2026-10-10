@@ -38,7 +38,7 @@
 		failed: ["Failed", "失败"],
 		working: ["Working…", "处理中…"],
 		refresh: ["Refresh", "刷新"],
-		remoteHint: ["Turning this on publishes your harness to whoever holds the link — on your local network, or to the whole internet in tunnel mode. The link is the only credential.", "开启后，任何拿到链接的人都能访问你的 harness —— 局域网模式下是同网段，隧道模式下是整个互联网。链接就是唯一的凭证。"],
+		remoteHint: ["Turning this on publishes your harness to whoever holds the link, on your local network or to the whole internet in tunnel mode. The link is the only credential.", "开启后，任何拿到链接的人都能访问你的 harness：局域网模式下是同网段，隧道模式下是整个互联网。链接就是唯一的凭证。"],
 		stateOff: ["off", "已关闭"],
 		stateStarting: ["starting…", "启动中…"],
 		stateUp: ["up", "已开启"],
@@ -288,7 +288,7 @@
 				? el("button", { class: "danger", text: T("resetLink"), title: T("resetLinkHint"), onclick: () => void act({ action: "reset-token" }) })
 				: undefined,
 			// The hub's own header refreshes an embedded panel, so it hides this one.
-			inHub ? undefined : el("button", { text: T("refresh"), onclick: () => void render() })));
+			inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })));
 
 		if (cloudflared === null && remote.mode === "tunnel") fragment.append(el("div", { class: "note", text: T("cloudflaredMissing") }));
 
