@@ -428,20 +428,30 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	);
 	const cell = block(css, '[class*="_navCell"] {\n    flex: 0 0 auto');
 	check(
-		/flex:\s*0 0 auto/u.test(cell) && /font-size:\s*13px/u.test(cell),
-		"tabs hug their content at a size that fits one centred row at 390px",
+		/flex:\s*0 0 auto/u.test(cell) && /font-size:\s*13px/u.test(cell) && /gap:\s*4px/u.test(cell),
+		"tabs hug their content, with the icon gap tightened, so four fit one centred row at 390px",
 		cell.replace(/\s+/gu, " ").slice(0, 80)
 	);
-	// The models page cannot read settings from a remote origin (upstream: no view for a
-	// memory-mode scope). The layer must not fake loopback — only explain.
+	// The strip's own padding was 10px top / 0 bottom, which reads as the tabs not being
+	// centred in the bar.
+	const bar = block(css, ':has(> [class*="_nav"]) > [class*="_nav"] {');
 	check(
-		css.includes("[data-dshmobile-unavailable]") && js.includes("settings are unavailable in this browser"),
-		"the settings-unavailable note is styled and its upstream wording is what gets matched",
+		/padding:\s*max\(10px, env\(safe-area-inset-top, 0px\)\) 8px 10px/u.test(bar),
+		"the tab bar pads top and bottom by the same amount (plus the safe area)",
+		bar.replace(/\s+/gu, " ").slice(0, 90)
+	);
+	// The models page cannot read settings from a remote origin (upstream: no view for a
+	// memory-mode scope). The layer must not fake loopback — it replaces the dead end.
+	check(
+		css.includes("[data-dshmobile-unavailable-card]") &&
+			css.includes("display: none !important") &&
+			js.includes("settings are unavailable in this browser"),
+		"the upstream failure card is hidden and its wording is what gets matched",
 		""
 	);
 	check(
 		js.includes("data-dshmobile-unavailable") && /电脑端|desktop window/u.test(js),
-		"the note tells the reader to change it in the desktop window rather than retrying",
+		"a note takes its place, pointing at the desktop window instead of the dead Retry",
 		""
 	);
 }

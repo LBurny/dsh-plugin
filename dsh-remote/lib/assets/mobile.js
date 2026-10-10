@@ -517,17 +517,18 @@
 })()
 
 /**
- * 设置页「加载提供商目录失败: settings are unavailable in this browser」（手机截图实测：
- * 模型分区永远这一行 + 重试按钮）。
+ * 设置页「加载提供商目录失败: settings are unavailable in this browser」（手机实测：模型分区
+ * 永远这一行红字 + 一个点不动的「重试」）。
  *
  * 上游设置页读的是 describeFace 快照，远程浏览器拿不到 view（源码分支
  * `mirrored.view === void 0` → `failLoad("settings are unavailable in this browser")`）：
- * 作用域按传输方式分，本机回环读宿主持久段，经代理/隧道的来源拿到 memory 模式、
- * 连读都不给。点「重试」不会成功。这是上游刻意的边界，**本层不能伪造回环**——否则
- * 拿到链接的人就能改写宿主设置与 API 密钥。
+ * 作用域按传输方式分，本机回环读宿主持久段，经代理/隧道的来源拿到 memory 模式、连读都不给，
+ * 重试也不会成功。这是上游刻意的边界，**本层不能伪造回环**——否则拿到链接的人就能改写宿主
+ * 设置与 API 密钥。
  *
- * 能做且只该做的：把话说清楚。在失败卡片下面补一句，指明去电脑端应用窗口里改。
- * 上游改文案 → 本模块静默失配，只是没有这句说明。
+ * 能做且只该做的：把这张卡换成一句"去哪儿改"。红字 + 永不会成功的重试按钮在手机上只会让
+ * 人反复点；故障原因（传输方式）也不是用户能修的东西。只认上游那行原话，认不出就完全不动
+ * 页面。上游改文案 → 本模块静默失配，页面回到未增强状态。
  */
 ;(() => {
   try {
@@ -535,9 +536,9 @@
     const zh = () => (document.documentElement.lang || '').toLowerCase().startsWith('zh')
     const TEXT = () =>
       zh()
-        ? '手机端读不到设置：dsh 只让本机窗口读写设置，点「重试」不会成功。请在电脑端的窗口里改。'
-        : "This browser cannot read settings: dsh only lets the machine's own window read and write them, so Retry will not help. Change it in the desktop window."
-    /** 在失败卡片之后补一句说明；已补过就什么都不做。 */
+        ? '手机端读不到模型与设置：dsh 只让本机窗口读写设置，换电脑端窗口里改即可。'
+        : 'This browser cannot read models or settings: dsh only lets the machine\u2019s own window read and write them, so change it in the desktop window.'
+    /** 用说明卡替换上游的失败卡；已替换过就什么都不做。 */
     const annotate = () => {
       const content = document.querySelector('[class*="_overlay"] [class*="_content"]')
       if (!content) return
@@ -549,12 +550,13 @@
         (item) => item.children.length === 0 && FAILED.test(item.textContent || '')
       )
       if (!hit) return
-      // 走到滚动区下的那一层卡片，说明句跟着卡片走（跟着滚动，不飘在面板底部）。
+      // 走到滚动区下的那一层卡片：整张藏掉（含那个重试按钮），说明句占它的位置。
       let card = hit
       while (card.parentElement && card.parentElement !== scroller) card = card.parentElement
       const note = document.createElement('p')
       note.setAttribute('data-dshmobile-unavailable', '')
       note.textContent = TEXT()
+      card.setAttribute('data-dshmobile-unavailable-card', '')
       card.insertAdjacentElement('afterend', note)
     }
     annotate()

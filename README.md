@@ -58,16 +58,18 @@ Development notes and the traps worth knowing live in [AGENTS.md](AGENTS.md).
 cd <name> && node tests/<name>.test.mjs
 node tests/hub-contract.test.mjs          # repo-wide: the hub agreement, from the root
 node tests/panel-embed.test.mjs           # repo-wide: every panel boots without the hub
+node tests/mobile-layer.test.mjs          # repo-wide: the phone layer's DOM behaviour
 ```
 
-Offline suites: 88 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 85 checks, plus 279 repo-wide contract
-checks and 78 cross-package panel checks. `tools/visual/` holds a screenshot harness for the UI work
-these numbers cannot see — see its README. `dsh-features`' suite evaluates its browser half for real
-(a vm with a minimal React), so the sidebar slot, its order, the list, the drill-down and the mount
-hand-off are asserted without a browser; `panel-embed.test.mjs` runs all six feature panels' scripts
-in a DOM stub to prove none of them docks a corner button or a second refresh control while the hub
-is installed. `dsh-remote` also ships a live suite (`tests/remote-live.mjs`) that needs a sandbox
-instance with remote access enabled.
+Offline suites: 88 (dsh-features) / 60 / 20 / 23 / 23 / 38 / 86 checks, plus 279 repo-wide contract
+checks, 78 cross-package panel checks and 7 mobile-layer checks. `tools/visual/` holds a screenshot
+harness for the UI work these numbers cannot see — see its README. `dsh-features`' suite evaluates its
+browser half for real (a vm with a minimal React), so the sidebar slot, its order, the list, the
+drill-down and the mount hand-off are asserted without a browser; `panel-embed.test.mjs` runs all six
+feature panels' scripts in a DOM stub to prove none of them docks a corner button or a second refresh
+control while the hub is installed; `mobile-layer.test.mjs` does the same for the browser half of the
+phone layer, where a remote-origin settings page has to lose upstream's dead Retry. `dsh-remote` also
+ships a live suite (`tests/remote-live.mjs`) that needs a sandbox instance with remote access enabled.
 
 ## License
 

@@ -81,10 +81,18 @@ both source and published artifact, and `main` points straight at `lib/index.js`
   (upstream keeps its acknowledgement in a memory-mode settings scope for remote transports, so it never
   persists — `mobile.js` clicks its Continue control and hides its portal); the settings sheet's tab strip
   is left-packed and clips its last tab at 390px (four tabs measure 401px of content in a 390px screen, so
-  the strip centres its tabs and wraps rather than scrolling, which nobody would find); and the models page
-  cannot read settings from a remote origin at all, so the layer adds a line under the failure pointing at
-  the desktop window. `mobile.js` is injected before `</head>`, which is why it can catch a modal before
+  the strip centres its tabs and wraps rather than scrolling, which nobody would find, and it pads top and
+  bottom equally — a bar padded 10px top / 0 bottom reads as *the tabs are not centred*, which is exactly
+  what was reported twice); and the models page cannot read settings from a remote origin at all, so the
+  layer hides that failure card — Retry included, it can never work — and puts a line in its place pointing
+  at the desktop window. `mobile.js` is injected before `</head>`, which is why it can catch a modal before
   the first paint.
+- **`[class*="_nav"]` also matches `_navList`.** CSS-modules substrings are not names: a rule written for
+  the settings nav bar silently padded the tab *list*, which is why its pills sat at the bottom of the bar
+  and looked off-centre no matter how the alignment was set. Scope bar rules with `:has(> [class*="_nav"])`
+  or a `>` step, and when a measurement refuses to match the CSS you wrote, suspect your own selector
+  before the browser. The same trap exists for `_headerActions` (which also matches the sidebar's), already
+  noted for the session header.
 - **Reproduce the phone's origin instead of guessing what a phone does.** `shot.mjs --browser-arg` exists
   for this: point the URL at a fake host and let the browser map it to the proxy
   (`--browser-arg "--host-resolver-rules=MAP phone.test 127.0.0.1"` plus `--browser-arg "--no-proxy-server"`,
@@ -155,6 +163,11 @@ both source and published artifact, and `main` points straight at `lib/index.js`
     the hub sweeps through `querySelectorAll` + `MutationObserver`. Feeding them a thin `{ ok: true }`
     payload makes the render throw, and then every "no refresh button here" assertion passes
     vacuously — so each package declares its real payload shape (see `PAYLOADS` there).
+  - `tests/mobile-layer.test.mjs` does the same for `dsh-remote`'s browser half, which only ever runs on
+    a phone: a settings sheet from a remote origin, where upstream's provider catalog fails. A DOM stub
+    is never the real thing — it has to answer `textContent` by aggregation, expose `parentElement` as
+    well as `parent`, and match `[data-x]` presence selectors, or the layer's own guards silently pass
+    and the test asserts nothing. Both of those bit while writing it.
   - A feature probes `GET /dsh-features/api/status` at boot and **skips its floating panel when the
     hub answers**. Without the hub (bare dsh, or the package uninstalled) the launcher must still be
     built exactly as before — that path is what the panels were originally written for.

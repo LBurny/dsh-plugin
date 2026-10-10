@@ -16,17 +16,22 @@
 }
 
 /*
- * 「加载提供商目录失败: settings are unavailable in this browser」（mobile.js 补写说明）。
+ * 「加载提供商目录失败: settings are unavailable in this browser」被换掉的那张卡
+ * （mobile.js 打标隐藏）与代替它的说明。
  * 上游设置页在非本机来源下读不到 settings 作用域（远程拿到的是 memory 模式、没有 view），
- * 重试也不会成功。这里把补的那句说明排成卡片下的灰字，宽度任何断点都适用。
+ * 手机上这张红字失败卡 + 一个永远不成功的「重试」纯属噪音：它说明的是传输方式，不是
+ * 用户能修的故障。整卡隐藏，换成下面这句"去哪儿改"。
  */
+[data-dshmobile-unavailable-card] {
+  display: none !important;
+}
 [data-dshmobile-unavailable] {
   margin: 8px 0 0;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.12));
   color: var(--dsw-alias-label-secondary, inherit);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
@@ -101,7 +106,8 @@
     flex-direction: row;
     align-items: center;
     gap: 4px;
-    padding: 10px 8px 0;
+    /* 上下必须同宽：原来只给顶部 10px，标签在条内贴下沿，看着"没有上下居中"。 */
+    padding: max(10px, env(safe-area-inset-top, 0px)) 8px 10px;
     overflow-x: auto;
   }
   /* “设置”标题在顶部 tab 条里纯属占位，省出纵向空间 */
@@ -113,14 +119,24 @@
    * 超过 390px 视口——原来左对齐一排，最后一个「Agent 预设」被屏幕右缘切掉，
    * 看着既不居中也不整齐。这里让它居中、放不下时换行：标签永远整枚可见，
    * 既不会被切，也不需要横滑去够（横滑条在手机上几乎没人会发现）。字号 13px、
-   * 内边距 8px、零间距后四个标签实测 354px < 374px 可用宽度，一行且居中；
+   * 内边距 8px、零间距再加图标间隙收窄后实测 338px < 374px 可用宽度，一行居中
+   * 且留 30px 余量（Chromium 与 iOS 字形宽度有 1~2px 差，卡在临界值会突然折行）；
    * 上游将来多出几个设置分区就自动折成居中两行，不截断、不溢出。
+   *
+   * 注意选择器：`[class*="_nav"]` 会同时命中 `_navList`（本地名是 wCInkW_navList），
+   * 拿它当"导航条"用会给标签列表也加上内边距，标签就在条内贴下沿（实测多出 10px、
+   * 看着"没有上下居中"）。导航条的规则一律带 `:has(> [class*="_nav"])` 或 `>` 限定。
    */
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navList"] {
     flex: 1 1 auto;
     flex-direction: row;
     flex-wrap: wrap;
     justify-content: center;
+    /* 标签在条内上下居中：上游把列表盒撑得比药丸高（实测 46 对 36），默认 align-content
+       stretch 会把药丸压到那一行的下沿，看着就是"没有上下居中"。两个显式居中让一行与
+       折行两种形态都对称。 */
+    align-items: center;
+    align-content: center;
     gap: 0;
     overflow-x: auto;
     scrollbar-width: none;
@@ -131,6 +147,8 @@
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navCell"] {
     flex: 0 0 auto;
     height: 36px;
+    /* 图标与标签的间隙：上游 8px，手机上四个标签一行放不下，收到 4px 换余量。 */
+    gap: 4px;
     padding: 6px 8px;
     font-size: 13px;
     white-space: nowrap;
@@ -592,10 +610,6 @@
   [class*="_overlay"] [class*="_panel"] {
     display: flex;
     flex-direction: column;
-  }
-  [class*="_overlay"] [class*="_nav"] {
-    flex: none;
-    padding-top: max(10px, env(safe-area-inset-top, 0px));
   }
   [class*="_overlay"] [class*="_content"] {
     flex: 1;

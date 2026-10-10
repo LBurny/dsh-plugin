@@ -54,10 +54,12 @@ dsh plugin --profile web remove dsh-skills
 cd <包名> && node tests/<包名>.test.mjs
 node tests/hub-contract.test.mjs          # 仓级：基座约定，在仓根跑
 node tests/panel-embed.test.mjs           # 仓级：六个面板在装了基座时的行为
+node tests/mobile-layer.test.mjs          # 仓级：手机增强层的 DOM 行为
 ```
 
-离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 85 项，另有 279 项仓级契约检查与
-78 项跨包面板检查。`dsh-features` 的套件会**真跑**它的浏览器端（vm + 极简 React 打桩），所以侧栏槽位、
+离线检查分别为 88（dsh-features）/ 60 / 20 / 23 / 23 / 38 / 86 项，另有 279 项仓级契约检查、
+78 项跨包面板检查与 7 项手机增强层检查。`dsh-features` 的套件会**真跑**它的浏览器端（vm + 极简
+React 打桩），所以侧栏槽位、
 顺序、列表、点进去、拖拽排序与挂载交接不用浏览器也能断言；`tools/visual/` 另有截图工具，专看这些
 数字看不见的排版问题（见其 README）；`panel-embed.test.mjs` 把六个功能面板的
 浏览器脚本都放进 DOM 打桩里跑，证明装了基座时它们既不会挂浮动按钮、也不会多出第二个刷新控件。
