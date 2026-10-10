@@ -1,0 +1,54 @@
+# dsh-plugin
+
+[英文](README.md) | 中文
+
+[deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的独立小插件集合——一个功能一个包，每个都能单独安装。它们从 [DSHDesktop](https://github.com/LBurny/deepseek-harness-desktop) 的便利层中拆出，让同样的功能直接跑在 dsh 本体里：不需要桌面壳、不需要 Tauri、不需要额外进程。
+
+## 插件
+
+| 包 | 做什么 | 命令 |
+| --- | ------ | ---- |
+| `dsh-skills` | 技能管理：启停 / 删除 / 导入，含本地 ZIP 压缩包 | `/skills` |
+| `dsh-mcp` | 管理当前 profile 补丁层里的 MCP 服务：增删改 / 启停 / 导入 | `/mcp` |
+| `dsh-doctor` | 诊断：版本、端口、PID、profile、日志尾部 | `/doctor` |
+| `dsh-zoom` | 页面缩放，快捷键可重绑 | `/zoom` |
+| `dsh-notify` | 任务提醒：页面弹窗、随包音效、系统通知 | `/notify` |
+| `dsh-remote` | 手机远程访问：带鉴权的反向代理、二维码链接、可选 Cloudflare 隧道、移动端界面改写、「项目」浏览 | `/remote` |
+
+每个包都是标准 dsh 插件：声明了 `dsh.bundle.patch`，所以 `dsh plugin add` 会自动挂上它那一层。它们互不 import，装哪个、装几个都行。
+
+## 安装
+
+```bash
+dsh plugin --profile web add github:LBurny/dsh-plugin#path:/packages/dsh-skills
+# 钉 commit：
+dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/packages/dsh-skills
+dsh plugin --profile web remove dsh-skills
+```
+
+`--profile web` 是 DSHDesktop 壳的 profile，官方桌面版用 `--profile desktop`。面板「+ 安装」接受同一套规格，一次一条。
+
+装完重启 dsh——插件没有 HMR。
+
+**pnpm 拉不到 github.com 时。** 它用自己的 TLS 栈、也不认系统代理，在拦过 TLS 的网络上会报 `TypeError: fetch failed`。给它一行 `$DSH_HOME/profiles/<profile>/.npmrc`，内容为 `https-proxy=http://127.0.0.1:7890` 与 `proxy=http://127.0.0.1:7890`；或者完全不联网：把包拷到 `$DSH_HOME/profiles/plugins/<包名>/`，再在面板里填绝对路径。
+
+## 约定
+
+- **从一开始就独立。** 任何包都不 import 别的包，各自复制所需的那点 layout/HTTP 辅助代码——某个包缺席、落后版本或未安装，都不会影响别人。
+- **唯一的跨包约定在 DOM 层。** 各插件的入口停靠进共用的 `#dsh-launchers` 角落容器，面板通过发布的 `--dsh-launcher-stack` 高度避开它。
+- **面板双语、跟随配色方案。** 语言取自 `navigator.language`，配色跟随 `prefers-color-scheme`——刻意**不**读 dsh 的 `locale` / `ui-theme`，那要求每个包都去解析 profile patch。
+- **相比单包的 `dsh-desktop-kit`：** 没有页面错误上报，也没有兜底 `/init`。
+
+改代码前值得知道的约定与坑写在 [AGENTS.md](AGENTS.md)。
+
+## 测试
+
+```bash
+cd packages/<包名> && node test/<包名>.test.mjs
+```
+
+离线检查分别为 47 / 20 / 23 / 23 / 38 / 73 项。`dsh-remote` 另有实时套件（`test/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
+
+## License
+
+MIT。`packages/dsh-notify/sounds/` 的音效来自 opencode（经 DSHDesktop）；`packages/dsh-remote/assets/` 的移动端资产 vendored 自 DSHDesktop。
