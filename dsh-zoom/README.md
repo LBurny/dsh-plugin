@@ -30,11 +30,22 @@ dsh plugin --profile web remove dsh-zoom
 flag. The pinned form is the reproducible one, and it is also how a fix reaches you: re-add the spec with
 the newer commit.
 
+**In the desktop app** — whose profile the command line cannot change — that one spec goes in through its
+**Plugins** page → **Add plugin**, which takes a package name, a Git address or a local directory path:
+
+```text
+github:LBurny/dsh-plugin#path:/dsh-zoom
+```
+
+Upgrading there is uninstall, then install the new version: the page has no auto-update, which is what
+makes the pinned spec worth keeping. When GitHub is unreachable, its own **Install source** choice
+(default / npm official / China mirror / custom) is what to retry against.
+
 Restart dsh afterwards — plugins have no HMR. (This package's browser half is served from disk on every
 request, so a plain window reload is enough once dsh is up; a host-side change needs the restart.)
 
 Two traps, both spelled out with their workarounds in the repository README: on Windows `dsh.cmd` eats
-the `&` of the pinned form, so pin from the app's own plugin panel instead; and pnpm fetches with its own
+the `&` of the pinned form, so pin from the app's own page instead; and pnpm fetches with its own
 TLS stack that ignores the system proxy, so a TLS-intercepting network needs a `proxy=` /
 `https-proxy=` line in `$DSH_HOME/profiles/<profile>/.npmrc` — or no network at all, by copying the
 package into `$DSH_HOME/profiles/plugins/dsh-zoom/` and adding that path.

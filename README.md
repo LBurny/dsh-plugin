@@ -25,6 +25,37 @@ corner button disappears; uninstall it and the buttons come back, unchanged.
 
 ## Install
 
+Each package installs on its own, and both routes take the same specs: the desktop app's **Plugins**
+page, or `dsh plugin add` from a command line. Restart dsh afterwards — plugins have no HMR.
+
+### One by one in the desktop app
+
+The official desktop app manages its own `desktop` profile, and the command line cannot change that one,
+so everything goes through its page: open **Plugins** → **Add plugin** and paste one spec per install, then
+repeat for the next. The box takes a package name, a Git repository address or a local directory path.
+
+```text
+github:LBurny/dsh-plugin#path:/dsh-features
+github:LBurny/dsh-plugin#path:/dsh-skills
+github:LBurny/dsh-plugin#path:/dsh-mcp
+github:LBurny/dsh-plugin#path:/dsh-doctor
+github:LBurny/dsh-plugin#path:/dsh-zoom
+github:LBurny/dsh-plugin#path:/dsh-notify
+github:LBurny/dsh-plugin#path:/dsh-remote
+```
+
+`#path:/<package>` is pnpm's "subdirectory of a repository" form — all seven live in this one repository,
+so every spec carries it. Order does not matter and a subset is fine; install `dsh-features` too and the
+feature panels move onto its single sidebar entry instead of one floating corner button each. A pinned
+spec needs no escaping here: that `&` trap belongs to the command line, not to the page.
+
+Two things the page itself tells you. Upgrading is **uninstall, then install the new version** — there is
+no auto-update, so a fix arrives by reinstalling the spec (pinned, if you want it reproducible). And when
+GitHub cannot be reached, its own **Install source** choice (default / npm official / China mirror /
+custom) is what to retry against.
+
+### From the command line
+
 ```bash
 dsh plugin --profile web add github:LBurny/dsh-plugin#path:/dsh-skills
 # pin a commit:
@@ -32,15 +63,13 @@ dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/dsh-skills
 dsh plugin --profile web remove dsh-skills
 ```
 
-`--profile web` is DSHDesktop's shell profile; the official desktop app uses `--profile desktop`. The plugin panel accepts the same specs, one at a time.
+`--profile web` is DSHDesktop's shell profile (the desktop app's is the page's job, above).
 
 **Pinning a commit on Windows.** `dsh plugin` there runs through the app's `dsh.cmd` shim, and cmd.exe
 eats the `&` in `#<sha>&path:/dsh…`, so pnpm is handed a bare `#<sha>` and refuses it. Pin from
-the app's plugin panel (the spec goes straight to pnpm) or install the branch spec above.
+the app's page above (the spec goes straight to pnpm) or install the branch spec instead.
 
-Restart dsh afterwards — plugins have no HMR.
-
-**If pnpm cannot reach github.com.** It fetches with its own TLS stack and ignores the system proxy, so on a network that intercepts TLS it fails with `TypeError: fetch failed`. Give it a `$DSH_HOME/profiles/<profile>/.npmrc` containing `https-proxy=http://127.0.0.1:7890` and `proxy=http://127.0.0.1:7890`, or install with no network at all: copy a package into `$DSH_HOME/profiles/plugins/<name>/` and paste its absolute path into the panel.
+**If pnpm cannot reach github.com.** It fetches with its own TLS stack and ignores the system proxy, so on a network that intercepts TLS it fails with `TypeError: fetch failed`. Give it a `$DSH_HOME/profiles/<profile>/.npmrc` containing `https-proxy=http://127.0.0.1:7890` and `proxy=http://127.0.0.1:7890`, or install with no network at all: copy a package into `$DSH_HOME/profiles/plugins/<name>/` and add that local directory path — from the page above or from the command line.
 
 ## Conventions
 

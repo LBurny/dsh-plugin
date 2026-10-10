@@ -22,6 +22,34 @@
 
 ## 安装
 
+每个包都能单独装，两条路用同一套规格：桌面版的「插件」页，或命令行 `dsh plugin add`。装完都要重启 dsh——插件没有 HMR。
+
+### 在桌面版的插件管理里一条条装
+
+官方桌面版自己管着 `desktop` 这个 profile，命令行改不动它，所以走应用自己的页面：**插件** → **添加插件**，
+把一条规格粘进去安装，装完再粘下一条。那个输入框收「包名、GitHub 仓库地址或本地目录路径」——也就是
+面板原话「输入插件的包名、GitHub 仓库地址或本地目录路径」。
+
+```text
+github:LBurny/dsh-plugin#path:/dsh-features
+github:LBurny/dsh-plugin#path:/dsh-skills
+github:LBurny/dsh-plugin#path:/dsh-mcp
+github:LBurny/dsh-plugin#path:/dsh-doctor
+github:LBurny/dsh-plugin#path:/dsh-zoom
+github:LBurny/dsh-plugin#path:/dsh-notify
+github:LBurny/dsh-plugin#path:/dsh-remote
+```
+
+`#path:/<包名>` 是 pnpm 的「仓库子目录」写法——七个包同仓，所以每条都得带。顺序无所谓，只装其中几个也行；
+把 `dsh-features` 也装上，各功能面板就搬进它那一个侧栏入口，不再各挂一个浮动按钮。钉 commit 的规格在这里
+不用转义：`&` 被吃掉是命令行的坑，不是这个页面的。
+
+面板自己会提醒两件事：**升级要「先卸载、再装新版」**（没有自动更新，修复要靠重装那条规格拿到，想可复现就钉
+commit）；GitHub 拉不动时，页面上那个「安装源」（默认 / npm 官方源 / 中国大陆镜像源 / 自定义地址）就是用来
+换源重试的。
+
+### 从命令行装
+
 ```bash
 dsh plugin --profile web add github:LBurny/dsh-plugin#path:/dsh-skills
 # 钉 commit：
@@ -29,14 +57,12 @@ dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/dsh-skills
 dsh plugin --profile web remove dsh-skills
 ```
 
-`--profile web` 是 DSHDesktop 壳的 profile，官方桌面版用 `--profile desktop`。面板「+ 安装」接受同一套规格，一次一条。
+`--profile web` 是 DSHDesktop 壳的 profile（桌面版那个交给上面的页面）。
 
 **Windows 上钉 commit。** `dsh plugin` 走的是应用自带的 `dsh.cmd` 垫片，cmd.exe 会把 `#<sha>&path:/dsh…`
-里的 `&` 吃掉，pnpm 只拿到 `#<sha>` 就报参数非法。要么在应用的面板里钉（规格直给 pnpm），要么就装上面的分支规格。
+里的 `&` 吃掉，pnpm 只拿到 `#<sha>` 就报参数非法。要么在应用的页面里钉（规格直给 pnpm），要么就装上面的分支规格。
 
-装完重启 dsh——插件没有 HMR。
-
-**pnpm 拉不到 github.com 时。** 它用自己的 TLS 栈、也不认系统代理，在拦过 TLS 的网络上会报 `TypeError: fetch failed`。给它一行 `$DSH_HOME/profiles/<profile>/.npmrc`，内容为 `https-proxy=http://127.0.0.1:7890` 与 `proxy=http://127.0.0.1:7890`；或者完全不联网：把包拷到 `$DSH_HOME/profiles/plugins/<包名>/`，再在面板里填绝对路径。
+**pnpm 拉不到 github.com 时。** 它用自己的 TLS 栈、也不认系统代理，在拦过 TLS 的网络上会报 `TypeError: fetch failed`。给它一行 `$DSH_HOME/profiles/<profile>/.npmrc`，内容为 `https-proxy=http://127.0.0.1:7890` 与 `proxy=http://127.0.0.1:7890`；或者完全不联网：把包拷到 `$DSH_HOME/profiles/plugins/<包名>/`，再把那个本地目录路径 add 进去——页面或命令行都行。
 
 ## 约定
 
