@@ -1,154 +1,58 @@
 # dsh-plugin
 
-One feature, one plugin. Small, independent [dsh](https://github.com/deepseek-ai/deepseek-harness)
-plugins — install only the ones you want, each works alone.
+一个功能一个插件。[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的独立小插件集合：
+装哪个用哪个，每个都能单独工作。全部由 [DSHDesktop](https://github.com/LBurny/deepseek-harness-desktop)
+的便利层移植而来，不依赖桌面壳、不依赖 Tauri、不需要额外进程。
 
-Everything here was carved out of [DSHDesktop](https://github.com/LBurny/deepseek-harness-desktop)'s
-convenience layer (a Tauri window shell) so the same features exist inside dsh itself: no native
-window, no extra process, no shell.
+| 包 | 做什么 | 命令 |
+| --- | ------ | ---- |
+| `dsh-skills` | 技能启停 / 删除 / 导入，含本地 ZIP 导入 | `/skills` |
+| `dsh-mcp` | MCP 服务增删改 / 启停 / 导入 | `/mcp` |
+| `dsh-doctor` | 诊断：状态、环境、日志尾部 | `/doctor` |
+| `dsh-zoom` | 页面缩放 + 快捷键重绑 | `/zoom` |
+| `dsh-notify` | 任务提醒：弹窗 + 音效 + 系统通知 | `/notify` |
+| `dsh-remote` | 手机远程访问：鉴权代理 + 二维码 + 隧道 + 移动端界面 + 项目浏览 | `/remote` |
 
-| Package | What it does | Command | Panel |
-| ------- | ------------ | ------- | ----- |
-| [`dsh-skills`](packages/dsh-skills) | Manage skills: enable / disable / delete / import, plus local ZIP import | `/skills` | ✓ |
-| [`dsh-mcp`](packages/dsh-mcp) | Manage MCP servers in the active profile's patch layer | `/mcp` | ✓ |
-| [`dsh-doctor`](packages/dsh-doctor) | Harness diagnostics: version, port, pid, profile, log tail | `/doctor` | ✓ |
-| [`dsh-zoom`](packages/dsh-zoom) | Page zoom with rebindable shortcuts | `/zoom` | ✓ |
-| [`dsh-notify`](packages/dsh-notify) | Task reminders: popup + sound + browser notification | `/notify` | ✓ |
-| [`dsh-remote`](packages/dsh-remote) | Phone remote access: authenticated reverse proxy, QR link, optional tunnel, mobile UI and project browser | `/remote` | ✓ |
-
-Each package is a normal dsh plugin: it declares `dsh.bundle.patch`, so `dsh plugin add` mounts its
-layer automatically. They are independent — any subset works, and each has its own slash command,
-its own routes and its own corner launcher.
-
-## Install
+## 安装
 
 ```bash
-# from source (no build step needed — plain ESM)
 dsh plugin --profile web add github:LBurny/dsh-plugin#path:/packages/dsh-skills
-
-# pin a commit (recommended: a branch can move under you)
-dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/packages/dsh-skills
-
-# uninstall
+# 钉 commit：github:LBurny/dsh-plugin#<sha>&path:/packages/dsh-skills
 dsh plugin --profile web remove dsh-skills
 ```
 
-`--profile web` is DSHDesktop's shell profile; the official dsh desktop app uses `--profile desktop`
-(check `$DSH_HOME/profiles/`). The plugin panel needs no profile flag.
+`--profile web` 是 DSHDesktop 壳的 profile，官方桌面版用 `--profile desktop`。装完重启 dsh（插件没有 HMR）。
+面板「+ 安装」接受同一套规格，一次一条。
 
-Restart dsh afterwards — plugins have no HMR. Install a few, or all six:
+**pnpm 拉不到 github.com？** 它用自带 TLS 栈、也不认系统代理，在中间人拦过的网络上会报
+`TypeError: fetch failed`。给它一行 `$DSH_HOME/profiles/<profile>/.npmrc`：
+
+```
+https-proxy=http://127.0.0.1:7890
+proxy=http://127.0.0.1:7890
+```
+
+也可以完全不联网：把包拷进 `$DSH_HOME/profiles/plugins/<包名>/`，面板里填绝对路径。
+
+## 约定
+
+- 六个包**互不 import**，各自复制所需的 layout/HTTP 辅助代码——任何一个缺席或落后都不影响别人。
+- 唯一跨包约定在 DOM 层：右下角 `#dsh-launchers` 容器 + `--dsh-launcher-stack` 变量。
+- 面板双语取自 `navigator.language`，配色跟随 `prefers-color-scheme`；**不**读 dsh 的 `locale`/`ui-theme`
+  （那要求每个包解析 profile patch，正是要避免的耦合）。
+- 相比单包的 `dsh-desktop-kit`，这里没有页面错误上报，也没有兜底 `/init`。
+
+更细的约定与踩过的坑见 [AGENTS.md](AGENTS.md)。
+
+## 测试
 
 ```bash
-for p in dsh-skills dsh-mcp dsh-doctor dsh-zoom dsh-notify dsh-remote; do
-  dsh plugin --profile web add "github:LBurny/dsh-plugin#path:/packages/$p"
-done
+cd packages/<包名> && node test/<包名>.test.mjs
 ```
 
-**DSHDesktop users:** set `DSH_HOME` first — the desktop shell's home is
-`%LOCALAPPDATA%\DSHDesktop\dsh-home`, not `~/.dsh`, and a plugin installed into the wrong home is
-invisible in the app.
-
-### When GitHub is not reachable
-
-A `github:` spec makes pnpm fetch from `github.com` **with its own TLS stack** — it does not use the
-system certificate store, and it does not shell out to `git`. So on a network that intercepts TLS for
-`github.com` (corporate proxy, some antivirus, some ISPs) the install dies with:
-
-```
-TypeError: fetch failed
-    at Object.processResponse (.../pnpm/dist/pnpm.mjs:...)
-```
-
-`git ls-remote` on the same URL still works and `codeload.github.com` may be reachable — both are red
-herrings, pnpm uses neither. Two ways out:
-
-1. **Give pnpm a proxy** — one `.npmrc` next to the profile (`$DSH_HOME/profiles/<profile>/.npmrc`):
-
-   ```
-   https-proxy=http://127.0.0.1:7890
-   proxy=http://127.0.0.1:7890
-   ```
-
-   The registry mirror the panel offers is passed separately (`--registry=`), so dependencies still
-   come from the fast mirror while only the git fetch goes through the proxy.
-2. **Install from a local path — no network at all.** Copy the package into
-   `$DSH_HOME/profiles/plugins/<name>/` (that location is what lets the bare `@deepseek-ai/*` imports
-   resolve, through the profile's `node_modules` farm), then paste the **absolute** path into the
-   panel's add dialog or run `dsh plugin --profile <profile> add <abs path>`. This is also the route
-   for a machine that cannot reach GitHub at all. A local-path install makes a `link:` dependency and
-   pnpm does not install a linked package's own dependencies — for `dsh-remote` that means running
-   `npm install` inside its directory so the QR code has `qrcode`.
-
-## The one cross-package agreement
-
-Launchers live in a shared corner container so six plugins do not stack six buttons on top of each
-other. Each client script appends its own button to `#dsh-launchers`, creating that element if it is
-missing. It is a DOM convention, not a dependency: a single installed plugin still renders its own
-button, and removing a package removes its button.
-
-## Language and theme
-
-Every panel is bilingual (Chinese / English, picked from `navigator.language`) and follows
-`prefers-color-scheme`. This is deliberately *not* wired to dsh's own `locale` / `ui-theme`
-preference: reading it means parsing the profile patch from each package, which is exactly the kind
-of coupling these packages exist to avoid.
-
-## Repository layout
-
-```
-packages/<package>/
-├── package.json       # declares dsh.bundle.patch
-├── cordis.patch.yml   # the layer row this plugin inserts
-├── index.js           # host half: layout, HTTP routes, slash command
-├── lib/               # feature logic (self-contained; no imports from sibling packages)
-├── assets/            # browser half: panel script + styles (+ vendored mobile assets)
-├── locale/            # bilingual name/description for dsh's plugin management page
-└── test/              # offline checks (plain assert-style script, no test runner)
-```
-
-Each package duplicates the ~150 lines of layout/HTTP helpers it needs instead of sharing a
-library. That is the point of the layout: nothing here breaks because a sibling package is missing,
-version-drifted or uninstalled.
-
-## Test
-
-```bash
-cd packages/<package>            # or the installed copy under $DSH_HOME/profiles/plugins/
-node test/<package>.test.mjs
-```
-
-| Package | Offline suite | Live suite |
-| ------- | ------------- | ---------- |
-| dsh-skills | 47 checks | — |
-| dsh-mcp | 20 checks | — |
-| dsh-doctor | 23 checks | — |
-| dsh-zoom | 23 checks | — |
-| dsh-notify | 38 checks | — |
-| dsh-remote | 73 checks | `test/remote-live.mjs` (needs remote access on; sandbox only) |
-
-The tests use only Node built-ins plus each package's own modules, but the host modules import
-`@deepseek-ai/*`, which resolves through the profile's `node_modules`. Either run them from an
-installed copy, or add junctions from the plugin's `node_modules` to the runtime's copies.
-
-## Differences from the single-package kit
-
-These packages were carved out of `dsh-desktop-kit`, one dsh plugin that bundled everything behind a
-single tabbed panel. Splitting it cost three small things, each a deliberate trade:
-
-- **No panel follows dsh's `locale` / `ui-theme` preference row any more.** Reading it means parsing
-  the profile patch from every package, which is exactly the coupling these packages exist to avoid.
-  Each panel is bilingual from `navigator.language` and follows `prefers-color-scheme`.
-- **No page-error reporting.** The kit captured page errors into its diagnostics panel; with
-  per-package panels the browser console is the right place, and the shared `events.log` is the place
-  to see everything at once.
-- **No fallback `/init`.** It was a guarded extra in the kit; `/init` belongs to the official
-  `dsh-command-init` plugin, so it is simply not here.
-
-One thing is shared on purpose, and it is a DOM convention rather than a code dependency: the
-`#dsh-launchers` corner container (see above).
+离线检查：47 / 20 / 23 / 23 / 38 / 73 项；`dsh-remote` 另有实时套件 `test/remote-live.mjs`（需沙箱实例）。
 
 ## License
 
-MIT. Sound effects under `packages/dsh-notify/sounds/` come from opencode via DSHDesktop, and the
-mobile assets under `packages/dsh-remote/assets/` are vendored from DSHDesktop.
-
+MIT。`packages/dsh-notify/sounds/` 的音效来自 opencode（经 DSHDesktop）；
+`packages/dsh-remote/assets/` 的移动端资产 vendored 自 DSHDesktop。

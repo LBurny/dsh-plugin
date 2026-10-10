@@ -20,8 +20,7 @@ dsh plugin --profile web add github:LBurny/dsh-plugin#path:/packages/dsh-notify
 dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/packages/dsh-notify
 ```
 
-`--profile web` is DSHDesktop's shell profile; the official dsh desktop app uses `--profile desktop`
-(check `$DSH_HOME/profiles/`). The plugin panel needs no profile flag.
+`--profile web` = DSHDesktop's shell, `--profile desktop` = the official desktop app; the panel needs no flag.
 
 Restart dsh afterwards — plugins have no HMR.
 
