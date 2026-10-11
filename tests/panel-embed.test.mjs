@@ -691,8 +691,9 @@ check(
 
 // The host publishes facts and the page says them, in the language of whoever is reading: the
 // frame below carries the host's English, and what the reader gets is the page's own Chinese.
-// The kind is the title line and nothing else, and the session opens the body, so the bold line
-// a system notification shows stays short.
+// Two lines in all: the kind alone on the title (a system notification renders that one bold and
+// short), and the session it belongs to underneath, which is the thing that says which session is
+// waiting. The sentence the three-line version carried only restated the kind.
 const localised = { played: [], shown: [] };
 const localisedPanel = await bootPanel("dsh-notify", { payload: notifyPayload, notifications: localised });
 localised.source?.push({ kind: "question", title: "绘图", text: "dsh has a question waiting for your answer" });
@@ -702,15 +703,26 @@ check(
 	String(localised.shown[0]?.title)
 );
 check(
-	localised.shown[0]?.body === "绘图\n有一个问题等待你回答",
-	"dsh-notify: the body names the session and then says it in the page's own sentence",
+	localised.shown[0]?.body === "绘图",
+	"dsh-notify: the second line is the session, not a sentence restating the kind",
 	JSON.stringify(localised.shown[0]?.body ?? null)
 );
 const popupLines = (toastsOf(localisedPanel.dom, localisedPanel.host)?.children ?? []).map((node) => textOf(node));
 check(
-	popupLines.some((line) => line.includes("等待回答") && line.includes("绘图") && line.includes("有一个问题等待你回答")),
-	"dsh-notify: the in-page popup spells the same three lines out, not one run-on",
+	popupLines.some((line) => line.includes("等待回答") && line.includes("绘图") && !line.includes("有一个问题")),
+	"dsh-notify: the in-page popup shows the same two lines",
 	popupLines.join(" | ")
+);
+
+// A reminder whose session title the host never learned has no second line to show, and says so
+// by leaving it empty rather than inventing one.
+const anonymous = { played: [], shown: [] };
+await bootPanel("dsh-notify", { payload: notifyPayload, notifications: anonymous });
+anonymous.source?.push({ kind: "turn_done" });
+check(
+	anonymous.shown[0]?.title === "任务完成" && anonymous.shown[0]?.body === "",
+	"dsh-notify: a reminder with no session name is the kind line alone",
+	JSON.stringify(anonymous.shown[0] ?? null)
 );
 
 // A kind this page has no sentence for, but whose settings rule exists (a newer host adding a

@@ -64,9 +64,9 @@ the host publishes the facts (which kind, which session) and `lib/client.js` com
 and the title in the language that page speaks, the same `navigator.language` every other string in
 this plugin follows. A reminder in the wrong language is the one thing nobody can fail to notice.
 The kind is the whole title, because a system notification renders that line bold and short and a
-session name glued to it with a separator reads as part of the kind; the session opens the body
-instead, where it is the first thing read after the kind and the thing that says which session is
-waiting.
+session name glued to it with a separator reads as part of the kind; the session is the second line
+instead, which is the thing that says which session is waiting. Two lines is the whole reminder: the
+sentence the kinds used to carry only restated the kind.
 Clicking the notification raises the window that shows the harness: the page asks the host half,
 because `window.focus()` is a no-op for a window the OS has not already focused and the desktop app
 exposes no IPC for it. The host runs as a child of the process that owns the window, walks up that

@@ -41,13 +41,6 @@
 		question: ["Waiting for an answer", "等待回答"],
 		turnDone: ["Task finished", "任务完成"],
 		answerDone: ["Answer ready", "回答就绪"],
-		// The reminder's own sentence. The host half publishes the facts (which kind, which
-		// session) and this page says them, because this is the half that knows the reader's
-		// language: a reminder in the wrong language is the one thing nobody can fail to notice.
-		approvalText: ["An operation is waiting for your approval", "有一个操作等待你批准"],
-		questionText: ["A question is waiting for your answer", "有一个问题等待你回答"],
-		turnDoneText: ["It ran tools and has finished", "用过工具，已结束"],
-		answerDoneText: ["It only answered, and has finished", "只是回答，已结束"],
 		rules: ["When to remind", "何时提醒"],
 		timing: ["Timing", "时机"],
 		always: ["Always", "总是"],
@@ -231,32 +224,33 @@
 		}
 	}
 
-	/** The string key carrying each kind's sentence. */
-	const BODY_KEY = {
-		approval: "approvalText",
-		question: "questionText",
-		turn_done: "turnDoneText",
-		answer_done: "answerDoneText"
+	/** The kinds this page has a label for; anything else is a newer host's kind. */
+	const LABEL_KEY = {
+		approval: "approval",
+		question: "question",
+		turn_done: "turnDone",
+		answer_done: "answerDone"
 	};
 
 	/**
-	 * The words for one reminder, in the reader's language. The host publishes facts, not
-	 * prose: it cannot know which language the page in front of the reader is speaking, and a
-	 * reminder that arrives in the wrong one is worse than a short one. Its `text` stays as the
-	 * fallback for a kind this page has never heard of.
+	 * The words for one reminder, in the reader's language: two lines, which is what a
+	 * notification reads as. The first is the kind, alone, because a system notification renders
+	 * that line bold and short and a session name glued to it with a separator reads as part of
+	 * the kind. The second is the session it belongs to, which is the thing that says *which*
+	 * session is waiting; the sentence this used to add only restated the kind, so it is gone.
 	 *
-	 * The kind stands alone on the title line. A system notification renders that line bold and
-	 * short, and a session name glued to it with a separator reads as part of the kind; the
-	 * session names the reminder on the body's own first line instead, where it is still the
-	 * first thing read after the kind and the thing that says *which* session is waiting.
+	 * The host publishes facts, not prose: it cannot know which language the page in front of the
+	 * reader is speaking, and a reminder that arrives in the wrong one is worse than a short one.
+	 * A kind this page has no label for still shows what the host called it, on that same second
+	 * line, as the only description available.
 	 * @param item - one reminder record off the stream.
-	 * @returns the localized title (the kind alone) and body.
+	 * @returns the localized title (the kind alone) and body (at most one line).
 	 */
 	function reminderText(item) {
-		const key = BODY_KEY[item.kind];
-		const sentence = key === undefined ? (item.text ?? "") : T(key);
+		const known = LABEL_KEY[item.kind] !== undefined;
 		const named = typeof item.title === "string" && item.title.length > 0;
-		return { title: labelForKind(item.kind), body: named ? `${item.title}\n${sentence}` : sentence };
+		const second = named ? item.title : (known ? undefined : item.text);
+		return { title: labelForKind(item.kind), body: typeof second === "string" ? second : "" };
 	}
 
 	/** Whether a kind may be raised right now: its rule, and whether the page is focused. */
