@@ -53,6 +53,7 @@
 		granted: ["granted", "已授权"],
 		denied: ["denied, enable it in the browser's site settings", "已拒绝，请在浏览器的站点设置里打开"],
 		defaultSound: ["System default (no sound from here)", "系统默认（本插件不放声）"],
+		browserSound: ["A system notification has a sound of its own. This panel silences it unless the sound above is set to system default.", "系统通知自带提示音；只有上面的音效选的是系统默认，面板才让它响。"],
 		silentSound: ["Silent", "静音"],
 		noSounds: ["No sound files were found next to the plugin.", "插件目录下没有找到音效文件。"],
 		configAt: ["Settings file", "设置文件"],
@@ -256,7 +257,14 @@
 		if (config.toast) toast(labelForKind(item.kind), item.text ?? "");
 		if (config.browser && typeof Notification !== "undefined" && Notification.permission === "granted") {
 			try {
-				const notice = new Notification(item.text ?? labelForKind(item.kind), { tag: `dsh-notify-${item.kind}` });
+				// A system notification has a sound of its own on Windows, and it rings on top of
+				// the .wav this panel is already playing, so a reader who picked a plugin sound
+				// heard both. Only "system default" means "let the OS make the noise", so only
+				// that choice leaves the notification audible.
+				const notice = new Notification(item.text ?? labelForKind(item.kind), {
+					tag: `dsh-notify-${item.kind}`,
+					silent: config.sound !== "default"
+				});
 				// The shell's toast click raises the main window; the browser
 				// equivalent is focusing this tab.
 				notice.onclick = () => window.focus();
@@ -361,6 +369,7 @@
 			row(T("browser"), permission === undefined ? undefined : permission === "granted" ? T("granted") : T("denied"), config.browser,
 				(enabled) => postJson(`${API}/settings`, { browser: enabled }).then(assertOk),
 				[grant]),
+			el("div", { class: "note", text: T("browserSound") }),
 			el("div", { class: "note", text: `${T("configAt")}: ${configPath ?? "?"}` }));
 	}
 

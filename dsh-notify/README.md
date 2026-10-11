@@ -49,6 +49,10 @@ Each kind has an **on/off** switch and a **timing**: *always*, or *only when thi
 Channels: an in-page popup, a sound (a bundled 17-sound pack, the system default, or silent), and a
 browser notification (needs permission once). Volume 0–1.
 
+Only one of them makes a noise. A system notification sounds off its own on Windows, so it is raised
+silent whenever the sound above is one of the bundled files or silent; the "system default" choice is
+the one that leaves the noise to the OS.
+
 ## Routes
 
 | Method | Path | Purpose |

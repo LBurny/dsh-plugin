@@ -199,9 +199,11 @@ function descendants(node, found = []) {
  * that sees it must stay out of the way of the hub page. `payload` replaces the
  * default route body, and `timers` collects the delays a panel schedules instead of
  * running them, which is how the "is it still asking for more?" question is asked.
+ * `notifications` adds the media and push globals a reminder panel needs and records
+ * what it does with them; without it a panel boots the way a shell lacking them does.
  * @returns the booted panel with its sandbox, the DOM stub and the mount point.
  */
-async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sidebarRequired, level, payload: body, timers } = {}) {
+async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sidebarRequired, level, payload: body, timers, notifications } = {}) {
 	const dom = makeDom();
 	dom.sidebarRequired = sidebarRequired;
 	// Window listeners are recorded so a test can fire them the way the browser does.
@@ -242,6 +244,41 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 			return { ok: true, status: 200, json: async () => payload };
 		}
 	};
+	// A reminder panel is the one client whose whole job is a side effect, so its sound and
+	// its system notification are what a test has to look at. Both are recorded rather than
+	// performed, and the stream keeps its own instance so a test can push a frame the way
+	// the host does.
+	if (notifications !== undefined) {
+		sandbox.Audio = class {
+			constructor() {
+				this.src = "";
+				this.volume = 1;
+			}
+			play() {
+				notifications.played.push(this.src);
+				return Promise.resolve();
+			}
+		};
+		sandbox.Notification = class {
+			constructor(title, options) {
+				notifications.shown.push({ title, ...options });
+			}
+			static permission = "granted";
+			static requestPermission() {
+				return Promise.resolve("granted");
+			}
+		};
+		sandbox.EventSource = class {
+			constructor(url) {
+				this.url = url;
+				notifications.source = this;
+			}
+			close() {}
+			push(item) {
+				this.onmessage?.({ data: JSON.stringify(item) });
+			}
+		};
+	}
 	sandbox.window = sandbox;
 	vm.createContext(sandbox);
 	vm.runInContext(readFileSync(join(root, pkg, "lib", "client.js"), "utf8"), sandbox, { filename: `${pkg}/panel.js` });
@@ -486,6 +523,47 @@ check(
 	textOf(doctorLogs.host).includes("保留窗口 4 MB / 显示最近 2000 条记录"),
 	"dsh-doctor: the log view states the retention budget the host reported",
 	textOf(doctorLogs.host).slice(0, 200)
+);
+
+/* ------------- dsh-notify: one reminder makes exactly one sound */
+
+// A system notification has a sound of its own on Windows, so a panel that plays its own
+// .wav has to silence the notification, or the reader hears both at once. The two cases are
+// the two halves of the sound choice: a plugin file, and "system default", which is the one
+// that means "let the OS make the noise".
+const notifyPayload = {
+	config: {
+		approval: { enabled: true, timing: "always" }, question: { enabled: true, timing: "always" },
+		turn_done: { enabled: true, timing: "always" }, answer_done: { enabled: true, timing: "always" },
+		sound: "staplebops-02", volume: 0.7, toast: true, browser: true
+	},
+	sounds: ["staplebops-02"], configPath: "cordis.patch.yml"
+};
+
+const withSound = { played: [], shown: [] };
+const reminded = await bootPanel("dsh-notify", { payload: notifyPayload, notifications: withSound });
+withSound.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	withSound.played.length === 1 && withSound.shown.length === 1,
+	"dsh-notify: a reminder plays the chosen sound and raises exactly one notification",
+	`played=${withSound.played.join(",") || "none"} shown=${String(withSound.shown.length)}`
+);
+check(
+	withSound.shown[0]?.silent === true,
+	"dsh-notify: the system notification stays silent while the panel plays its own sound",
+	JSON.stringify(withSound.shown[0] ?? null)
+);
+
+const withDefault = { played: [], shown: [] };
+await bootPanel("dsh-notify", {
+	payload: { ...notifyPayload, config: { ...notifyPayload.config, sound: "default" } },
+	notifications: withDefault
+});
+withDefault.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	withDefault.played.length === 0 && withDefault.shown[0]?.silent === false,
+	"dsh-notify: system default hands the sound to the OS and plays nothing itself",
+	`played=${String(withDefault.played.length)} silent=${String(withDefault.shown[0]?.silent)}`
 );
 
 /* ------------------------- dsh-remote: a link that arrives after "enable" */
