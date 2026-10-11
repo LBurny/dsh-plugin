@@ -65,7 +65,12 @@ const PAYLOADS = {
 			},
 			sounds: [], configPath: "cordis.patch.yml"
 		},
-	"dsh-remote": { remote: { enabled: false, mode: "lan" }, cloudflared: null, qrAvailable: false }
+	"dsh-remote": {
+		remote: { enabled: false, mode: "lan" },
+		cloudflared: null,
+		qrAvailable: false,
+		cloudflaredSetup: { state: "ready", source: "found" }
+	}
 };
 
 /**
@@ -233,9 +238,15 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 		clearTimeout,
 		Node: dom.Node,
 		innerHeight,
-		addEventListener(event, handler) {
-			(listeners[event] ??= []).push(handler);
-		},
+			addEventListener(event, handler) {
+				(listeners[event] ??= []).push(handler);
+			},
+			removeEventListener(event, handler) {
+				const list = listeners[event];
+				if (list === undefined) return;
+				const at = list.indexOf(handler);
+				if (at !== -1) list.splice(at, 1);
+			},
 		// A real window can focus itself (which a page may only do for a window the OS has
 		// already focused); it is recorded so a click's browser-side half is observable.
 		focus() {
@@ -473,6 +484,26 @@ check(
 	chip !== undefined && /^\d+%$/u.test(chip.textContent ?? ""),
 	"dsh-zoom: the current level is a boxed chip, not bare text beside the buttons",
 	chip === undefined ? "(no .level element)" : chip.textContent
+);
+
+// Arming a second recorder must cancel the first: two live capture listeners would both
+// take the next keydown, and both sides would end up bound to the same key (the matcher
+// tries `in` first, so zoom-out would never fire again). The host holds one render per
+// mount, so the live row is the last pair of keycaps.
+const keycaps = descendants(measured.host).filter((node) => node.className === "keycap").slice(-2);
+check(keycaps.length === 2, "dsh-zoom: both shortcut keycaps are rendered", String(keycaps.length));
+const keydownBefore = (measured.listeners.keydown ?? []).length;
+keycaps[0].listeners.click();
+keycaps[1].listeners.click();
+check(
+	(measured.listeners.keydown ?? []).length === keydownBefore + 1,
+	"dsh-zoom: arming a second recorder cancels the first",
+	`${String(keydownBefore)} -> ${String((measured.listeners.keydown ?? []).length)}`
+);
+check(
+	!keycaps[0].classes.includes("recording") && keycaps[1].classes.includes("recording"),
+	"dsh-zoom: the first keycap leaves the recording state, the second holds it",
+	`${keycaps[0].classes.join(",")} | ${keycaps[1].classes.join(",")}`
 );
 
 // A rail (narrow window) and an expanded sidebar with more footer rows differ by
@@ -928,7 +959,8 @@ const waitingPayload = {
 		state: "up", enabled: true, mode: "tunnel", proxyPort: 29274,
 		tunnel: { state: "starting", url: "", error: undefined }, lanUrls: []
 	},
-	qrAvailable: true, qrPath: "/dsh-remote/qr.svg", cloudflared: "C:/tools/cloudflared.exe"
+	qrAvailable: true, qrPath: "/dsh-remote/qr.svg", cloudflared: "C:/tools/cloudflared.exe",
+	cloudflaredSetup: { state: "ready", path: "C:/tools/cloudflared.exe", source: "found" }
 };
 const waiting = await bootPanel("dsh-remote", { payload: waitingPayload, timers: [] });
 check(
@@ -948,7 +980,8 @@ const linkedPayload = {
 		link: "https://x-y-z.trycloudflare.com/?token=abc", resumed: false,
 		tunnel: { state: "up", url: "https://x-y-z.trycloudflare.com", error: undefined }, lanUrls: []
 	},
-	qrAvailable: true, qrPath: "/dsh-remote/qr.svg", cloudflared: "C:/tools/cloudflared.exe"
+	qrAvailable: true, qrPath: "/dsh-remote/qr.svg", cloudflared: "C:/tools/cloudflared.exe",
+	cloudflaredSetup: { state: "ready", path: "C:/tools/cloudflared.exe", source: "installed", version: "2026.10.0" }
 };
 const linked = await bootPanel("dsh-remote", { payload: linkedPayload, timers: [] });
 check(
@@ -977,6 +1010,72 @@ check(
 	!textOf(linked.host).includes("[object Object]"),
 	"dsh-remote: an up tunnel is not stringified as an object",
 	textOf(linked.host).slice(0, 160)
+);
+
+/* ------------------- dsh-remote: the cloudflared the plugin installs itself */
+
+// A freshly installed plugin fetches cloudflared when the machine has none, so a panel
+// that is waiting on that download has to keep asking, and one holding a failure has to
+// say why and offer the install again. A settled status schedules nothing, which is what
+// keeps the two link checks above honest.
+const downloadingPayload = {
+	remote: {
+		state: "off", enabled: false, mode: "tunnel", proxyPort: undefined,
+		cloudflaredPath: "", cloudflaredProxy: "", lanUrls: []
+	},
+	cloudflared: null, qrAvailable: true, qrPath: "/dsh-remote/qr.svg",
+	cloudflaredSetup: { state: "downloading", version: "2026.10.0", target: "C:/Users/x/tunnel/cloudflared.exe" }
+};
+const downloading = await bootPanel("dsh-remote", { payload: downloadingPayload, timers: [] });
+check(
+	downloading.timers.includes(2000),
+	"dsh-remote: a panel waiting on the cloudflared download keeps asking",
+	downloading.timers.join(",") || "(nothing scheduled)"
+);
+check(
+	textOf(downloading.host).includes("2026.10.0"),
+	"dsh-remote: the download note names the version being fetched",
+	textOf(downloading.host).slice(0, 200)
+);
+
+const failedInstallPayload = {
+	remote: {
+		state: "off", enabled: false, mode: "tunnel", proxyPort: undefined,
+		cloudflaredPath: "", cloudflaredProxy: "", lanUrls: []
+	},
+	cloudflared: null, qrAvailable: true, qrPath: "/dsh-remote/qr.svg",
+	cloudflaredSetup: { state: "failed", error: "checksum" }
+};
+const failedInstall = await bootPanel("dsh-remote", { payload: failedInstallPayload, timers: [] });
+check(
+	!failedInstall.timers.includes(2000),
+	"dsh-remote: a settled install failure stops asking",
+	failedInstall.timers.join(",") || "(nothing scheduled)"
+);
+// The panel follows navigator.language, so the wording is asserted in either form
+// rather than in one of the two.
+const checksumNote = textOf(failedInstall.host);
+check(
+	checksumNote.includes("校验值") || checksumNote.toLowerCase().includes("checksum"),
+	"dsh-remote: the install failure reason reaches the panel, not the generic wording",
+	checksumNote.slice(0, 240)
+);
+check(
+	descendants(failedInstall.host).some((child) => child.tag === "button"),
+	"dsh-remote: a failed install still offers a way out",
+	descendants(failedInstall.host).map((child) => child.tag).join(",")
+);
+// Every reason the host can report has wording of its own, and `unpack` is the one a
+// compressed release reaches when the archive holds no binary.
+const unpackedInstall = await bootPanel("dsh-remote", {
+	payload: { ...failedInstallPayload, cloudflaredSetup: { state: "failed", error: "unpack" } },
+	timers: []
+});
+const unpackNote = textOf(unpackedInstall.host);
+check(
+	unpackNote.includes("压缩包") || unpackNote.toLowerCase().includes("archive"),
+	"dsh-remote: a compressed release that held no binary says so in its own words",
+	unpackNote.slice(0, 240)
 );
 
 /* ----------------------------------------------------------------- report */
