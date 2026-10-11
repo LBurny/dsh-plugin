@@ -49,6 +49,12 @@ The tool therefore restarts the app on a host change, debounced, and says so in 
 takes about four seconds. `--no-restart` turns it off, which is what a target other than the app's own
 profile wants (`tools/sandbox/README.md` shows that invocation).
 
+Three kinds of file do **not** restart it, because dsh never loads them: a `client.js`/`client.css`
+(the browser reloads itself), `locale/*.json`, and now a `README`, `LICENSE` or anything under
+`tests/`. Editing prose used to bounce the app and lose whatever dsh was waiting on, which is a
+strange price for a file nothing reads; those are mirrored and logged as such. A restart also drops
+a pending approval or question, so time a host edit for a moment when nothing is pending.
+
 Two consequences of the restart are worth knowing: the app's window goes away and comes back, and
 `dsh-remote` re-mints its tunnel link.
 

@@ -204,6 +204,13 @@ function effectOf(rel) {
 		return { kind: "client", note: "client half: the browser takes it by itself (<=0.5s), reopen the panel if one is open" };
 	}
 	if (rel.startsWith("locale")) return { kind: "meta", note: "display metadata: the next page that reads it sees it" };
+	// A README, a licence or a test is shipped and never loaded: dsh reads a package's `main` and
+	// its assets, and `files` exists precisely so the rest stays out of the tarball. Mirroring
+	// them keeps the copies whole, and restarting the app for one costs the reader their window
+	// and whatever dsh was waiting on, for a file nothing reads.
+	if (rel.startsWith("tests/") || /(^|\/)(README|LICENSE|CHANGELOG)(\.[^/]*)?$/iu.test(rel)) {
+		return { kind: "meta", note: "docs or tests: mirrored, nothing loads it" };
+	}
 	return { kind: "host", note: "host half: needs the module watch, otherwise the app restarts" };
 }
 

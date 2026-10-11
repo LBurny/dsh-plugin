@@ -725,6 +725,21 @@ check(
 	JSON.stringify(anonymous.shown[0] ?? null)
 );
 
+// Every kind is the same shape, not just the one that happened to arrive: a reader should not be
+// able to tell which kind a reminder is by how many lines it takes. One code path composes all
+// four, and this is the check that keeps it that way.
+const shaped = { played: [], shown: [] };
+await bootPanel("dsh-notify", { payload: notifyPayload, notifications: shaped });
+for (const kind of KINDS) shaped.source?.push({ kind, title: "绘图" });
+for (const [at, kind] of KINDS.entries()) {
+	const notice = shaped.shown[at];
+	check(
+		notice?.title === KIND_LABEL[kind] && notice?.body === "绘图",
+		`dsh-notify: the ${kind} reminder is the same two lines as every other kind`,
+		JSON.stringify({ title: notice?.title, body: notice?.body })
+	);
+}
+
 // A kind this page has no sentence for, but whose settings rule exists (a newer host adding a
 // fifth kind: the settings file keeps unknown rules, this page's string table does not know
 // them). The host's text is then the only thing left to show.
