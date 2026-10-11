@@ -17,11 +17,20 @@ export const NOTIFY_KINDS = ["approval", "question", "turn_done", "answer_done"]
 /** Bundled completion sound; the desktop shell's default is `staplebops-02`. */
 export const DEFAULT_SOUND = "staplebops-02";
 
-/** Fresh-install settings. */
+/**
+ * Fresh-install settings.
+ *
+ * The two kinds that *block* the agent notify unconditionally, because a reader who
+ * is looking at the window is usually looking at another session: dsh's own sidebar
+ * carries an approval or a question, so "the page has focus" is no reason to believe
+ * the reader has seen it, and a missed approval costs a stalled agent. The two
+ * completion kinds keep deferring to the background, where a reminder is worth
+ * raising and an interruption is not.
+ */
 export function defaultConfig() {
 	return {
-		approval: { enabled: true, timing: "background" },
-		question: { enabled: true, timing: "background" },
+		approval: { enabled: true, timing: "always" },
+		question: { enabled: true, timing: "always" },
 		turn_done: { enabled: true, timing: "background" },
 		answer_done: { enabled: true, timing: "background" },
 		sound: DEFAULT_SOUND,

@@ -57,14 +57,14 @@ const PAYLOADS = {
 		},
 		configPath: "cordis.patch.yml"
 	},
-	"dsh-notify": {
-		config: {
-			approval: { enabled: true, timing: "background" }, question: { enabled: true, timing: "background" },
-			turn_done: { enabled: true, timing: "background" }, answer_done: { enabled: true, timing: "background" },
-			sound: "staplebops-02", volume: 0.7, toast: true, browser: false
+		"dsh-notify": {
+			config: {
+				approval: { enabled: true, timing: "always" }, question: { enabled: true, timing: "always" },
+				turn_done: { enabled: true, timing: "background" }, answer_done: { enabled: true, timing: "background" },
+				sound: "staplebops-02", volume: 0.7, toast: true, browser: true
+			},
+			sounds: [], configPath: "cordis.patch.yml"
 		},
-		sounds: [], configPath: "cordis.patch.yml"
-	},
 	"dsh-remote": { remote: { enabled: false, mode: "lan" }, cloudflared: null, qrAvailable: false }
 };
 
@@ -588,11 +588,10 @@ check(
 /* ------------- dsh-notify: which reminders are allowed to make themselves known */
 
 // Every reminder is gated twice: its own rule (on/off plus a timing) and then, when the
-// timing defers to it, the page's focus state. All four kinds ship as `background`, so the
-// deferral is what a reader meets first, and it is the whole answer to "I turned a reminder
-// on and a question passed unnoticed" — one that arrives while the window is in front
-// raises nothing at all, not even the popup. The matrix below pins all 24 cells: four
-// kinds, two timings, three focus states.
+// timing defers to it, the page's focus state. The four kinds do not ship alike: the two
+// that block the agent notify always, and the two completion kinds defer to the
+// background. The matrix below pins all 24 cells: four kinds, two timings, three focus
+// states, and the whole answer to "I turned a reminder on and nothing happened" is in it.
 
 const KINDS = ["approval", "question", "turn_done", "answer_done"];
 /** The four states a page can be in when a reminder arrives, as the browser reports them. */
@@ -651,6 +650,19 @@ check(
 	(toastsOf(popupLoud.panel.dom, popupLoud.panel.host)?.children ?? []).length === KINDS.length,
 	"dsh-notify: timing=always pops one in-page reminder per kind",
 	String((toastsOf(popupLoud.panel.dom, popupLoud.panel.host)?.children ?? []).length)
+);
+
+// The shipped default, whole: an approval raised while the reader is looking at the window
+// now makes itself known, and a finished turn still waits for the background. This is the
+// report that produced the split, so it is pinned as the default and not as a matrix cell.
+const shipped = { played: [], shown: [] };
+const withDefaults = await bootPanel("dsh-notify", { notifications: shipped });
+shipped.source?.push({ kind: "approval", text: "waiting for your approval" });
+shipped.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	shipped.shown.length === 1 && shipped.played.length === 1 && shipped.shown[0]?.title === "waiting for your approval",
+	"dsh-notify: by default an approval rings even on a focused page, and a finished turn stays quiet",
+	`shown=${shipped.shown.map((notice) => String(notice.title)).join(",") || "(nothing)"} played=${String(shipped.played.length)}`
 );
 
 /* ------------- dsh-notify: what a raised reminder then does */
@@ -752,9 +764,9 @@ check(
 );
 
 // With no hub the panel is a floating one, closed until its corner button is clicked, so a
-// reminder has to say where to look. The payload here is the one every other kind uses
-// (`timing: always`); the package's own default, `background`, would be quiet on a page
-// that has focus and the pulse would never happen.
+// reminder has to say where to look. The payload here gives every kind `timing: always`,
+// which is the shipped default for the two blocking kinds; a completion kind left on its own
+// default would be quiet on a page that has focus and the pulse would never happen.
 const floated = { played: [], shown: [] };
 const floating = await bootPanel("dsh-notify", { hub: false, mount: false, payload: notifyPayload, notifications: floated });
 floated.source?.push({ kind: "turn_done", text: "the turn finished" });

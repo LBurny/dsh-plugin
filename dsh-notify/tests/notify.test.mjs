@@ -64,7 +64,18 @@ check(bus.recent().length === 2, "recent still records after a detach");
 
 check(NOTIFY_KINDS.length === 4, "there are four reminder kinds", NOTIFY_KINDS.join(","));
 check(defaultConfig().sound === DEFAULT_SOUND, "the default sound mirrors the desktop shell", DEFAULT_SOUND);
-check(defaultConfig().approval.timing === "background", "reminders default to background-only");
+// The kinds that block the agent notify whatever the page is doing: a reader looking at the
+// window is usually looking at another session, and a missed approval costs a stalled agent.
+check(
+	defaultConfig().approval.timing === "always" && defaultConfig().question.timing === "always",
+	"the blocking kinds default to notifying always",
+	`approval=${defaultConfig().approval.timing} question=${defaultConfig().question.timing}`
+);
+check(
+	defaultConfig().turn_done.timing === "background" && defaultConfig().answer_done.timing === "background",
+	"the completion kinds default to the background",
+	`turn_done=${defaultConfig().turn_done.timing} answer_done=${defaultConfig().answer_done.timing}`
+);
 check(defaultConfig().browser === true, "browser notifications are on by default");
 
 // The bug this guards: saving one rule must not reset the others.

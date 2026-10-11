@@ -43,8 +43,11 @@ Restart dsh afterwards — plugins have no HMR.
 Subagent turns are suppressed, and a turn that did not end with `reason.kind == "completed"` is not
 reported — the same rules the desktop shell applies.
 
-Each kind has an **on/off** switch and a **timing**: *always*, or *only when this page is not focused*
-(the default — no point popping a toast you are already looking at).
+Each kind has an **on/off** switch and a **timing**: *always*, or *only when this page is not focused*.
+The two kinds that block the agent (`approval`, `question`) default to *always*, because a focused
+window is usually showing another session and a missed approval costs a stalled agent. The two
+completion kinds (`turn_done`, `answer_done`) default to the background, where there is no point
+popping a toast you are already looking at.
 
 Channels: an in-page popup, a sound (a bundled 17-sound pack, the system default, or silent), and a
 browser notification (needs permission once). Volume 0–1.
