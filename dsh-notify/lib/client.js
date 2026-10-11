@@ -41,6 +41,13 @@
 		question: ["Waiting for an answer", "等待回答"],
 		turnDone: ["Task finished", "任务完成"],
 		answerDone: ["Answer ready", "回答就绪"],
+		// The reminder's own sentence. The host half publishes the facts (which kind, which
+		// session) and this page says them, because this is the half that knows the reader's
+		// language: a reminder in the wrong language is the one thing nobody can fail to notice.
+		approvalText: ["An operation is waiting for your approval", "有一个操作等待你批准"],
+		questionText: ["A question is waiting for your answer", "有一个问题等待你回答"],
+		turnDoneText: ["It ran tools and has finished", "用过工具，已结束"],
+		answerDoneText: ["It only answered, and has finished", "只是回答，已结束"],
 		rules: ["When to remind", "何时提醒"],
 		timing: ["Timing", "时机"],
 		always: ["Always", "总是"],
@@ -219,6 +226,29 @@
 		}
 	}
 
+	/** The string key carrying each kind's sentence. */
+	const BODY_KEY = {
+		approval: "approvalText",
+		question: "questionText",
+		turn_done: "turnDoneText",
+		answer_done: "answerDoneText"
+	};
+
+	/**
+	 * The words for one reminder, in the reader's language. The host publishes facts, not
+	 * prose: it cannot know which language the page in front of the reader is speaking, and a
+	 * reminder that arrives in the wrong one is worse than a short one. Its `text` stays as the
+	 * fallback for a kind this page has never heard of.
+	 * @param item - one reminder record off the stream.
+	 * @returns the localized title (kind, plus the session it belongs to) and body.
+	 */
+	function reminderText(item) {
+		const label = labelForKind(item.kind);
+		const named = typeof item.title === "string" && item.title.length > 0 ? `${label} · ${item.title}` : label;
+		const key = BODY_KEY[item.kind];
+		return { title: named, body: key === undefined ? (item.text ?? "") : T(key) };
+	}
+
 	/** Whether a kind may be raised right now: its rule, and whether the page is focused. */
 	function allows(kind) {
 		const rule = config[kind];
@@ -253,15 +283,17 @@
 		if (recent.length > 50) recent.shift();
 		if (item.kind === undefined) return;
 		if (!allows(item.kind)) return;
+		const words = reminderText(item);
 		playSound();
-		if (config.toast) toast(labelForKind(item.kind), item.text ?? "");
+		if (config.toast) toast(words.title, words.body);
 		if (config.browser && typeof Notification !== "undefined" && Notification.permission === "granted") {
 			try {
 				// A system notification has a sound of its own on Windows, and it rings on top of
 				// the .wav this panel is already playing, so a reader who picked a plugin sound
 				// heard both. Only "system default" means "let the OS make the noise", so only
 				// that choice leaves the notification audible.
-				const notice = new Notification(item.text ?? labelForKind(item.kind), {
+				const notice = new Notification(words.title, {
+					body: words.body,
 					tag: `dsh-notify-${item.kind}`,
 					silent: config.sound !== "default"
 				});

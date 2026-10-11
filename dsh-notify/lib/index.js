@@ -186,7 +186,13 @@ function mountEventBridge(ready, state) {
 						kind: worked ? "turn_done" : "answer_done",
 						sessionId,
 						title,
-						text: title === undefined ? (worked ? "dsh task completed" : "dsh answer ready") : `${worked ? "Task" : "Answer"} ready — ${title}`
+						// Facts, not prose: the page in front of the reader composes the sentence
+						// in their own language (see the client's `reminderText`). This is the
+						// fallback for a consumer that has no language of its own, so it stays
+						// neutral English and carries no separator to fight with.
+						text: title === undefined
+							? (worked ? "dsh task completed" : "dsh answer ready")
+							: `${worked ? "Task" : "Answer"} completed: ${title}`
 					});
 					break;
 				}

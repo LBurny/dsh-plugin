@@ -616,10 +616,20 @@ const timedConfig = (timing) =>
 /** The panel's toast stack, wherever it was mounted. */
 const toastsOf = (dom, host) => [...descendants(host), ...descendants(dom.body)].find((node) => node.className === "toasts");
 
+// The labels a reminder carries, which is what the reader sees: the stub speaks zh-CN, so a
+// reminder that arrived in the host's English would not match any of them and would show up in
+// the assertions below as its own title.
+const KIND_LABEL = { approval: "等待批准", question: "等待回答", turn_done: "任务完成", answer_done: "回答就绪" };
+/** The kind a raised reminder belongs to, by the title it ended up with. */
+const kindOfTitle = (title) => {
+	const text = String(title);
+	return Object.keys(KIND_LABEL).find((kind) => text === KIND_LABEL[kind] || text.startsWith(`${KIND_LABEL[kind]} · `)) ?? text;
+};
+
 /**
- * Deliver all four kinds to a panel sitting in one focus state, and report which of them
- * were raised. Each frame carries its own kind as its text, so the titles of the raised
- * notifications name the winners.
+ * Deliver all four kinds to a panel sitting in one focus state, and report which of them were
+ * raised. A reminder is identified by the title it ends up with, which is the kind's label in
+ * the page's language, so the table below doubles as a pin on those labels.
  * @returns the booted panel and the raised kinds.
  */
 async function raisedFrom(timing, state) {
@@ -631,7 +641,7 @@ async function raisedFrom(timing, state) {
 	panel.dom.document.hidden = state === "hidden";
 	panel.dom.document.focused = state === "focused";
 	for (const kind of KINDS) seen.source?.push({ kind, text: kind });
-	return { panel, seen, raised: seen.shown.map((notice) => String(notice.title)) };
+	return { panel, seen, raised: seen.shown.map((notice) => kindOfTitle(notice.title)) };
 }
 
 const ALL_KINDS = KINDS.join(",");
@@ -672,9 +682,42 @@ const withDefaults = await bootPanel("dsh-notify", { notifications: shipped });
 shipped.source?.push({ kind: "approval", text: "waiting for your approval" });
 shipped.source?.push({ kind: "turn_done", text: "the turn finished" });
 check(
-	shipped.shown.length === 1 && shipped.played.length === 1 && shipped.shown[0]?.title === "waiting for your approval",
+	shipped.shown.length === 1 && shipped.played.length === 1 && kindOfTitle(shipped.shown[0]?.title) === "approval",
 	"dsh-notify: by default an approval rings even on a focused page, and a finished turn stays quiet",
 	`shown=${shipped.shown.map((notice) => String(notice.title)).join(",") || "(nothing)"} played=${String(shipped.played.length)}`
+);
+
+/* ------------- dsh-notify: the reminder's words belong to the page */
+
+// The host publishes facts and the page says them, in the language of whoever is reading: the
+// frame below carries the host's English, and what the reader gets is the page's own Chinese.
+const localised = { played: [], shown: [] };
+await bootPanel("dsh-notify", { payload: notifyPayload, notifications: localised });
+localised.source?.push({ kind: "question", title: "绘图", text: "dsh has a question waiting for your answer" });
+check(
+	localised.shown[0]?.title === "等待回答 · 绘图",
+	"dsh-notify: a reminder is titled in the page's language and names its session",
+	String(localised.shown[0]?.title)
+);
+check(
+	localised.shown[0]?.body === "有一个问题等待你回答",
+	"dsh-notify: the body is the page's own sentence, not the one the host sent",
+	String(localised.shown[0]?.body)
+);
+
+// A kind this page has no sentence for, but whose settings rule exists (a newer host adding a
+// fifth kind: the settings file keeps unknown rules, this page's string table does not know
+// them). The host's text is then the only thing left to show.
+const unknown = { played: [], shown: [] };
+await bootPanel("dsh-notify", {
+	payload: { ...notifyPayload, config: { ...notifyPayload.config, something_new: { enabled: true, timing: "always" } } },
+	notifications: unknown
+});
+unknown.source?.push({ kind: "something_new", text: "a kind from a newer host" });
+check(
+	unknown.shown[0]?.title === "something_new" && unknown.shown[0]?.body === "a kind from a newer host",
+	"dsh-notify: a kind this page has no words for falls back to what the host said",
+	JSON.stringify(unknown.shown[0] ?? null)
 );
 
 /* ------------- dsh-notify: a settings change made elsewhere reaches the page */
