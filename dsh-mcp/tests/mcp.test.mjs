@@ -94,6 +94,36 @@ check(after.includes("some-other-row"), "unrelated row survives");
 check(after.includes("llm-pi-ai"), "unrelated top-level row survives");
 check(!/^\s*- id: mcp-fetch/mu.test(after), "deleted row is gone from the text");
 
+// --- half-written and op-level rows ----------------------------------------
+// A row with no command (a half-written or legacy entry) must not take the whole
+// list down, and a row written at the op level must be deletable: it is listed and
+// toggleable, so refusing to delete it strands it.
+const dir2 = await mkdtemp(join(tmpdir(), "kit-mcp-bare-"));
+const layout2 = { patchPath: join(dir2, "cordis.patch.yml"), profileDir: dir2 };
+await writeFile(
+	layout2.patchPath,
+	["- id: mcp-half", "  name: '@deepseek-ai/dsh-mcp-client'", "  config:", "    serverName: half", ""].join("\n"),
+	"utf8"
+);
+const half = await listMcpServers(layout2);
+check(half.length === 1 && half[0]?.summary === "", "a row with no command is listed with an empty summary, not a 500", JSON.stringify(half[0]?.summary));
+await deleteMcpServer(layout2, "mcp-half");
+check((await listMcpServers(layout2)).length === 0, "an op-level row can be deleted", "");
+check(!(await readFile(layout2.patchPath, "utf8")).includes("mcp-half"), "the op-level row is gone from the text", "");
+
+// --- clearing a form field deletes it ----------------------------------------
+// buildConfig omits an emptied field, so an update that only sets submitted keys
+// would keep the old env/args/cwd forever.
+await upsertMcpServer(layout2, { serverName: "envtest", transport: "stdio", command: "npx", args: ["x"], env: { OLD: "keepme" }, cwd: "/tmp" });
+await upsertMcpServer(layout2, { serverName: "envtest", transport: "stdio", command: "npx" });
+const cleared = (await listMcpServers(layout2)).find((server) => server.serverName === "envtest");
+check(
+	cleared?.config?.env === undefined && cleared?.config?.args === undefined && cleared?.config?.cwd === undefined,
+	"clearing a form-owned field on update actually deletes it",
+	JSON.stringify(cleared?.config)
+);
+check(cleared?.config?.command === "npx", "the submitted command survives the same update", String(cleared?.config?.command));
+
 const failed = results.filter((result) => !result.ok);
 for (const result of results) console.log(`${result.ok ? "ok  " : "FAIL"} ${result.label}${result.detail ? ` — ${result.detail}` : ""}`);
 console.log(failed.length === 0 ? "\nMCP TEST PASS" : `\nMCP TEST FAIL (${failed.length})`);

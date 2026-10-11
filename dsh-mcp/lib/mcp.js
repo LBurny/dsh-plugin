@@ -76,7 +76,8 @@ function configToJs(row) {
 function summarize(transport, config) {
 	if (transport === "streamable-http") return String(config.url ?? "");
 	const args = Array.isArray(config.args) ? config.args.map(String) : [];
-	return [config.command, ...args].filter((part) => part.length > 0).join(" ");
+	// A half-written row may have no command at all; the summary must not crash on it.
+	return [config.command, ...args].map((part) => String(part ?? "")).filter((part) => part.length > 0).join(" ");
 }
 
 /** Read the patch document text, treating a missing file as an empty list. */
@@ -188,8 +189,9 @@ export async function upsertMcpServer(layout, input, currentId) {
 		const configNode = existing.row.get("config", true);
 		if (!isMap(configNode)) existing.row.set("config", doc.createNode(config));
 		else {
-			const keep = config.transport === "stdio" ? HTTP_KEYS : STDIO_KEYS;
-			for (const key of keep) configNode.delete(key);
+			// Every form-owned key goes, not just the other transport's: buildConfig omits
+			// an emptied field, so only a delete makes "cleared the env box" stick.
+			for (const key of [...STDIO_KEYS, ...HTTP_KEYS]) configNode.delete(key);
 			for (const [key, value] of Object.entries(config)) configNode.set(key, doc.createNode(value));
 		}
 		return { id: rowId, created: false };
@@ -219,24 +221,21 @@ export async function setMcpEnabled(layout, rowId, enabled) {
 /** Remove a row; an `insert` op left empty is removed with it. */
 export async function deleteMcpServer(layout, rowId) {
 	return editDocument(layout, (doc) => {
-		let removed = false;
-		for (const op of [...(isSeq(doc.contents) ? doc.contents.items : [])]) {
-			if (!isMap(op)) continue;
-			const insert = op.get("insert", true);
-			if (!isSeq(insert)) continue;
-			for (let index = insert.items.length - 1; index >= 0; index--) {
-				const row = insert.items[index];
-				if (isMap(row) && row.get("id") === rowId && row.get("name") === MCP_PLUGIN_NAME) {
-					insert.items.splice(index, 1);
-					removed = true;
-				}
-			}
-			if (removed && insert.items.length === 0) {
-				const opIndex = doc.contents.items.indexOf(op);
-				if (opIndex !== -1) doc.contents.items.splice(opIndex, 1);
-			}
+		// mcpRowNodes, not a hand-rolled walk: a row written directly at the op level is
+		// listed and toggleable, so it must be deletable too.
+		const found = mcpRowNodes(doc).find(({ row }) => row.get("id") === rowId);
+		if (found === undefined) throw new Error(`no MCP server row "${rowId}"`);
+		if (found.container === undefined) {
+			const index = doc.contents.items.indexOf(found.row);
+			if (index !== -1) doc.contents.items.splice(index, 1);
+			return { id: rowId, deleted: true };
 		}
-		if (!removed) throw new Error(`no MCP server row "${rowId}"`);
+		const index = found.container.items.indexOf(found.row);
+		if (index !== -1) found.container.items.splice(index, 1);
+		if (found.container.items.length === 0) {
+			const owner = doc.contents.items.find((op) => isMap(op) && op.get("insert", true) === found.container);
+			if (owner !== undefined) doc.contents.items.splice(doc.contents.items.indexOf(owner), 1);
+		}
 		return { id: rowId, deleted: true };
 	});
 }
