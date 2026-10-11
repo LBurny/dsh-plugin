@@ -37,6 +37,9 @@ const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 function createState(ctx) {
 	/** Cached settings, invalidated by every write. */
 	let cache;
+	/** Saves serialize on this chain: two overlapping patches must merge onto each
+	 * other, never onto the same stale base (the later write would drop the earlier). */
+	let saving = Promise.resolve();
 	const layout = () => {
 		const configEditor = ctx.get("configEditor");
 		if (configEditor === undefined) throw new Error("config-editor service is not available in this profile");
@@ -51,10 +54,15 @@ function createState(ctx) {
 		},
 		/** Persist a settings patch and refresh the memo. Deep-merged: a patch
 		 * carrying one field must not drop the others. */
-		async save(patch) {
-			const current = await this.config();
-			cache = await saveConfig(layout().configPath, normalizeConfig(patch === undefined ? current : mergeDeep(current, patch)));
-			return cache;
+		save(patch) {
+			const run = saving.then(async () => {
+				const current = await this.config();
+				cache = await saveConfig(layout().configPath, normalizeConfig(patch === undefined ? current : mergeDeep(current, patch)));
+				return cache;
+			});
+			// The chain itself must survive a failure, or every later save would reject.
+			saving = run.catch(() => {});
+			return run;
 		},
 		log(message) {
 			ctx.logger.info(`[dsh-zoom] ${message}`);
@@ -130,7 +138,7 @@ function mount(ready, state) {
 		try {
 			sendText(res, 200, await readFile(join(LIB_DIR, file), "utf8"), type);
 		} catch (error) {
-			sendText(res, 500, `dsh-zoom: asset ${file} unavailable — ${String(error?.message ?? error)}`);
+			sendText(res, 500, `dsh-zoom: asset ${file} unavailable: ${String(error?.message ?? error)}`);
 		}
 	};
 

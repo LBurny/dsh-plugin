@@ -195,6 +195,8 @@
 	let configPath;
 	/** Set while the recorder is armed, so the matcher stands down. */
 	let recordTarget;
+	/** The armed recorder's keycap and listener, so a second arm can cancel the first. */
+	let recorder;
 
 	/**
 	 * The harness's own chrome is what limits zoom, not the content: `zoom` on
@@ -295,6 +297,9 @@
 			if (config !== undefined) applyLevel(config.level, false);
 		});
 		observer.observe(document.documentElement, { childList: true, subtree: true });
+		// The sidebar mounts immediately in dsh's own UI; on a host without one the
+		// observer must not run a whole-document query on every mutation forever.
+		setTimeout(() => observer.disconnect(), 60_000);
 	}
 
 	const persistLevel = debounce(() => {
@@ -350,6 +355,9 @@
 
 	/** Arm the recorder for one side; the next keydown becomes the shortcut. */
 	function recordShortcut(side, cap) {
+		// Only one recorder can be armed: two live capture listeners would both take the
+		// next keydown, and both sides would end up bound to the same key.
+		cancelRecorder();
 		recordTarget = side;
 		cap.textContent = T("recording");
 		cap.classList.add("recording");
@@ -358,6 +366,7 @@
 			event.stopImmediatePropagation();
 			window.removeEventListener("keydown", once, true);
 			recordTarget = undefined;
+			recorder = undefined;
 			// Escape cancels rather than binding Escape itself.
 			if (event.key !== "Escape") {
 				const shortcut = {
@@ -376,7 +385,18 @@
 			}
 			cap.classList.remove("recording");
 		};
+		recorder = { cap, once };
 		window.addEventListener("keydown", once, true);
+	}
+
+	/** Disarm the recorder, restoring the keycap it was painting. */
+	function cancelRecorder() {
+		if (recorder === undefined || recordTarget === undefined) return;
+		window.removeEventListener("keydown", recorder.once, true);
+		if (config !== undefined) recorder.cap.textContent = describeShortcut(config[recordTarget]);
+		recorder.cap.classList.remove("recording");
+		recorder = undefined;
+		recordTarget = undefined;
 	}
 
 	/** Save a settings patch and surface failures. */
@@ -392,6 +412,9 @@
 	}
 
 	async function render() {
+		// A re-render rebuilds the shortcut rows, so an armed recorder would be left
+		// painting a detached keycap.
+		cancelRecorder();
 		body.replaceChildren(el("div", { class: "muted", text: "…" }));
 		try {
 			if (config === undefined) {
