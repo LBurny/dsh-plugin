@@ -3,6 +3,71 @@
 Independent dsh plugins, one feature per package. Most of what follows is a trap someone already
 walked into, so read it before changing anything here.
 
+This is the only working tree: `H:\My_Software\DSHPlugin` (git remote `LBurny/dsh-plugin`). Its own
+READMEs and the authoring skill still write that path as `dsh-plugin`, which does not exist, so a
+`dsh-plugin/...` path in any doc means this directory.
+
+## Commands (there is no build, lint or typecheck step)
+
+Every package is hand-written JavaScript, so nothing is compiled or bundled, there is no `scripts`
+entry in any `package.json`, and the only checks are plain Node suites run with Node 22+. What each
+suite asserts, and the `@deepseek-ai/*` resolution the offline ones need, is in **Test** below.
+
+```bash
+# the whole set installed together in a throwaway dsh home at .sandbox/ (gitignored)
+node tools/sandbox/sandbox.mjs up            # first run: create the home, install all 8, boot, print the URL
+node tools/sandbox/sandbox.mjs up --restart  # after an edit: reload the running instance (the usual loop)
+node tools/sandbox/sandbox.mjs url           # print the running URL;  `down` stops it
+# port defaults to 25499 and moves up if busy; it binds loopback only
+
+node tests/hub-contract.test.mjs             # from the repository root: cross-package agreement
+node tests/manifest.test.mjs                 #   directory name == package name; every import declared
+node tests/host-half.test.mjs                #   every host half mounts; routes, assets, command legal
+node tests/panel-embed.test.mjs              #   every panel boots with and without the hub
+node tests/mobile-layer.test.mjs             #   the phone layer's DOM behaviour
+
+cd <pkg> && node tests/*.test.mjs            # one package's sibling suite (named by role: hub, proxy, ...)
+
+"$NODE" .agents/skills/dsh-plugin-authoring/assets/plugin-selftest.mjs <plugin dir>   # exit 0/1
+```
+
+Set `NODE=/f/DSHDesktop/runtime/windows-x64/node.exe` for that last one. `node tools/visual/shot.mjs`
+screenshots the real UI instead of inferring it, and `node tools/hotreload/hotreload.mjs up` mirrors
+this tree into the installed app; each tool has its own `tools/*/README.md`, and those three READMEs
+are worth reading before touching a stylesheet, a browser half, or the app.
+
+## Environment (the official app is the target; measured, not assumed)
+
+Everything below was verified against the **official DeepSeek Harness desktop app**,
+`F:\Code\dsh\DeepSeek Harness.exe` (Electron). It packs its own dsh inside `resources/app.asar` at
+`0.2.0-rc.2` and ships the CLI shim `F:\Code\dsh\resources\runtime\cli\bin\dsh.cmd`.
+
+- `DSH_HOME` = `C:\Users\intel\.dsh`, profile `desktop` (a `web` profile sits beside it). The app owns
+  that profile: `--dump-config` and a plain boot are refused with `profile "desktop" is managed
+  exclusively by the Electron application`, while `plugin` subcommands are allowed (they tell you to
+  quit the app first). Scripting goes through the shim; a human goes through the Plugins page.
+- Installing is the app's **Plugins page, Add plugin**: a package name, a git URL or a local directory,
+  e.g. `github:LBurny/dsh-plugin#path:/dsh-notify`. No `profiles/node_modules` link farm is needed here:
+  the CLI resolves `@deepseek-ai/*` out of the app's own runtime.
+- A fresh dsh home (and the sandbox on its first run) shows the app's own preview notice on the first
+  page load; dismiss it before typing `/`.
+- **Three dsh copies live on this machine.** The app's, above. The DSHDesktop shell at `F:\DSHDesktop`
+  (packed dsh `0.2.0-rc.1`, home `%LOCALAPPDATA%\DSHDesktop\dsh-home`, profile `web`, port 25474). And an
+  old global CLI on `PATH` (`F:\Code\pnpm\node_modules\@deepseek-ai\dsh`, plus one under `%APPDATA%\npm`)
+  at `0.1.5-rc.2`, whose default home is `~/.dsh`, which is the app's: always pass `DSH_HOME` explicitly
+  when that binary is what runs.
+- The app's home resolves plugin dependencies out of somebody else's tree. The links under
+  `~/.dsh/profiles/node_modules` point into `H:\My_Software\DSHDesktop\src-tauri\runtime\windows-x64\dsh\node_modules`
+  (the shell's dev tree) and none at the app itself, so that tree is load-bearing: delete or rebuild it
+  and the app's plugins fail with `Cannot find package`; edit the runtime in it and the app changes with
+  it. Remember this whenever a change seems to have no effect.
+- DSHDesktop is the **secondary** target and nothing here depends on it: its conveniences are its own
+  Svelte pages, and it preinstalls `dsh-command-init` (whose row id `init` collides with `dsh-init`'s).
+
+Junk goes to `.trash/` (gitignored): "deletable but not yet" moves there instead of being removed. MSYS
+`rm` on a read-only or busy file reports Permission denied, so clear ReadOnly and use PowerShell
+`Remove-Item -Recurse -Force`.
+
 ## Shape
 
 One directory per feature at the repository root, each a complete, standalone plugin you can install on
@@ -20,7 +85,7 @@ duplicated on purpose.
     client.js        browser half (plain DOM, no build step), served by this package's routes
     client.css       its stylesheet
     sounds/ assets/  asset clusters that ship as a set
-  tests/             sibling suite: <name>.test.mjs (+ remote-live.mjs)
+  tests/             sibling suite, one per package, named by role: hub, proxy, doctor, ...
   locale/            bilingual name/description for dsh's plugin management page
 ```
 
@@ -61,7 +126,9 @@ with no build step, so `lib/` is both source and published artifact and `main` p
   (`agent-loop webserver modules connection headless-runner acp sdk-jsonrpc-server`), so never take one
   of those as a row id. Command names are first-come, first-served, and a clash degrades to a warning, so
   registration is guarded: an exception from `apply` would take the tree down.
-- Verify in a sandbox before touching a real `DSH_HOME`. Plugins have no HMR, so a change needs a restart.
+- Verify in a sandbox before touching a real `DSH_HOME`, then mirror the change into the installed app
+  (the rule at the end of **Test**). Editing this tree alone is not enough: the app installs a published
+  copy of the package and cannot see it.
 
 **The browser halves**
 
@@ -112,13 +179,24 @@ exists)
   ...`) and marks it `data-dsh-refresh`; the hub also sweeps the mount point for a stray refresh,
   because a panel copy that predates the rule must not be able to show two. Keep the standalone floating
   panel's button: without the hub it is the only refresh.
+- That refresh does two things: it rescans the inventory and asks every install source whether it has moved
+  (`GET /dsh-features/api/updates`). Applying is a second, explicit click (`POST /dsh-features/api/update`,
+  which names the packages and runs `pnpm update` through the live `pluginManager`), because plugins have no
+  HMR and the honest answer is always "restart dsh". The check covers the hub's own package as well (it is
+  not a feature, so it has no row; the page names it instead of letting the count exceed the pills), since
+  the Plugins page cannot update it. Re-installing the *same* spec updates nothing: pnpm
+  prints "Lockfile is up to date, resolution step is skipped", and only `pnpm update <name>` re-resolves a
+  git spec, `#path:/<sub>` included (measured 2026-10-11, pnpm 11.7 in the app runtime and 12.3 standalone).
+- Every package ships `locale/en.json` + `locale/zh.json` with `meta.title` / `meta.description`, an
+  `exports` entry for `./locale/*.json`, and `locale` in `files`. That is what makes the Plugins page name it
+  in the reader's language instead of showing the package name, and `tests/hub-contract.test.mjs` fails a
+  package missing any of the four (git installs are trimmed by `files`).
 - Nothing a panel or the hub shows may contain an em dash. `tests/hub-contract.test.mjs` fails on one in
-  any non-comment line; comment prose is exempt. That test also pins the row and card metrics (one card
-  per entry, the hub's gutter and the shared panel CSS block, byte-identical across the panels except for
-  the per-package tails, 14px/500 titles, 13px/18px subtitles, 32px buttons, the 36×20 switch, two-line
-  subtitle clamps with the full string on the row's `title` tooltip, and no `overflow-wrap: anywhere`), so
-  read it before changing a row's look. A read-only value inside a row of controls is a badge in the same
-  box as those controls (dsh-zoom's `.level`), never bare text beside a button.
+  any non-comment line; comment prose is exempt. That same test pins the row and card metrics and the one
+  shared stylesheet block (byte-identical across the panels except for the per-package tails), so read it
+  before changing a row's look and expect to move the test with the row. A read-only value inside a row of
+  controls is a badge in the same box as those controls (dsh-zoom's `.level`), never bare text beside a
+  button.
 - Every hub page class is prefixed `hub-`, and no panel may use that prefix: a feature is mounted inside
   `#dsh-features-root`, so the hub's scope id does not keep its rules out of the panel. The contract test
   reads every selector in the hub's stylesheet and fails on one that neither carries a `hub-` class nor is
@@ -216,14 +294,31 @@ exists)
 
 ## Test
 
-The whole set running together has a reusable sandbox: `node tools/sandbox/sandbox.mjs up` creates a real
-dsh home at `.sandbox/` (gitignored), installs all eight packages from this working tree as `link:`
-installs, boots it and prints the ready-line URL with its token. After that first run a code change needs
-only `up --restart`; `url` prints the running URL and `down` stops it. Two guards are built in: it forces
-`DSH_HOME` on every command it runs (without it, `dsh plugin add` writes into the user's real `~/.dsh`
-silently and creates a profile there), and after installing it re-reads the profile manifest and fails if
-the packages are not in both `dependencies` and `dsh.profile.bundles`. It refuses a home outside this
-repository unless `--allow-foreign-home` is passed; never point it at `~/.dsh`.
+The whole set runs together in the reusable sandbox from **Commands**: a real dsh home at `.sandbox/`
+(gitignored) with all eight packages installed as `link:` installs. Two guards are built in, both earned:
+it forces `DSH_HOME` on every command it runs (without it, `dsh plugin add` writes into the user's real
+`~/.dsh` silently and creates a profile there), and after installing it re-reads the profile manifest and
+fails unless the packages are in both `dependencies` and `dsh.profile.bundles`. It refuses a home outside
+this repository unless `--allow-foreign-home` is passed; never point it at `~/.dsh`.
+
+The **installed app** has its own loop: `node tools/hotreload/hotreload.mjs up` mirrors this working tree
+into `<home>/profiles/<profile>/node_modules/dsh-*` (the app installs a published commit, so editing here
+changes nothing it can see), writes an `hmr` module-root block into that profile's patch and watches. A
+`lib/client.js` edit is then live by itself: `dsh-client-hmr`, mounted by `dsh-web-app`, stats every client
+bundle every 500ms and pushes a `rebuilt` frame the browser applies in place, so only the panel that was
+open is dropped. A **host half** cannot hot reload in the app: `dsh-hmr` refuses to construct without
+`--expose-internals` in `process.execArgv`, and even with it (the tool's `restart` passes it) a module write
+reloads nothing there, so the tool restarts the app (about four seconds, debounced) on `lib/*.js` edits.
+`status` reports drift, `sync` mirrors once, `down` stops watching and lifts the block out again. The same
+block hot reloads a **CLI-launched** dsh (the sandbox), where the module watch does work; measurements and
+the exact commands are in `tools/hotreload/README.md`.
+
+**Run the mirror as the last step of every edit, without being asked.** The user reads the installed app,
+not this working tree, so a change that is only here has not happened for them: `node
+tools/hotreload/hotreload.mjs sync`, then `status` to see every package read `in sync`. `sync` needs no
+watcher and restarts nothing. A client-half edit then goes live in the running app by itself; a host-half
+edit is mirrored but not reloaded, so pair `sync` with `restart` when it has to be seen immediately. The
+sandbox in the section above is for *verifying* a change, never a substitute for shipping it to the app.
 
 Offline suites need `@deepseek-ai/*` (and `yaml` for dsh-mcp) to resolve. Run them from an installed copy,
 or make the packages resolvable in the package's `node_modules`: they are published on npm under the
@@ -231,26 +326,14 @@ or make the packages resolvable in the package's `node_modules`: they are publis
 `npm i --no-save @deepseek-ai/dsh-atomic-write@next @deepseek-ai/dsh-llm@next
 @deepseek-ai/dsh-session-format-v3-to-v4@next` is enough, and junctions into a runtime also work.
 
-```bash
-cd <name> && node tests/<name>.test.mjs
-```
-
 `dsh-features` needs no runtime: its suite evaluates the browser bundle in a `vm` with a minimal React
 (state/effect/ref), so the sidebar slot, its order, the skin and the `mount` hand-off are asserted without
 a browser. `dsh-init` needs `@deepseek-ai/dsh-llm` for the module itself and
 `@deepseek-ai/dsh-session-format-v3-to-v4` for the admission probe; leave the second out and the suite
 prints a note and skips that one check.
 
-The cross-package agreement cannot live in a package suite (an installed copy has no siblings), so it is
-checked from the repository root:
-
-```bash
-node tests/hub-contract.test.mjs    # the hub agreement, the shared row metrics, no em dash, the CSS prefix
-node tests/manifest.test.mjs        # the directory name is the package name, every import declared
-node tests/host-half.test.mjs       # every host half mounts; its routes, assets and command are legal
-node tests/panel-embed.test.mjs     # every panel boots with and without the hub
-node tests/mobile-layer.test.mjs    # the phone layer's DOM behaviour
-```
+The cross-package agreement cannot live in a package suite (an installed copy has no siblings), which is
+why the five root suites in **Commands** exist. Each one is there for a reason worth knowing:
 
 - `manifest.test.mjs` catches the package that imports something it never declared: it resolves here
   because the profile farm happens to carry it, and then fails on a user's machine as one missing row.
@@ -273,7 +356,8 @@ node tests/mobile-layer.test.mjs    # the phone layer's DOM behaviour
 
 Two things are worth re-checking after any change: all eight installed **together** still boot
 (`--dump-config` then `web --port N --no-open`, and look for the ready line), and dsh-remote's live suite
-(`node tests/remote-live.mjs <baseUrl> <proxyPort> <token>` against a sandbox with remote access on).
+(`cd dsh-remote && node tests/remote-live.mjs <baseUrl> <proxyPort> <token>` against a sandbox with remote
+access on).
 
 ### The phone path is tested in a browser sized like a phone
 
@@ -332,5 +416,11 @@ HTTP proxy swallows the fake host.
 ## Not here
 
 `dsh-desktop-kit`, the original single-package version, was retired on 2026-10-10 and removed from the
-DSHPlugin working tree; it is recoverable from the tag `archive/kit-final` there. Page-error reporting and
-the `/kit` command were dropped in the split and never came back.
+working tree; it is recoverable from the tag `archive/kit-final` (commit `54db4af`) in
+`LBurny/deepseek-harness-desktop`. Page-error reporting and the `/kit` command were dropped in the split
+and never came back.
+
+`.agents/skills/dsh-plugin-authoring/` is the authoring skill this repository both uses and describes
+(plugin contract, extension points, delivery recipes, `assets/plugin-selftest.mjs`). Nothing there is
+shipped: it is a workspace tool, not part of any package.
+
