@@ -488,27 +488,20 @@
 }
 
 /* The log view: filters above one scrolling list, one line per record. The shared
-   block gives every control `width: 100%`, so each one that must not grow says so. */
+   block gives every control `width: 100%`, so each one that must not grow says so.
+   The two range dropdowns are selects for the same reason: a checkbox in this row
+   was the one control that did not share the others' height. */
 #dsh-doctor-root .filters {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	margin: 6px 0;
-	font-size: 12px;
 }
 
 #dsh-doctor-root .filters select,
 #dsh-doctor-root .filters button {
 	flex: none;
 	width: auto;
-	white-space: nowrap;
-}
-
-#dsh-doctor-root .filters .check {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	color: var(--dsh-muted);
 	white-space: nowrap;
 }
 

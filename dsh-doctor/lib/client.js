@@ -79,6 +79,8 @@
 		level: ["Level", "级别"],
 		all: ["All", "全部"],
 		onlyOurs: ["Our plugins only", "只看本套插件"],
+		scope: ["Which records to show", "显示哪些记录"],
+		scopeAll: ["All plugins", "全部插件"],
 		filter: ["Filter", "筛选"],
 		copy: ["Copy", "复制"],
 		copied: ["Copied", "已复制"]
@@ -333,7 +335,11 @@
 		logView.list.scrollTop = logView.list.scrollHeight;
 	}
 
-	/** The filter controls. They write into `logView` and repaint the list. */
+	/**
+	 * The filter controls. They write into `logView` and repaint the list. Both
+	 * ranges are dropdowns rather than a dropdown plus a checkbox, so every control
+	 * in the row is the same height as the one beside it.
+	 */
 	function renderFilters() {
 		const levels = ["all", "error", "warn", "info", "debug"];
 		const level = el("select", { class: "level", onchange: (event) => {
@@ -341,11 +347,12 @@
 			paintRecords();
 		} }, ...levels.map((name) => el("option", { value: name, selected: name === logView.level, text: name === "all" ? T("all") : name })));
 		level.value = logView.level;
-		const onlyOurs = el("input", { type: "checkbox", class: "ours", onchange: (event) => {
-			logView.onlyOurs = event?.target?.checked === true;
+		const scopes = { all: T("scopeAll"), ours: T("onlyOurs") };
+		const scope = el("select", { class: "scope", title: T("scope"), onchange: (event) => {
+			logView.onlyOurs = String(event?.target?.value ?? "all") === "ours";
 			paintRecords();
-		} });
-		onlyOurs.checked = logView.onlyOurs;
+		} }, ...Object.entries(scopes).map(([value, text]) => el("option", { value, text, selected: (value === "ours") === logView.onlyOurs })));
+		scope.value = logView.onlyOurs ? "ours" : "all";
 		const match = el("input", { type: "search", class: "match", placeholder: T("filter"), oninput: debounce((event) => {
 			logView.match = String(event?.target?.value ?? "").toLowerCase();
 			paintRecords();
@@ -353,7 +360,7 @@
 		match.value = logView.match;
 		return el("div", { class: "filters" },
 			level,
-			el("label", { class: "check" }, onlyOurs, el("span", { text: T("onlyOurs") })),
+			scope,
 			match,
 			el("button", { text: T("copy"), onclick: () => void copyRecords() }));
 	}
