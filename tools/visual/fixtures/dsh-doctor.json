@@ -39,7 +39,8 @@
   ],
   "files": [
    { "source": "tunnel", "path": "C:/Users/<user>/.dsh/dsh-remote-tunnel.log", "lines": ["INF Thank you for trying Cloudflare Tunnel", "ERR failed to serve incoming request"] }
-  ]
+  ],
+  "retention": { "records": 5000, "minutes": 60 }
  },
  "default": { "ok": true }
 }

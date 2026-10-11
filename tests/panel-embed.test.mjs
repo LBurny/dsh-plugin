@@ -47,7 +47,7 @@ const PAYLOADS = {
 			{ sn: 1, ts: 1700000000000, name: "loader", type: "info", level: 1, text: "apply plugin dsh-doctor" },
 			{ sn: 2, ts: 1700000001000, name: "doctor", type: "warn", level: 2, text: "panel served" }
 		],
-		source: "capture", reset: true, files: []
+		source: "capture", reset: true, files: [], retention: { records: 5000, minutes: 60 }
 	},
 	"dsh-zoom": {
 		config: {
@@ -475,6 +475,17 @@ check(
 	zoomedTo(tallWindow) === expectedCap(500, 360),
 	"dsh-zoom: shrinking the window pulls the level back inside the new ceiling",
 	`${zoomedTo(tallWindow)} vs ${expectedCap(500, 360)}`
+);
+
+/* ------------------- dsh-doctor: the capture window is stated, not left to guess */
+
+// "47 records" invites the question of whether that is everything or a trimmed tail, so
+// the panel repeats the window the host reported rather than leaving the reader to guess.
+const doctorLogs = await bootPanel("dsh-doctor");
+check(
+	textOf(doctorLogs.host).includes("保留窗口 5000"),
+	"dsh-doctor: the log view states the retention window the host reported",
+	textOf(doctorLogs.host).slice(0, 200)
 );
 
 /* ------------------------- dsh-remote: a link that arrives after "enable" */

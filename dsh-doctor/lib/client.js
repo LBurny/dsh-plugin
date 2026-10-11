@@ -36,8 +36,13 @@
 	const API = `${BASE}/api`;
 	/** How often an open panel asks for new log records. */
 	const LIVE_INTERVAL_MS = 3000;
-	/** Records this panel holds; the host keeps its own, larger, window. */
-	const WINDOW_LIMIT = 500;
+	/**
+	 * Records this panel holds and paints. The host keeps a larger ring, so this is what
+	 * a reader can actually reach: it has to be at least as deep as the history anyone
+	 * wants to debug with, and low enough that rebuilding the list on every poll stays
+	 * cheap. The rest of the ring is still there for the next visit.
+	 */
+	const WINDOW_LIMIT = 2000;
 
 	// ------------------------------------------------------------------ i18n
 
@@ -67,6 +72,8 @@
 		activeRows: ["rows active", "行已激活"],
 		failedRows: ["failed", "失败"],
 		records: ["record(s)", "条记录"],
+		keptWindow: ["window", "保留窗口"],
+		minutes: ["min", "分钟"],
 		sourceCapture: ["in-process capture", "进程内捕获"],
 		sourcePlugin: ["this plugin's ring", "本插件环形缓冲"],
 		required: ["required", "必需"],
@@ -161,7 +168,9 @@
 		reason: undefined,
 		records: [],
 		files: [],
-		lastSn: 0,
+		/** What the host keeps before it trims, as it reported it; undefined on an older host. */
+	retention: undefined,
+	lastSn: 0,
 		level: "all",
 		onlyOurs: false,
 		match: "",
@@ -231,6 +240,7 @@
 		logView.source = payload?.source ?? "?";
 		logView.reason = payload?.reason;
 		logView.files = Array.isArray(payload?.files) ? payload.files : [];
+		logView.retention = payload?.retention;
 		logView.records = payload?.reset === true ? incoming : [...logView.records, ...incoming];
 		if (logView.records.length > WINDOW_LIMIT) logView.records = logView.records.slice(-WINDOW_LIMIT);
 		logView.lastSn = logView.records.at(-1)?.sn ?? 0;
@@ -379,7 +389,12 @@
 	/** The log view: where the records came from, the filters, the lines, the files. */
 	function renderLogs() {
 		const source = logView.source === "capture" ? T("sourceCapture") : logView.source === "plugin" ? T("sourcePlugin") : logView.source;
-		logView.meta = el("div", { class: "row-sub", text: `${T("logs")} · ${T("logSource")}: ${source}${logView.records.length === 0 ? "" : ` · ${String(logView.records.length)} ${T("records")}`}${logView.reason === undefined ? "" : ` · ${String(logView.reason)}`}` });
+		// "47 records" invites the question of whether that is all of them or a trimmed
+		// tail, so the window the host is keeping rides along when it reports one.
+		const window_ = logView.retention === undefined
+			? ""
+			: ` · ${T("keptWindow")} ${String(logView.retention.records)} ${T("records")} / ${String(logView.retention.minutes)} ${T("minutes")}`;
+		logView.meta = el("div", { class: "row-sub", text: `${T("logs")} · ${T("logSource")}: ${source}${logView.records.length === 0 ? "" : ` · ${String(logView.records.length)} ${T("records")}`}${window_}${logView.reason === undefined ? "" : ` · ${String(logView.reason)}`}` });
 		logView.list = el("div", { class: "loglines" });
 		const files = logView.files.length === 0
 			? undefined

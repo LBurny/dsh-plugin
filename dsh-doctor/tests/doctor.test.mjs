@@ -88,6 +88,27 @@ const held = store.snapshot();
 check(held.length === 3 && held[0].sn === 2, "the store keeps at most its limit, dropping the oldest", held.map((record) => record.sn).join(","));
 check(held.at(-1).sn === 4 && store.lastSn === 4, "sn keeps counting past the window", String(store.lastSn));
 
+// A count alone is the wrong bound on its own: one chatty minute would push out an hour of
+// boot history, and an idle session would sit on stale lines forever. The ring also drops
+// what has aged out, measured against the newest record so a replayed boot line keeps its
+// own older timestamp without dragging the window back with it.
+const timed = createRecordStore(10, 60 * 60 * 1000);
+const at = (minutes) => ({ ts: 1700000000000 + minutes * 60_000, name: "loader", type: "info", level: 1, args: [`t+${String(minutes)}`] });
+timed.add(at(0));
+timed.add(at(30));
+timed.add(at(90));
+check(
+	timed.snapshot().map((record) => record.text).join(",") === "t+30,t+90",
+	"a record older than the age window is dropped, keeping the last hour of logged time",
+	timed.snapshot().map((record) => record.text).join(",")
+);
+check(timed.snapshot().length === 2, "the count cap is not what limited it", String(timed.snapshot().length));
+// The floor is one hour of logged time, so a burst inside the window is kept whole even
+// when it lands in the same millisecond as everything else.
+const burst = createRecordStore(100, 60 * 60 * 1000);
+for (let i = 0; i < 5; i += 1) burst.add(at(1));
+check(burst.snapshot().length === 5, "records inside the window are all kept", String(burst.snapshot().length));
+
 const resumed = store.select(2);
 check(resumed.reset === false && resumed.records.map((record) => record.sn).join(",") === "3,4", "a resumed read returns only what is newer", `${String(resumed.reset)}:${resumed.records.map((record) => record.sn).join(",")}`);
 check(store.select(4).records.length === 0, "a client that is up to date gets nothing");

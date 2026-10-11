@@ -22,10 +22,22 @@
  */
 import { format } from "node:util";
 
-/** Records kept in the ring. Small enough to stay cheap, big enough for a session. */
-export const RECORD_LIMIT = 2000;
+/**
+ * Records kept in the ring. Each one is a small object plus one line of text, so a few
+ * thousand cost about a megabyte: cheap enough to hold a whole session's worth, which is
+ * the point of a panel you reach for after something already went wrong.
+ */
+export const RECORD_LIMIT = 5000;
+/**
+ * How much logged time the ring spans. A count alone is the wrong bound on its own: one
+ * chatty minute would push out an hour of boot history, and an idle session would sit on
+ * stale lines forever. Age is measured against the newest record rather than the wall
+ * clock, so a replayed boot record keeps its own older timestamp without dragging the
+ * window back with it. Trimming happens on the way in, which needs no timer to leak.
+ */
+export const RECORD_WINDOW_MS = 60 * 60 * 1000;
 /** Records sent in one response; a client keeps its own window anyway. */
-export const SEND_LIMIT = 500;
+export const SEND_LIMIT = 2000;
 
 /** Query parameters that carry a credential. */
 const TOKEN_PARAM = /([?&](?:token|access_token|api_key|apikey|key|secret|password)=)[^&\s"']+/giu;
@@ -68,11 +80,20 @@ function textOf(message) {
 /**
  * A bounded ring of log records, newest last.
  * @param limit - records to keep.
- * @returns `{ add, snapshot, select, count, lastSn, oldestSn }`.
+ * @param windowMs - how much logged time to keep, oldest first.
+ * @returns `{ add, snapshot, select, count, lastSn }`.
  */
-export function createRecordStore(limit = RECORD_LIMIT) {
+export function createRecordStore(limit = RECORD_LIMIT, windowMs = RECORD_WINDOW_MS) {
 	const records = [];
 	let sn = 0;
+	/** Drop what has aged out of the window, oldest first. */
+	const trim = () => {
+		if (records.length === 0) return;
+		const cutoff = records[records.length - 1].ts - windowMs;
+		let drop = 0;
+		while (drop < records.length && records[drop].ts < cutoff) drop += 1;
+		if (drop > 0) records.splice(0, drop);
+	};
 	return {
 		/** Record one cordis `Message`; returns the stored record. */
 		add(message) {
@@ -86,6 +107,7 @@ export function createRecordStore(limit = RECORD_LIMIT) {
 			};
 			records.push(record);
 			if (records.length > limit) records.splice(0, records.length - limit);
+			trim();
 			return record;
 		},
 		/** A copy of what is held, oldest first. */
