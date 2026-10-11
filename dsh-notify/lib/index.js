@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createNotifyBus } from "./bus.js";
+import { createFocuser } from "./focus.js";
 import { guard, readJson, sendBuffer, sendJson, sendText } from "./http.js";
 import { resolveLayout } from "./layout.js";
 import { SILENT, SYSTEM_DEFAULT, listSounds, readSound } from "./sounds.js";
@@ -47,6 +48,7 @@ const LIB_DIR = dirname(fileURLToPath(import.meta.url));
  */
 function createState(ctx) {
 	const bus = createNotifyBus();
+	const focuser = createFocuser();
 	/** Cached settings, invalidated by every write. */
 	let cache;
 	const layout = () => {
@@ -56,6 +58,8 @@ function createState(ctx) {
 	};
 	return {
 		bus,
+		/** Raise the window that shows this harness, for a clicked reminder. */
+		focus: () => focuser.activate(),
 		layout,
 		/** Load settings, memoized until the next save. */
 		async config() {
@@ -288,6 +292,16 @@ function mount(ready, state) {
 		}
 		if (path === "/api/notifications" && method === "GET") {
 			return sendJson(res, 200, { ok: true, items: state.bus.recent() });
+		}
+		// A clicked reminder asks for its window back. A page cannot raise a window the OS has
+		// not already focused, so it hands the job to this half, which runs as a child of the
+		// process that owns the window.
+		if (path === "/api/focus" && method === "POST") {
+			const raised = await state.focus();
+			return sendJson(res, raised ? 200 : 503, {
+				ok: raised,
+				error: raised ? undefined : `no window could be raised on ${process.platform}`
+			});
 		}
 		return sendJson(res, 404, { ok: false, error: `no dsh-notify route for ${method} ${path}` });
 	};

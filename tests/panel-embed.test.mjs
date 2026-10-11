@@ -236,6 +236,11 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 		addEventListener(event, handler) {
 			(listeners[event] ??= []).push(handler);
 		},
+		// A real window can focus itself (which a page may only do for a window the OS has
+		// already focused); it is recorded so a click's browser-side half is observable.
+		focus() {
+			sandbox.focusCalls = (sandbox.focusCalls ?? 0) + 1;
+		},
 		document: dom.document,
 		navigator: { language: "zh-CN", clipboard: { writeText: async () => {} } },
 		// The boot-order guard waits for the shell's sidebar with an observer; the
@@ -284,6 +289,10 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 		sandbox.Notification = class {
 			constructor(title, options) {
 				notifications.shown.push({ title, ...options });
+				// The instance itself is kept too: a panel hangs `onclick` on it, and a click is
+				// a side effect that has to be observable (it asks the host to raise the window).
+				(notifications.notices ??= []).push(this);
+				this.title = title;
 			}
 			static permission = notifications.permission ?? "granted";
 			static requestPermission() {
@@ -689,6 +698,30 @@ check(
 	beforeRefresh === 0 && page.played.length === 1,
 	"dsh-notify: settings changed elsewhere reach this page when it comes back to the front",
 	`before=${String(beforeRefresh)} after=${String(page.played.length)}`
+);
+
+/* ------------- dsh-notify: what a click on the reminder is worth */
+
+// A reminder that cannot take the reader to the thing it is about is half a reminder, and the
+// page cannot do it alone: `window.focus()` is a no-op for a window the OS has not focused, and
+// the desktop app exposes no IPC that raises it. So the click also asks the host half, which is
+// a child of the process owning the window. The stub here records the routes a panel calls.
+const clicks = { played: [], shown: [] };
+const called = [];
+const clickable = await bootPanel("dsh-notify", {
+	payload: (path) => {
+		called.push(path);
+		return notifyPayload;
+	},
+	notifications: clicks
+});
+clicks.source?.push({ kind: "turn_done", text: "the turn finished" });
+clicks.notices?.[0]?.onclick?.();
+await new Promise((resolve) => setTimeout(resolve, 30));
+check(
+	clickable.sandbox.focusCalls === 1 && called.some((path) => path.endsWith("/dsh-notify/api/focus")),
+	"dsh-notify: clicking the reminder focuses the page and asks the host half to raise the window",
+	`window.focus()x${String(clickable.sandbox.focusCalls ?? 0)} routes ${called.filter((path) => path.includes("/api/")).join(",") || "(none)"}`
 );
 
 /* ------------- dsh-notify: what a raised reminder then does */

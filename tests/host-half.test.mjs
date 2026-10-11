@@ -357,6 +357,23 @@ check(
 	"dsh-notify: a subagent's own turn is not a reminder",
 	String(beforeSubagentTurn)
 );
+// A reminder that cannot take the reader to what it is about is half a reminder, and the page
+// cannot raise the window itself, so the click reaches this half over a route. The path is
+// written out separately in each half, which is exactly how the two drift apart unnoticed, and
+// so it is pinned here as well as in the panel suite. The route is POST-only, which is also why
+// calling it with a GET below is safe: it must not raise anything.
+check(
+	read(join("dsh-notify", "lib", "index.js")).includes('path === "/api/focus" && method === "POST"'),
+	"dsh-notify: the window raise is a POST route the panel can reach",
+	""
+);
+const focusGet = await call(notifyRoute, "/dsh-notify/api/focus", "GET");
+check(
+	focusGet.status === 404,
+	"dsh-notify: a GET on the window raise is refused, so nothing raises a window by accident",
+	`status ${String(focusGet.status)}`
+);
+
 notifier.rm();
 
 /* ----------------------------------------------------------------- report */

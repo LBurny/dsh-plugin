@@ -10,6 +10,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNotifyBus } from "../lib/bus.js";
+import { focusCommand } from "../lib/focus.js";
 import { resolveLayout } from "../lib/layout.js";
 import { DEFAULT_SOUND, NOTIFY_KINDS, defaultConfig, loadConfig, mergeDeep, normalizeConfig, saveConfig } from "../lib/settings.js";
 import { SILENT, SYSTEM_DEFAULT, listSounds, readSound } from "../lib/sounds.js";
@@ -120,6 +121,39 @@ await rm(dir, { recursive: true, force: true });
 
 const layout = resolveLayout({ documentPath: join("H:", "home", "profiles", "web", "cordis.patch.yml") });
 check(layout.configPath === join("H:", "home", "dsh-notify.json"), "settings live next to the DSH home", layout.configPath);
+
+/* ------------------------------------------------------------ window raise */
+
+// A clicked reminder asks the host half to raise the application window, because a page cannot
+// do it. The command is built from the platform and this process's parent, and it is built
+// without running anything, which is what these checks are about: the real activation is one
+// `spawn` away and cannot be exercised in a test (it would raise whoever's window is up).
+const windows = focusCommand("win32", 4321);
+check(
+	windows?.command === "powershell" && windows.args.join(" ").includes("4321"),
+	"the window raise targets this process's parent on Windows",
+	`${String(windows?.command)} ${windows?.args.slice(0, 3).join(" ")}…`
+);
+check(
+	windows.args.at(-1).includes("SetForegroundWindow") && windows.args.at(-1).includes("AttachThreadInput"),
+	"the raise attaches to the foreground thread, which is what Windows demands of a steal",
+	"SetForegroundWindow + AttachThreadInput"
+);
+check(
+	windows.args.at(-1).includes("SetWindowPos") && windows.args.at(-1).includes("-1"),
+	"and falls back to a topmost round trip when the foreground rule still says no",
+	"SetWindowPos TOPMOST then NOTOPMOST"
+);
+check(
+	windows.args.includes("-WindowStyle") && windows.args.includes("Hidden"),
+	"the raise runs hidden, so a click does not flash a console window",
+	windows.args.slice(0, 5).join(" ")
+);
+check(
+	focusCommand("darwin", 4321) === undefined && focusCommand("linux", 4321) === undefined && focusCommand("win32", 0) === undefined,
+	"a platform without an implementation raises nothing instead of guessing",
+	String(focusCommand("darwin", 4321))
+);
 
 /* ------------------------------------------------------------- reporting */
 

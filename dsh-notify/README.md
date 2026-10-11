@@ -59,7 +59,11 @@ completion kinds (`turn_done`, `answer_done`) default to the background, where t
 popping a toast you are already looking at.
 
 Channels: an in-page popup, a sound (a bundled 17-sound pack, the system default, or silent), and a
-browser notification (needs permission once). Volume 0–1.
+browser notification (needs permission once). Volume 0–1. Clicking the notification raises the
+window that shows the harness: the page asks the host half, because `window.focus()` is a no-op for
+a window the OS has not already focused and the desktop app exposes no IPC for it. The host runs as
+a child of the process that owns the window, walks up that chain and asks Windows to activate it,
+with the topmost round trip as a fallback when the foreground rule refuses.
 
 Only one of them makes a noise. A system notification sounds off its own on Windows, so it is raised
 silent whenever the sound above is one of the bundled files or silent; the "system default" choice is

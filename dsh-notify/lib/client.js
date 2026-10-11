@@ -265,9 +265,17 @@
 					tag: `dsh-notify-${item.kind}`,
 					silent: config.sound !== "default"
 				});
-				// The shell's toast click raises the main window; the browser
-				// equivalent is focusing this tab.
-				notice.onclick = () => window.focus();
+				// Clicking the reminder should bring the application up. `window.focus()`
+				// covers the browser (where the page is the window), and the host half covers
+				// the desktop app, where a page cannot raise a window the OS has not focused
+				// and the app exposes no IPC for it: the host is a child of the window's own
+				// process and can ask Windows directly.
+				notice.onclick = () => {
+					window.focus();
+					void postJson(`${API}/focus`, { kind: item.kind }).catch(() => {
+						/* a window that stays where it is costs the click, nothing else */
+					});
+				};
 			} catch {
 				/* some engines refuse notifications outside a user gesture */
 			}
