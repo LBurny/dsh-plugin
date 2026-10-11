@@ -27,6 +27,7 @@ node tests/panel-embed.test.mjs              #   every panel boots with and with
 node tests/mobile-layer.test.mjs             #   the phone layer's DOM behaviour
 
 cd <pkg> && node tests/*.test.mjs            # one package's sibling suite (named by role: hub, proxy, ...)
+cd dsh-remote && node tests/cloudflared.test.mjs && node tests/proxy.test.mjs   # this package has two
 
 "$NODE" .agents/skills/dsh-plugin-authoring/assets/plugin-selftest.mjs <plugin dir>   # exit 0/1
 ```
@@ -214,8 +215,44 @@ exists)
   cloudflared is the case: tunnel mode spawns it, the shell bundles one beside its node, the official
   desktop app bundles nothing, and it is usually not on PATH. `findCloudflared` searches the setting, the
   running runtime's directory, `<dsh home>/../tunnel/`, every `PATH` entry and the common Windows install
-  locations, and the panel names where it looked and takes a path. Keep the candidate list injectable
-  (`cloudflaredCandidates`) so the search is tested without a binary on the machine.
+  locations, and when that finds nothing `lib/cloudflared.js` installs one itself, on plugin load, to
+  `<dsh home>/../tunnel/`. Keep the candidate list injectable (`cloudflaredCandidates`) so the search is
+  tested without a binary on the machine, and keep the installer's probes injectable (`run`,
+  `exists`, `fetchManifest`, `verifySignature`) for the same reason.
+- Where that download comes from is measured, not assumed: the version and the sha256 are read from
+  Cloudflare's own update endpoint `https://update.argotunnel.com/?os=<windows|darwin|linux>&arch=<amd64|arm64>`
+  (the manifest cloudflared's built-in updater uses: Cloudflare-hosted, reachable from a line where
+  `github.com` is DNS-poisoned, and not behind the GitHub API rate limit), while the bytes come from the
+  `github.com` URL it returns, fetched with `curl` so the `cloudflaredProxy` setting or `HTTPS_PROXY` can
+  carry them (measured: 55,365,048 bytes in 11 s through a local proxy, digest identical to the manifest's,
+  versus 162 s and a truncated file from a community mirror). Nothing is installed until the digest matches
+  and, on Windows, until the Authenticode signature is Cloudflare's, `powershell Get-AuthenticodeSignature`
+  being the check that does not depend on a hash arriving from the same network as the bytes.
+- **On a `compressed` platform the digest is the unpacked executable's, not the archive's**, and that
+  ordering is not a detail: `darwin` ships a `.tgz`, and measured on the real release the archive hashes to
+  `903845b8…` while the 42,328,240-byte Mach-O inside it hashes to `0560c9ab…`, which is the manifest's
+  checksum. So unpack first (a hand-written 512-byte tar reader plus `zlib.gunzipSync`, no dependency), then
+  hash the file that will be installed. Hashing the download instead fails every macOS install with
+  "checksum"; installing the archive instead leaves a tarball named `cloudflared` that the manifest's own
+  digest accepts, which the search then calls ready forever and `spawn` can never run. A unit test built on
+  a self-made tarball passed with the wrong order, so check this class against real Cloudflare bytes
+  (`curl --proxy` the release, then compare both digests) rather than against a fixture.
+- The tunnel's own lifecycle is where a mistake is an uncaught exception or a slow leak, not a wrong
+  pixel, and all three of these were real. `spawn` emits `error` and never `exit` when it cannot start the
+  binary, and an `error` with no listener is an uncaught exception **inside the harness process**: the
+  search rules out a missing file, not one that exists and cannot be executed. The detached log is opened
+  with `openSync` and its descriptor belongs to the parent, so it has to be `closeSync`d right after the
+  spawn or every start and every retry leaks one. And the log poll and the URL deadline have to be dropped
+  by `stop()` itself: the "leave the tunnel alive" path deliberately leaves the child running, so no `exit`
+  event ever arrives to clear them, and an orphaned poll keeps reading the log twice a second and reports a
+  URL into a handle that already stopped.
+- The installer runs at plugin load, so tunnel mode can be switched on while the download is still in
+  flight and be told the binary is missing seconds before it lands. That is why the manager's tunnel step
+  is its own idempotent `startTunnel()` (a proxy that is not running, another mode and an existing tunnel
+  all return the snapshot untouched) and why provisioning ends by calling it: the channel comes up by
+  itself instead of waiting to be toggled. The binary probe (`findBinary`) is injectable for the same
+  reason `cloudflaredCandidates` is: it reads the real environment, so a test on a machine that already has
+  cloudflared would otherwise spawn it.
 - A phone link must survive a restart, so the tunnel outlives dsh. A Cloudflare quick tunnel picks a
   random hostname per process, so cloudflared is spawned **detached** with its output in
   `<DSH_HOME>/dsh-remote-tunnel.log` (a pipe breaks the moment dsh exits, and cloudflared dying on a write

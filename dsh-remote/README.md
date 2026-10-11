@@ -80,8 +80,8 @@ Served by dsh's origin, behind its gate:
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
 | GET | `/dsh-remote/client.js` `/dsh-remote/client.css` | browser half |
-| GET | `/dsh-remote/api/remote` | state, link, LAN addresses, tailnet status, cloudflared path |
-| POST | `/dsh-remote/api/remote` | `enable` · `disable` · `mode` (`tailnet` · `lan` · `tunnel`) · `reset-token` |
+| GET | `/dsh-remote/api/remote` | state, link, LAN addresses, tailnet status, cloudflared path, and the installer's report (`cloudflaredSetup`) |
+| POST | `/dsh-remote/api/remote` | `enable` · `disable` · `mode` (`tailnet` · `lan` · `tunnel`) · `reset-token` · `cloudflared` (a path) · `cloudflared-proxy` (a proxy URL) · `cloudflared-install` (start the install again) |
 | GET | `/dsh-remote/api/status` | the same state **without** the credential |
 | GET | `/dsh-remote/qr.svg` | QR code for the current link |
 
@@ -98,7 +98,7 @@ never logged. Disabling revokes the cookie, and *Reset link* invalidates every l
 
 | What | Where |
 | ---- | ----- |
-| Enabled, channel, port, token, cloudflared path | `$DSH_HOME/dsh-remote.json` |
+| Enabled, channel, port, token, cloudflared path and download proxy | `$DSH_HOME/dsh-remote.json` |
 
 Token and port persist, so **a saved LAN or tailnet link survives a dsh restart** (a tunnel URL cannot,
 because Cloudflare assigns a new hostname each time, while a tailnet link is stable because the MagicDNS
@@ -160,12 +160,27 @@ token, so the old link stops working and the panel shows the new one.
   and binds nothing, because a tailnet-only channel must not quietly fall back to serving the LAN.
   Windows Firewall may prompt the first time the port is bound on the Tailscale interface. No
   certificate and no `tailscale serve` are needed (see "The tailnet channel" above).
-- **Tunnel mode needs a cloudflared binary, and neither app ships one.** The search is, in order: the
-  `cloudflaredPath` setting, the directory holding the running runtime (`process.execPath`, which is
-  where the shell keeps its own copy), `<dsh home>/../tunnel/`, every `PATH` entry, then the winget shim
-  and the MSI install directory. On a machine with none of those the panel says where it looked and
-  takes a path (saved to `$DSH_HOME/dsh-remote.json`); `winget install Cloudflare.cloudflared` is the
-  one-line fix. LAN mode needs no binary at all.
+- **Tunnel mode needs a cloudflared binary, and neither app ships one.** The search runs on every plugin
+  load, in order: the `cloudflaredPath` setting, the directory holding the running runtime
+  (`process.execPath`, which is where the shell keeps its own copy), `<dsh home>/../tunnel/`, every `PATH`
+  entry, then the winget shim and the MSI install directory. When that finds nothing the plugin installs
+  one itself, to `<dsh home>/../tunnel/`, before the panel can ask for anything: the version and the
+  sha256 come from Cloudflare's own update endpoint (`https://update.argotunnel.com/?os=&arch=`), the
+  bytes arrive through `curl`, and nothing is kept unless the digest matches, plus the Authenticode
+  signature on Windows. Where `github.com` cannot be reached (DNS-poisoned on some networks, measured on
+  a China Unicom line) set `cloudflaredProxy` in the panel, or the standard `HTTPS_PROXY`; a path typed
+  by hand still wins over everything. LAN mode needs no binary at all.
+- **The download is verified against Cloudflare, not against whoever served it.** That is what lets the
+  bytes come from a proxy or a mirror at all: the manifest is read from Cloudflare over HTTPS, and a
+  file whose sha256 differs is discarded rather than installed (the temporary download is removed, and
+  the panel names the reason: manifest, download, checksum, signature, unpack, or an unsupported
+  platform).
+- **On macOS the release is a tarball and the checksum is the binary inside it.** Measured against the
+  darwin release: the `.tgz` hashes to `903845b8…` while the 42,328,240-byte Mach-O it holds hashes to
+  `0560c9ab…`, which is what the manifest publishes. So a compressed release is unpacked first and the
+  digest is checked on the file that gets installed. Installing the archive instead would leave a tarball
+  named `cloudflared` whose digest the manifest accepts, which the search then reports as ready on every
+  later run and which can never run.
 - **The tunnel does not survive dsh.** The desktop shell keeps cloudflared outside its Job Object; a
   plugin inside the process cannot, so the tunnel URL changes every restart. Reconnects back off
   500 ms → 30 s, then retry forever.

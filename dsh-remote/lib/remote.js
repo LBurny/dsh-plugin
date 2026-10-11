@@ -32,13 +32,14 @@
  */
 import { spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { existsSync, openSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { connect as netConnect } from "node:net";
 import { networkInterfaces } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findCloudflared } from "./cloudflared.js";
 import { respond as respondEnhanced } from "./enhance.js";
 import { handleProjectRoute, PROJECT_API_PREFIX, PROJECT_PREFIX } from "./project.js";
 import { canAdopt, clearSession, loadSession, saveSession } from "./session.js";
@@ -150,56 +151,6 @@ export function lanAddresses() {
 }
 
 /**
- * Where a cloudflared binary may live, most specific first. Neither app ships one:
- * the shell bundles it beside its node, and the official desktop app bundles nothing
- * at all, so on that app the answer is the user's own install — which is why the
- * locations below matter more than the two bundled ones.
- * @param override - explicit path from settings, if any.
- * @param dshHome - active DSH home, used to find the shell's persistent copy.
- * @param env - environment to read (PATH, LOCALAPPDATA, ProgramFiles).
- * @param execPath - the runtime's node.exe (or the host binary) to look beside.
- * @param platform - `process.platform`.
- * @returns candidates in priority order; the caller takes the first that exists.
- */
-export function cloudflaredCandidates(override, dshHome, env = process.env, execPath = process.execPath, platform = process.platform) {
-	const name = platform === "win32" ? "cloudflared.exe" : "cloudflared";
-	const candidates = [];
-	if (typeof override === "string" && override.length > 0) candidates.push(override);
-	// `process.execPath` is the runtime's node.exe under both the shell and the installer.
-	candidates.push(join(dirname(execPath), name));
-	// The shell keeps a copy outside its install dir so a tunnel outlives the app.
-	if (typeof dshHome === "string" && dshHome.length > 0) candidates.push(join(dirname(dshHome), "tunnel", name));
-	// `cloudflared` installed by hand is on PATH, which is the only place a user can
-	// reasonably be expected to have put it.
-	for (const dir of String(env.PATH ?? "").split(delimiter)) {
-		if (dir.length > 0) candidates.push(join(dir, name));
-	}
-	if (platform === "win32") {
-		// The winget shim directory and the MSI's install directory; both are real
-		// answers on a machine that has cloudflared but never had either app's copy.
-		if (typeof env.LOCALAPPDATA === "string" && env.LOCALAPPDATA.length > 0) {
-			candidates.push(join(env.LOCALAPPDATA, "Microsoft", "WinGet", "Links", name));
-		}
-		for (const root of [env.ProgramFiles, env["ProgramFiles(x86)"]]) {
-			if (typeof root === "string" && root.length > 0) candidates.push(join(root, "cloudflared", name));
-		}
-	}
-	return candidates;
-}
-
-/**
- * Locate the cloudflared binary, preferring the explicit setting and then the places
- * it is actually installed.
- * @param override - explicit path from settings, if any.
- * @param dshHome - active DSH home, used to find the shell's persistent copy.
- * @param exists - existence probe, injectable for tests.
- * @returns the first candidate that exists.
- */
-export function findCloudflared(override, dshHome, exists = existsSync) {
-	return cloudflaredCandidates(override, dshHome).find((candidate) => exists(candidate));
-}
-
-/**
  * Pull the quick-tunnel URL out of a cloudflared log chunk. cloudflared prints it
  * inside a boxed banner, so the match is anchored on the hostname shape rather
  * than on line structure.
@@ -236,6 +187,8 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 	let error;
 	let failures = 0;
 	let retryTimer;
+	let poll;
+	let deadline;
 	let stopping = true;
 	const listeners = new Set();
 
@@ -244,11 +197,29 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 		for (const listener of listeners) listener(status());
 	};
 
+	/**
+	 * Drop both attempt timers. Every path that ends an attempt goes through here, which
+	 * is what keeps `stop()` honest: it can end a run whose child keeps running (the
+	 * deliberate "leave the tunnel alive" case), and no `exit` event will arrive then to
+	 * clean up after it. An orphaned poll would otherwise read the log file twice a second
+	 * and report a URL into a handle that has already stopped.
+	 */
+	const clearTimers = () => {
+		clearTimeout(deadline);
+		clearInterval(poll);
+		deadline = undefined;
+		poll = undefined;
+	};
+
 	/** Record the live tunnel so the next start can adopt it. */
 	const remember = (pid) => {
 		if (url === "" || !Number.isInteger(pid) || pid <= 0) return;
 		try {
-			onSession({ tunnelUrl: url, tunnelPid: pid, cloudflaredExe: exe, target });
+			// onSession returns the write's promise; a failed write (read-only home, full
+			// disk) must be a log line here, never an unhandled rejection in the harness.
+			void Promise.resolve(onSession({ tunnelUrl: url, tunnelPid: pid, cloudflaredExe: exe, target })).catch((cause) => {
+				log(`could not record the tunnel session: ${String(cause?.message ?? cause)}`);
+			});
 		} catch (cause) {
 			log(`could not record the tunnel session: ${String(cause?.message ?? cause)}`);
 		}
@@ -268,6 +239,7 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 		state = "starting";
 		error = undefined;
 		notify();
+		clearTimers();
 		// http2 is pinned on purpose: the desktop shell found QUIC/UDP gets killed by
 		// some carriers, which shows up as a tunnel that dies mid-session.
 		let sink;
@@ -279,15 +251,39 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 		} catch {
 			sink = "ignore";
 		}
-		child = spawn(exe, ["tunnel", "--url", target, "--no-autoupdate", "--protocol", "http2"], {
-			windowsHide: true,
-			// Detached is the whole point: this is the process that keeps the hostname
-			// alive while dsh is not running.
-			detached: true,
-			stdio: ["ignore", sink, sink]
-		});
+		let spawnFailure;
+		try {
+			child = spawn(exe, ["tunnel", "--url", target, "--no-autoupdate", "--protocol", "http2"], {
+				windowsHide: true,
+				// Detached is the whole point: this is the process that keeps the hostname
+				// alive while dsh is not running.
+				detached: true,
+				stdio: ["ignore", sink, sink]
+			});
+		} catch (cause) {
+			// A synchronous throw is the same failure as an `error` event below, and this
+			// runs inside a retry timer as well, where a throw is an uncaught exception.
+			spawnFailure = cause;
+		} finally {
+			// The child has its own copy of the descriptor. Without closing ours, every
+			// start and every retry leaks one for as long as the harness runs.
+			if (typeof sink === "number") closeSync(sink);
+		}
+		if (spawnFailure !== undefined) {
+			state = "error";
+			error = `cloudflared could not start: ${String(spawnFailure?.message ?? spawnFailure)}`;
+			log(error);
+			notify();
+			scheduleRetry();
+			return;
+		}
 		child.unref();
-		const deadline = setTimeout(() => {
+		// Every handler below belongs to this one attempt: a stale child's `error`/`exit`
+		// (SIGTERM can land long after `stopChild` killed it) must not clear the *current*
+		// attempt's poll and deadline or double-schedule a retry.
+		const attempt = child;
+		deadline = setTimeout(() => {
+			if (child !== attempt) return;
 			if (state === "starting") {
 				error = "cloudflared did not report a tunnel url";
 				log(error);
@@ -298,7 +294,7 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 		deadline.unref?.();
 		// The URL is read back from the log file rather than from a pipe, because a
 		// detached tunnel keeps writing after we are gone.
-		const poll = setInterval(() => {
+		poll = setInterval(() => {
 			if (url !== "") {
 				clearInterval(poll);
 				return;
@@ -322,9 +318,23 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 			notify();
 		}, 500);
 		poll.unref?.();
+		// A spawn that fails emits `error` and never `exit`, and an `error` with no listener
+		// is an uncaught exception inside the harness process. The search rules out a missing
+		// file, not one that exists and cannot be executed.
+		child.on("error", (cause) => {
+			if (child !== attempt) return;
+			clearTimers();
+			child = undefined;
+			if (stopping) return;
+			state = "error";
+			error = `cloudflared could not start: ${String(cause?.message ?? cause)}`;
+			log(error);
+			notify();
+			scheduleRetry();
+		});
 		child.on("exit", (code) => {
-			clearTimeout(deadline);
-			clearInterval(poll);
+			if (child !== attempt) return;
+			clearTimers();
 			child = undefined;
 			if (stopping) return;
 			state = "error";
@@ -346,17 +356,6 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 		}
 	}
 
-	/** Kill a process we only know by pid (an adopted tunnel). */
-	function killPid(pid) {
-		if (!Number.isInteger(pid) || pid <= 0) return;
-		try {
-			if (process.platform === "win32") spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }).unref();
-			else process.kill(pid);
-		} catch {
-			/* already gone */
-		}
-	}
-
 	/**
 	 * Stop supervising.
 	 * @param options - `revoke: true` (the reader turned remote access off) also kills
@@ -366,9 +365,12 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 	function stop({ revoke = false } = {}) {
 		stopping = true;
 		clearTimeout(retryTimer);
+		// Both attempt timers, not just the retry: the non-revoke path deliberately leaves
+		// the child running, so no `exit` event will come and clean up after it.
+		clearTimers();
 		if (revoke) {
 			stopChild();
-			killPid(adoptedPid);
+			killStale(adoptedPid);
 		} else {
 			// Leaving the child alive means dropping our handle to it, not killing it.
 			child = undefined;
@@ -412,14 +414,21 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 /**
  * Kill a process this run does not own, best effort. Used on a recorded tunnel that
  * turned out to be unusable, so a long-lived machine does not collect cloudflared
- * processes that nobody will ever adopt.
+ * processes that nobody will ever adopt, and on an adopted tunnel the reader turns off.
  * @param pid - the recorded pid.
  */
 function killStale(pid) {
 	if (!Number.isInteger(pid) || pid <= 0) return;
 	try {
-		if (process.platform === "win32") spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }).unref();
-		else process.kill(pid);
+		if (process.platform === "win32") {
+			const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+			// An `error` with no listener on a ChildProcess is an uncaught exception, and a
+			// pid that is already gone is the expected case here.
+			killer.on("error", () => {});
+			killer.unref();
+		} else {
+			process.kill(pid);
+		}
 	} catch {
 		/* already gone */
 	}
@@ -449,11 +458,17 @@ async function tunnelAnswers(url, token, timeoutMs = TUNNEL_PROBE_TIMEOUT_MS) {
 
 /**
  * The remote-access manager: owns the proxy, the tunnel and the token.
- * @param options - context, path layout, settings accessor/saver and a logger.
+ * @param options - context, path layout, settings accessor/saver, a logger, and the
+ *   binary probe. That probe is injectable because it reads the real environment: on a
+ *   machine that already has cloudflared the real one would be spawned by a test.
  */
-export function createRemoteManager({ ctx, layout, config, save, log }) {
+export function createRemoteManager({ ctx, layout, config, save, log, findBinary = findCloudflared }) {
 	let server;
 	let tunnel;
+	/** An in-flight tunnel start; a concurrent caller joins it instead of spawning twice. */
+	let tunnelOpening;
+	/** Set by `suspend`: after unload nothing may spawn a tunnel again. */
+	let disposed = false;
 	/** Last tailnet resolution, refreshed when the channel is enabled. */
 	let tailnet;
 	let authCookie;
@@ -470,7 +485,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 	 * whenever it loads or writes settings instead.
 	 */
 	let cachedSettings;
-	const settings = () => cachedSettings ?? { enabled: false, mode: "tunnel", port: 0, token: "", cloudflaredPath: "" };
+	const settings = () => cachedSettings ?? { enabled: false, mode: "tunnel", port: 0, token: "", cloudflaredPath: "", cloudflaredProxy: "" };
 	/** Reload the snapshot from this plugin's settings store. */
 	async function refreshSettings() {
 		cachedSettings = await config();
@@ -528,9 +543,9 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		// null rather than undefined so the field always survives JSON and the panel
 		// can tell "not found" from "not reported". The configured path rides along so
 		// the panel can show what is set, or let the reader set it.
-		cloudflared: findCloudflared(settings().cloudflaredPath, layout().dshHome) ?? null,
+		cloudflared: findBinary(settings().cloudflaredPath, layout().dshHome) ?? null,
 		cloudflaredPath: settings().cloudflaredPath,
-		cloudflaredSearched: cloudflaredCandidates(settings().cloudflaredPath, layout().dshHome).length,
+		cloudflaredProxy: settings().cloudflaredProxy,
 		error
 	});
 
@@ -744,6 +759,80 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		forward(req, res);
 	}
 
+	/**
+	 * Bring up the tunnel for an enabled tunnel-mode proxy.
+	 *
+	 * Separate from `enable` because the binary can arrive *after* the reader turned the
+	 * channel on: the installer runs in the background, so the first enable on a machine
+	 * without cloudflared reports the binary missing seconds before the download lands.
+	 * Being able to call this again then is what makes the channel work the moment the
+	 * file exists, instead of leaving the reader to toggle the mode before they notice.
+	 *
+	 * Idempotent on purpose: a proxy that is not running, a mode that is not `tunnel`, and a
+	 * tunnel that already exists all return the current snapshot untouched. Two callers can
+	 * still pass that guard together (the load-time provisioning overlaps a fresh enable, and
+	 * the adoption probe below awaits), so the attempt itself is shared: the second caller
+	 * joins it rather than spawning a second cloudflared that would orphan the first.
+	 * @returns the snapshot after the attempt.
+	 */
+	async function startTunnel() {
+		if (server === undefined || disposed || settings().mode !== "tunnel" || tunnel !== undefined) return snapshot();
+		tunnelOpening ??= openTunnel().finally(() => {
+			tunnelOpening = undefined;
+		});
+		await tunnelOpening;
+		return snapshot();
+	}
+
+	/** One tunnel attempt: adopt the recorded one when it still answers, else spawn. */
+	async function openTunnel() {
+		const exe = findBinary(settings().cloudflaredPath, layout().dshHome);
+		if (exe === undefined) {
+			state = "error";
+			// The panel explains where it looked and takes a path; this string is the
+			// short form for the status row, and carries no em dash.
+			error = "cloudflared binary not found";
+			log(error);
+			publish();
+			return;
+		}
+		const target = `http://127.0.0.1:${String(proxyPort())}`;
+		const paths = layout();
+		// The link is a credential the reader has already handed to a phone, so a restart
+		// should not silently invalidate it: adopt the tunnel the previous session left
+		// running whenever it is still ours and still answers.
+		const saved = loadSession(paths.sessionPath);
+		const adopt = canAdopt(saved, { exe, target }) && (await tunnelAnswers(saved.tunnelUrl, settings().token));
+		tunnel = createTunnel({
+			exe,
+			target,
+			logPath: paths.tunnelLogPath,
+			onSession: (state_) => saveSession(paths.sessionPath, state_),
+			log
+		});
+		// Subscribe before starting or adopting: both notify synchronously, and a listener
+		// attached afterwards never hears about the transition that carries the URL. That is
+		// why the panel used to show no link (and no QR) until it was remounted, and why an
+		// adopted tunnel could go a whole session without one.
+		tunnel.onChange((tunnelStatus) => {
+			state = tunnelStatus.state === "up" ? "up" : tunnelStatus.state === "off" ? "off" : "starting";
+			error = tunnelStatus.error;
+			if (tunnelStatus.url !== "") link = `${tunnelStatus.url}/?token=${settings().token}`;
+			publish();
+		});
+		if (adopt) {
+			tunnel.adopt(saved);
+			resumed = true;
+		} else {
+			// A recorded tunnel that cannot be adopted is dead weight: kill it so a
+			// long-lived machine does not accumulate cloudflared processes.
+			if (saved !== undefined) killStale(saved.tunnelPid);
+			clearSession(paths.sessionPath);
+			resumed = false;
+			tunnel.start();
+		}
+	}
+
 	/** Start the proxy, and in tunnel mode bring up cloudflared. */
 	async function enable(mode) {
 		const wanted = normalizeMode(mode);
@@ -824,56 +913,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		log(`remote proxy listening on ${bind}:${String(port)}${wanted === "tailnet" && tailnet.dnsName !== undefined ? ` (${tailnet.dnsName})` : ""}`);
 		publish();
 
-		if (wanted === "tunnel") {
-			const exe = findCloudflared(current.cloudflaredPath, layout().dshHome);
-			if (exe === undefined) {
-				state = "error";
-				// The panel explains where it looked and takes a path; this string is the
-				// short form for the status row, and carries no em dash.
-				error = "cloudflared binary not found";
-				log(error);
-				publish();
-			} else {
-				const target = `http://127.0.0.1:${String(port)}`;
-				const paths = layout();
-				// The link is a credential the reader has already handed to a phone, so a
-				// restart should not silently invalidate it: adopt the tunnel the previous
-				// session left running whenever it is still ours and still answers.
-				const saved = loadSession(paths.sessionPath);
-				// The link is a credential the reader has already handed to a phone, so a
-				// restart should not silently invalidate it: adopt the tunnel the previous
-				// session left running whenever it is still ours and still answers.
-				const adopt = canAdopt(saved, { exe, target }) && (await tunnelAnswers(saved.tunnelUrl, current.token));
-				tunnel = createTunnel({
-					exe,
-					target,
-					logPath: paths.tunnelLogPath,
-					onSession: (state_) => saveSession(paths.sessionPath, state_),
-					log
-				});
-				// Subscribe before starting or adopting: both notify synchronously, and a
-				// listener attached afterwards never hears about the transition that carries
-				// the URL. That is why the panel used to show no link (and no QR) until it was
-				// remounted, and why an adopted tunnel could go a whole session without one.
-				tunnel.onChange((tunnelStatus) => {
-					state = tunnelStatus.state === "up" ? "up" : tunnelStatus.state === "off" ? "off" : "starting";
-					error = tunnelStatus.error;
-					if (tunnelStatus.url !== "") link = `${tunnelStatus.url}/?token=${settings().token}`;
-					publish();
-				});
-				if (adopt) {
-					tunnel.adopt(saved);
-					resumed = true;
-				} else {
-					// A recorded tunnel that cannot be adopted is dead weight: kill it so a
-					// long-lived machine does not accumulate cloudflared processes.
-					if (saved !== undefined) killStale(saved.tunnelPid);
-					clearSession(paths.sessionPath);
-					resumed = false;
-					tunnel.start();
-				}
-			}
-		}
+		if (wanted === "tunnel") await startTunnel();
 		return snapshot();
 	}
 
@@ -904,6 +944,9 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 	 * so the next start can adopt it. Only the proxy dies, with the process.
 	 */
 	function suspend() {
+		// From here on this manager is done: an install that lands after unload must not
+		// start a tunnel on a plugin dsh has already unloaded.
+		disposed = true;
 		if (tunnel === undefined) return;
 		tunnel.stop();
 		tunnel = undefined;
@@ -934,6 +977,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 		disable,
 		suspend,
 		setMode,
+		startTunnel,
 		/** Issue a fresh credential; every link shared before this stops working. */
 		async resetToken() {
 			const wasEnabled = server !== undefined;
@@ -958,7 +1002,7 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 			log(next === "" ? "cloudflared path cleared" : `cloudflared path set to ${next}`);
 			return snapshot();
 		},
-		cloudflared: () => findCloudflared(settings().cloudflaredPath, layout().dshHome),
+		cloudflared: () => findBinary(settings().cloudflaredPath, layout().dshHome),
 		/** The Tailscale CLI, when it is installed. Optional: the channel does not need it. */
 		tailscale: () => findTailscale()
 	};

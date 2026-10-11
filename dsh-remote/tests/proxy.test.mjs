@@ -1,8 +1,8 @@
 /**
  * Unit checks for the remote proxy's pieces: the WebSocket frame bridge
  * (lib/wsbridge.js), the response transforms (lib/enhance.js), the phone project
- * backend (lib/project.js), the cloudflared search (lib/remote.js) and the QR token
- * helpers.
+ * backend (lib/project.js), the cloudflared search (lib/cloudflared.js) and the QR
+ * token helpers.
  *
  * Run from a plugin location where dependencies resolve (the sandbox or the
  * deployed profile copy):
@@ -27,7 +27,8 @@ import {
 	wantsHtmlDocument
 } from "../lib/enhance.js";
 import { contained, contentDisposition, handleProjectRoute, listDir, mimeFor, readProjectFile, resolveWorkspace } from "../lib/project.js";
-import { cloudflaredCandidates, findCloudflared, normalizeMode } from "../lib/remote.js";
+import { cloudflaredCandidates, findCloudflared } from "../lib/cloudflared.js";
+import { normalizeMode } from "../lib/remote.js";
 import { canAdopt, clearSession, loadSession, saveSession } from "../lib/session.js";
 import { normalizeConfig } from "../lib/settings.js";
 import {
@@ -598,6 +599,179 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	);
 }
 
+/* ------------------------------------------- the manager's own tunnel step */
+
+// `startTunnel` is what makes the channel come up once the binary exists, because the
+// installer downloads in the background: the reader can turn tunnel mode on while it is
+// still in flight and be told the binary is missing seconds before it lands. These drive
+// a real manager against a stand-in dsh, with the binary probe injected so the test never
+// depends on (or spawns) whatever this machine happens to have installed.
+{
+	const { createRemoteManager } = await import("../lib/remote.js");
+	const { createServer: createHttp } = await import("node:http");
+	// The one thing enable() waits for is the launch-token exchange, which needs a
+	// Set-Cookie back from dsh's own loopback address.
+	const stubDsh = createHttp((req, res) => {
+		res.writeHead(303, { "set-cookie": "dsh-auth=stub; Path=/; HttpOnly" });
+		res.end();
+	});
+	await new Promise((resolve) => stubDsh.listen(0, "127.0.0.1", resolve));
+	const dir = await mkdtemp(join(tmpdir(), "dsh-remote-manager-"));
+	let settings = { enabled: false, mode: "tunnel", port: 0, token: "", cloudflaredPath: "", cloudflaredProxy: "" };
+	let binary;
+	const manager = createRemoteManager({
+		ctx: {
+			get: (name) =>
+				({
+					webServer: { port: stubDsh.address().port },
+					connection: { authenticatedUrl: (base) => `${base}/?token=launch-token` }
+				})[name],
+			logger: { info: () => {}, warn: () => {} }
+		},
+		layout: () => ({
+			dshHome: dir,
+			configPath: join(dir, "dsh-remote.json"),
+			sessionPath: join(dir, "dsh-remote-session.json"),
+			tunnelLogPath: join(dir, "dsh-remote-tunnel.log"),
+			workspaceStorePath: join(dir, "workspaces.json")
+		}),
+		config: async () => settings,
+		save: async (patch) => {
+			settings = { ...settings, ...patch };
+			return settings;
+		},
+		log: () => {},
+		findBinary: () => binary
+	});
+
+	// Nothing is enabled yet, so the tunnel step has nothing to do and must not throw.
+	const idle = await manager.startTunnel();
+	check(idle.state === "off" && idle.enabled === false && idle.tunnel === undefined, "startTunnel does nothing until the proxy is running", JSON.stringify(idle.state));
+
+	// Enabled tunnel mode with no binary is the state the installer is about to fix, so it
+	// has to be reported rather than fatal, and the proxy itself still comes up.
+	const missing = await manager.enable("tunnel");
+	check(missing.enabled === true && missing.state === "error", "tunnel mode with no binary still brings the proxy up", JSON.stringify(missing.state));
+	check(missing.error === "cloudflared binary not found", "and says which piece is missing", String(missing.error));
+	check(missing.proxyPort !== undefined, "the proxy is listening on a real port", String(missing.proxyPort));
+
+	// The download lands: the same call now reaches the spawn, and a binary that cannot be
+	// executed must land in `error` on the tunnel rather than escaping as an uncaught
+	// exception. A ChildProcess `error` with no listener is exactly that uncaught
+	// exception, so a suite that reaches the next line at all is the proof.
+	binary = join(dir, "not-a-real-binary.exe");
+	const spawned = await manager.startTunnel();
+	check(spawned.tunnel !== undefined, "a tunnel is attempted once a binary exists", JSON.stringify(spawned.tunnel?.state));
+	const settled = await waitFor(() => manager.snapshot().tunnel?.state === "error" && String(manager.snapshot().error).startsWith("cloudflared could not start"));
+	check(settled, "a binary that cannot run is reported on the tunnel, not thrown at the harness process", String(manager.snapshot().error));
+	// The manager reads a retrying tunnel as `starting` (it is still being attempted), which
+	// is the pre-existing mapping; the failure itself rides in `error`, which the panel shows.
+	check(manager.snapshot().state === "starting", "a tunnel that keeps failing still reads as still being attempted", String(manager.snapshot().state));
+
+	// A synchronous throw out of `spawn` is the same failure again, and `start()` also runs
+	// inside a retry timer, where a throw is an uncaught exception. Starting over keeps the
+	// "tunnel already exists" guard from hiding this one.
+	await manager.disable();
+	binary = null;
+	await manager.enable("tunnel");
+	check(
+		await waitFor(() => String(manager.snapshot().error).includes("could not start")),
+		"a spawn that throws synchronously does not take the harness down either",
+		String(manager.snapshot().error)
+	);
+
+	// And the reader turning it off still stops everything cleanly from that state.
+	const off = await manager.disable();
+	check(off.state === "off" && off.enabled === false && off.tunnel === undefined, "disabling from a failed tunnel returns to off", JSON.stringify(off.state));
+	check(settings.enabled === false, "disabling records the intent to stay off", String(settings.enabled));
+
+	await new Promise((resolve) => stubDsh.close(resolve));
+	await rm(dir, { recursive: true, force: true });
+}
+
+/* ----------------------------- the tunnel lifecycle races the manager must not have */
+{
+	const { createRemoteManager } = await import("../lib/remote.js");
+	const { createServer: createHttp } = await import("node:http");
+	const stubDsh = createHttp((req, res) => {
+		res.writeHead(303, { "set-cookie": "dsh-auth=stub; Path=/; HttpOnly" });
+		res.end();
+	});
+	await new Promise((resolve) => stubDsh.listen(0, "127.0.0.1", resolve));
+	const dir = await mkdtemp(join(tmpdir(), "dsh-remote-race-"));
+	let settings = { enabled: false, mode: "tunnel", port: 0, token: "", cloudflaredPath: "", cloudflaredProxy: "" };
+	let binary;
+	const logs = [];
+	const manager = createRemoteManager({
+		ctx: {
+			get: (name) =>
+				({
+					webServer: { port: stubDsh.address().port },
+					connection: { authenticatedUrl: (base) => `${base}/?token=launch-token` }
+				})[name],
+			logger: { info: () => {}, warn: () => {} }
+		},
+		layout: () => ({
+			dshHome: dir,
+			configPath: join(dir, "dsh-remote.json"),
+			sessionPath: join(dir, "dsh-remote-session.json"),
+			tunnelLogPath: join(dir, "dsh-remote-tunnel.log"),
+			workspaceStorePath: join(dir, "workspaces.json")
+		}),
+		config: async () => settings,
+		save: async (patch) => {
+			settings = { ...settings, ...patch };
+			return settings;
+		},
+		log: (message) => logs.push(message),
+		findBinary: () => binary
+	});
+
+	// Two starts that overlap on the adoption probe must not spawn two tunnels: the probe
+	// awaits when a session record agrees with this run, and the second caller has to join
+	// the first. The orphan this used to spawn is observable: `disable` only stops the
+	// tunnel it references, so an orphaned one keeps logging retries forever afterwards.
+	await manager.enable("tunnel");
+	binary = join(dir, "not-a-real-binary.exe");
+	await saveSession(join(dir, "dsh-remote-session.json"), {
+		tunnelUrl: "http://127.0.0.1:1/",
+		tunnelPid: 4242,
+		cloudflaredExe: binary,
+		target: `http://127.0.0.1:${String(manager.snapshot().proxyPort)}`
+	});
+	const [first, second] = await Promise.all([manager.startTunnel(), manager.startTunnel()]);
+	check(
+		first.tunnel !== undefined && second.tunnel !== undefined,
+		"both overlapping starts come back with the one tunnel",
+		`${JSON.stringify(first.tunnel?.state)} / ${JSON.stringify(second.tunnel?.state)}`
+	);
+	await waitFor(() => String(manager.snapshot().error).includes("could not start"));
+	await manager.disable();
+	const settled = logs.length;
+	await new Promise((resolve) => setTimeout(resolve, 900));
+	check(
+		logs.slice(settled).filter((message) => message.includes("tunnel restarting")).length === 0,
+		"after disable nothing keeps retrying, so no second tunnel was orphaned by the overlap",
+		logs.slice(settled).join(" | ") || "(quiet)"
+	);
+
+	// suspend() is the unload path: an install that lands after it must not start a tunnel
+	// on a plugin that is already gone. The proxy has to be running for this to mean
+	// something (disable() above took it down, and a stopped proxy refuses startTunnel on
+	// its own), so bring remote access back up first.
+	await manager.enable("tunnel");
+	await waitFor(() => String(manager.snapshot().error).includes("could not start"));
+	manager.suspend();
+	const afterSuspend = await manager.startTunnel();
+	check(afterSuspend.tunnel === undefined, "startTunnel after suspend() does not spawn on a disposed manager", JSON.stringify(afterSuspend.tunnel?.state));
+	// suspend() is the unload path, so it leaves the proxy listening; close it explicitly or
+	// its listener outlives the suite.
+	await manager.disable();
+
+	await new Promise((resolve) => stubDsh.close(resolve));
+	await rm(dir, { recursive: true, force: true });
+}
+
 /* ------------------------------------------------- the live-session record */
 
 // A quick-tunnel hostname changes every time cloudflared starts, so the link a phone
@@ -654,6 +828,40 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 		subscribe !== -1 && subscribe < remote.indexOf("tunnel.adopt(") && subscribe < remote.indexOf("tunnel.start()"),
 		"the URL listener is attached before the tunnel is started or adopted",
 		`onChange@${String(subscribe)} adopt@${String(remote.indexOf("tunnel.adopt("))} start@${String(remote.indexOf("tunnel.start()"))}`
+	);
+	// Three more of the tunnel's own lifecycle, where a mistake is an uncaught exception or
+	// a slow leak rather than a wrong pixel: a spawn that fails emits `error` and never
+	// `exit`; the parent keeps a copy of the detached log descriptor unless it closes it;
+	// and `stop()` has to drop the attempt timers itself on the path that leaves the child
+	// running, because no `exit` event will come to do it.
+	check(/child\.on\("error"/u.test(remote), "the tunnel child has an error listener, so a spawn that fails is not an uncaught exception", "");
+	check(/closeSync\(sink\)/u.test(remote), "the parent closes its copy of the log descriptor it gave the detached child", "");
+	check(/clearTimers\(\);/u.test(remote) && /clearTimers\(\);\s*\n\s*if \(revoke\)/u.test(remote), "stop() drops the attempt timers on the path that leaves the tunnel alive", "");
+	// The attempt timers are instance-scoped, so a stale child's late `exit` (SIGTERM can
+	// land well after stopChild) must not clear the *current* attempt's poll and deadline
+	// or double-schedule a retry. Deadline, error and exit all guard on the attempt.
+	check(
+		(remote.match(/if \(child !== attempt\) return;/gu) ?? []).length === 3,
+		"deadline, error and exit all ignore a child that is no longer the current attempt",
+		String((remote.match(/if \(child !== attempt\) return;/gu) ?? []).length)
+	);
+	// The session write is a promise; a failed one (read-only home, full disk) used to
+	// escape remember()'s try/catch as an unhandled rejection on the success path.
+	check(/void Promise\.resolve\(onSession\(/u.test(remote), "a failed session write is a log line, never an unhandled rejection", "");
+	// Two starts that overlap on the adoption probe both used to reach createTunnel; the
+	// second's handle orphaned the first's detached child. The attempt is now shared.
+	check(/tunnelOpening \?\?= openTunnel\(\)/u.test(remote), "a concurrent startTunnel joins the attempt in flight instead of spawning twice", "");
+	check(/disposed = true/u.test(remote) && /server === undefined \|\| disposed/u.test(remote), "suspend() disposes the manager, and startTunnel honours it", "");
+	check(/if \(wanted === "tunnel"\) await startTunnel\(\);/u.test(remote), "enable() delegates its tunnel step, so the installer can run it again", "");
+	check(!/cloudflaredSearched/u.test(remote), "the snapshot carries no field that nothing reads", "");
+	// And the same wiring on the other side: provisioning a binary is what re-runs that
+	// step, on both the load-time path and the panel's retry.
+	const index = await readFile(new URL("../lib/index.js", import.meta.url), "utf8");
+	check(/\.then\(\(\) => state\.remote\.startTunnel\(\)\)/u.test(index), "provisioning also brings up a tunnel that was enabled before the binary existed", "");
+	check(
+		(index.match(/void provisionCloudflared\(state\);/gu) ?? []).length === 2,
+		"both the plugin load and the panel's retry click go through it",
+		String((index.match(/void provisionCloudflared\(state\);/gu) ?? []).length)
 	);
 	await rm(dir, { recursive: true, force: true });
 }

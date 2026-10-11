@@ -73,6 +73,22 @@
 		binaryPlaceholder: ["C:/path/to/cloudflared.exe", "C:/路径/cloudflared.exe"],
 		binarySave: ["Save path", "保存路径"],
 		binaryClear: ["Search automatically", "自动查找"],
+		binaryFoundHere: ["found on this machine", "本机已装"],
+		binaryInstalled: ["installed by the plugin", "插件自动装好"],
+		binaryManual: ["path set by you", "手动指定"],
+		installChecking: ["Checking whether this machine has cloudflared.", "正在检查本机有没有 cloudflared。"],
+		installDownloading: ["Downloading cloudflared from Cloudflare:", "正在从 Cloudflare 下载 cloudflared："],
+		installRetry: ["Install it for me", "帮我安装"],
+		installErrorManifest: ["Cloudflare's release list could not be read. Check the network, or set a proxy below.", "读不到 Cloudflare 的发布清单。检查网络，或在下面填一个代理。"],
+		installErrorDownload: ["The download failed. Where GitHub is unreachable, a proxy fixes it.", "下载失败。在 GitHub 不可达的网络里，填一个代理通常就能解决。"],
+		installErrorChecksum: ["The downloaded file did not match Cloudflare's checksum, so it was discarded.", "下载的文件与 Cloudflare 公布的校验值不符，已丢弃。"],
+		installErrorSignature: ["The downloaded file is not signed by Cloudflare, so it was discarded.", "下载的文件没有 Cloudflare 的签名，已丢弃。"],
+		installErrorUnpack: ["The downloaded archive held no usable cloudflared binary, so it was discarded.", "下载的压缩包里没有可用的 cloudflared，已丢弃。"],
+		installErrorUnsupported: ["This platform has no cloudflared build to fetch automatically. Set a path below.", "这个平台上没有可自动获取的 cloudflared 版本，请在下面填一个路径。"],
+		proxyLabel: ["Proxy for the download", "下载用代理"],
+		proxyHint: ["Optional. Empty means the HTTPS_PROXY environment variable is used. For example http://127.0.0.1:7890.", "可选。留空则只看 HTTPS_PROXY 环境变量。例如 http://127.0.0.1:7890。"],
+		proxySave: ["Save proxy", "保存代理"],
+		proxyPlaceholder: ["http://127.0.0.1:7890", "http://127.0.0.1:7890"],
 		hint: ["On the phone, the harness UI is rewritten for a narrow screen, and a Project tab appears for browsing the current workspace.", "手机上 harness 界面会按窄屏改写，并多出一个「项目」标签页，可浏览当前工作区。"]
 	};
 	const T = (key) => STRINGS[key][ZH ? 1 : 0];
@@ -220,6 +236,8 @@
 	let qrPath;
 	let qrAvailable = false;
 	let cloudflared;
+	/** What the host half's installer last reported: `{state, source?, version?, error?}`. */
+	let cloudflaredSetup = {};
 	/** When this panel started waiting for a link, or undefined while it is not waiting. */
 	let waitingSince;
 	/** The path the reader configured, if any (empty means "search automatically"). */
@@ -269,6 +287,18 @@
 		setTimeout(() => void render(), LINK_POLL_MS);
 	}
 
+	/**
+	 * Keep asking while the plugin is fetching cloudflared: the download runs for
+	 * seconds to minutes, and a panel painted once would sit on "downloading" forever.
+	 * A settled state (ready, failed, or no report at all) schedules nothing.
+	 */
+	function pollWhileInstalling() {
+		if (!(inHub || (panel !== undefined && !panel.hidden))) return;
+		const state = cloudflaredSetup.state;
+		if (state !== "checking" && state !== "downloading") return;
+		setTimeout(() => void render(), LINK_POLL_MS);
+	}
+
 	async function render() {
 		body.replaceChildren(el("div", { class: "muted", text: "…" }));
 		try {
@@ -279,8 +309,12 @@
 			qrAvailable = data.qrAvailable === true;
 			cloudflared = data.cloudflared;
 			cloudflaredPath = data.remote?.cloudflaredPath;
+			// Absent from a host half that predates the installer, so it reads as "no
+			// report" rather than breaking the panel.
+			cloudflaredSetup = data.cloudflaredSetup ?? {};
 			body.replaceChildren(renderRemote());
 			pollWhileStarting();
+			pollWhileInstalling();
 		} catch (error) {
 			body.replaceChildren(el("div", { class: "row-sub", text: `${T("failed")}: ${String(error?.message ?? error)}` }));
 		}
@@ -344,23 +378,52 @@
 			// The hub's own header refreshes an embedded panel, so it hides this one.
 			inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })));
 
-		// The tunnel binary is a prerequisite neither app supplies, so when it is missing
-		// the panel has to say where it looked and take a path — telling the reader to edit
-		// a settings file is what made this a dead end.
+		// The tunnel binary is a prerequisite neither app supplies, and the host half now
+		// installs one itself, so the panel reports where it came from and only falls back
+		// to asking for a path when that install could not run.
+		const source = { found: T("binaryFoundHere"), manual: T("binaryManual"), installed: T("binaryInstalled") }[cloudflaredSetup.source];
 		if (typeof cloudflared === "string") {
 			fragment.append(el("div", { class: "field" }, el("label", { text: T("binary") }),
 				el("div", { class: "row" },
 					el("div", { class: "row-main" },
 						el("div", { class: "row-name", text: T("binaryFound") }),
-						el("div", { class: "row-sub", text: cloudflared, title: cloudflared })),
+						el("div", { class: "row-sub", text: [cloudflared, source, cloudflaredSetup.version].filter(Boolean).join(" · "), title: cloudflared })),
 					el("div", { class: "row-actions" },
 						cloudflaredPath === "" ? undefined : el("button", { text: T("binaryClear"), onclick: () => void act({ action: "cloudflared", path: "" }) })))));
-		} else if (remote.mode === "tunnel") {
-			fragment.append(el("div", { class: "note", text: T("cloudflaredMissing") }));
+		} else if (remote.mode !== "tunnel") {
+			// Only the tunnel channel needs a binary, so the others stay quiet about it.
+		} else if (cloudflaredSetup.state === "checking" || cloudflaredSetup.state === "downloading") {
+			fragment.append(el("div", { class: "note", text: cloudflaredSetup.state === "checking"
+				? T("installChecking")
+				: [T("installDownloading"), cloudflaredSetup.version].filter(Boolean).join(" ") }));
+		} else {
+			fragment.append(el("div", { class: "note", text: installErrorText() }));
 			const field = el("input", { type: "text", value: cloudflaredPath ?? "", placeholder: T("binaryPlaceholder") });
 			fragment.append(el("div", { class: "field" }, el("label", { text: T("binaryPath") }), field,
 				el("div", { class: "actions" },
+					el("button", { class: "primary", text: T("installRetry"), onclick: () => void act({ action: "cloudflared-install" }) }),
 					el("button", { text: T("binarySave"), onclick: () => void act({ action: "cloudflared", path: field.value }) }))));
+		}
+
+		// The proxy only matters for reaching Cloudflare's release host, so it sits with
+		// the binary, and only where it can matter.
+		if (remote.mode === "tunnel") {
+			const proxy = el("input", { type: "text", value: remote.cloudflaredProxy ?? "", placeholder: T("proxyPlaceholder") });
+			fragment.append(el("div", { class: "field" }, el("label", { text: T("proxyLabel") }), proxy,
+				el("div", { class: "note", text: T("proxyHint") }),
+				el("div", { class: "actions" }, el("button", { text: T("proxySave"), onclick: () => void act({ action: "cloudflared-proxy", proxy: proxy.value }) }))));
+		}
+
+		/** The install failure reason in the reader's language; the codes are the host's. */
+		function installErrorText() {
+			return {
+				manifest: T("installErrorManifest"),
+				download: T("installErrorDownload"),
+				checksum: T("installErrorChecksum"),
+				signature: T("installErrorSignature"),
+				unpack: T("installErrorUnpack"),
+				unsupported: T("installErrorUnsupported")
+			}[cloudflaredSetup.error] ?? T("cloudflaredMissing");
 		}
 
 		const link = remote.link ?? remote.lanUrls?.[0];

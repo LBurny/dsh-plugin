@@ -1,6 +1,6 @@
 {
   "name": "dsh-remote",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Phone remote access for DeepSeek Harness: an authenticated reverse proxy inside the dsh process, LAN or Cloudflare tunnel, QR link, mobile UI rewrite and a phone-side project browser. dsh-remote：手机远程访问 dsh——进程内带鉴权反向代理、局域网/隧道两通道、二维码、移动端界面改写与「项目」浏览，自带面板与 /remote 命令。",
   "type": "module",
   "main": "lib/index.js",

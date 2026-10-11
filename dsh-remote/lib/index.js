@@ -19,6 +19,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { createCloudflaredInstaller } from "./cloudflared.js";
 import { guard, readJson, sendJson, sendText } from "./http.js";
 import { resolveLayout } from "./layout.js";
 import { createQrRenderer } from "./qr.js";
@@ -28,7 +29,7 @@ import { loadConfig, mergeDeep, normalizeConfig, saveConfig } from "./settings.j
 const name = "remote";
 const inject = ["commands"];
 /** Shown in the panel and /api/remote; bump alongside package.json. */
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 /** Every route this plugin owns hangs off this prefix. */
 const ROUTE_PREFIX = "/dsh-remote";
@@ -48,6 +49,9 @@ const LIB_DIR = dirname(fileURLToPath(import.meta.url));
 function createState(ctx) {
 	/** Cached settings, invalidated by every write. */
 	let cache;
+	/** Saves serialize on this chain: two overlapping patches must merge onto each
+	 * other, never onto the same stale base (the later write would drop the earlier). */
+	let saving = Promise.resolve();
 	const layout = () => {
 		const configEditor = ctx.get("configEditor");
 		if (configEditor === undefined) throw new Error("config-editor service is not available in this profile");
@@ -61,10 +65,15 @@ function createState(ctx) {
 			return cache;
 		},
 		/** Persist a settings patch and refresh the memo. */
-		async save(patch) {
-			const current = await this.config();
-			cache = await saveConfig(layout().configPath, normalizeConfig(patch === undefined ? current : mergeDeep(current, patch)));
-			return cache;
+		save(patch) {
+			const run = saving.then(async () => {
+				const current = await this.config();
+				cache = await saveConfig(layout().configPath, normalizeConfig(patch === undefined ? current : mergeDeep(current, patch)));
+				return cache;
+			});
+			// The chain itself must survive a failure, or every later save would reject.
+			saving = run.catch(() => {});
+			return run;
 		},
 		log(message) {
 			ctx.logger.info(`[dsh-remote] ${message}`);
@@ -74,6 +83,14 @@ function createState(ctx) {
 	// and only fails (loudly, per request) if this profile lacks them.
 	state.remote = createRemoteManager({
 		ctx,
+		layout,
+		config: () => state.config(),
+		save: (patch) => state.save(patch),
+		log: (message) => state.log(message)
+	});
+	// Provisioning is its own object rather than part of the proxy manager: it answers
+	// one question (is there a cloudflared binary, and if not, get one) and nothing else.
+	state.cloudflared = createCloudflaredInstaller({
 		layout,
 		config: () => state.config(),
 		save: (patch) => state.save(patch),
@@ -110,7 +127,7 @@ function renderStatus(state_, status) {
 	}
 	lines.push(
 		"",
-		`cloudflared: ${state_.remote.cloudflared() ?? "not found"}`,
+		`cloudflared: ${state_.remote.cloudflared() ?? "not found"}${state_.cloudflared.status().source === undefined ? "" : ` (${state_.cloudflared.status().source})`}`,
 		// Optional on purpose: the tailnet channel reads its address off the network
 		// interfaces, so a missing CLI costs the MagicDNS name, not the channel.
 		`tailscale: ${state_.remote.tailscale() ?? "the CLI was not found (not required)"}`,
@@ -185,9 +202,39 @@ async function handleAction(state, body) {
 			state.log("cloudflared path updated");
 			return { ok: true, remote: status, cloudflared: state.remote.cloudflared() ?? null };
 		}
+		case "cloudflared-install": {
+			// Started, not awaited: the download runs for seconds to minutes on a slow
+			// link, and the panel polls the status it already reads.
+			void provisionCloudflared(state);
+			return { ok: true, remote: state.remote.snapshot(), cloudflaredSetup: state.cloudflared.status() };
+		}
+		case "cloudflared-proxy": {
+			await state.cloudflared.setProxy(body.proxy);
+			state.log("cloudflared proxy updated");
+			// The manager memoizes its own settings snapshot, so without this the answer
+			// would carry the value this very request just replaced.
+			await state.remote.sync();
+			return { ok: true, remote: state.remote.snapshot(), cloudflaredSetup: state.cloudflared.status() };
+		}
 		default:
 			throw new Error(`unknown remote action: ${JSON.stringify(body.action)}`);
 	}
+}
+
+/**
+ * Provision cloudflared, then bring up a tunnel that was asked for before the binary
+ * existed. The download runs in the background, so a reader can turn tunnel mode on
+ * while it is still in flight and be told the binary is missing seconds before it lands;
+ * asking the manager again once provisioning settles is what makes the channel work by
+ * itself instead of waiting to be toggled. Floating and non-fatal on purpose: a machine
+ * with no network still boots a working plugin.
+ * @param state - plugin state.
+ */
+function provisionCloudflared(state) {
+	return state.cloudflared
+		.ensure()
+		.then(() => state.remote.startTunnel())
+		.catch((error) => state.log(`cloudflared setup failed: ${String(error?.message ?? error)}`));
 }
 
 /**
@@ -202,7 +249,7 @@ function mount(ready, state) {
 		try {
 			sendText(res, 200, await readFile(join(LIB_DIR, file), "utf8"), type);
 		} catch (error) {
-			sendText(res, 500, `dsh-remote: asset ${file} unavailable — ${String(error?.message ?? error)}`);
+			sendText(res, 500, `dsh-remote: asset ${file} unavailable: ${String(error?.message ?? error)}`);
 		}
 	};
 
@@ -217,6 +264,7 @@ function mount(ready, state) {
 				qrPath: QR_PATH,
 				configPath: state.layout().configPath,
 				cloudflared: state.remote.cloudflared() ?? null,
+				cloudflaredSetup: state.cloudflared.status(),
 				plugin: { name, version: VERSION }
 			});
 		}
@@ -261,6 +309,10 @@ function mount(ready, state) {
 	ready.effect(() => () => state.remote.suspend(), "dsh-remote keep the tunnel alive");
 
 	state.log(`panel served at ${SCRIPT_PATH}`);
+
+	// Install cloudflared when this machine has none, so the tunnel channel works the
+	// moment the plugin is installed instead of asking the reader for a path.
+	void provisionCloudflared(state);
 }
 
 /**

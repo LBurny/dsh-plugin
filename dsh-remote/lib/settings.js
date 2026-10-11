@@ -22,11 +22,29 @@ export function defaultConfig() {
 		mode: "tunnel",
 		port: 0,
 		token: "",
-		cloudflaredPath: ""
+		cloudflaredPath: "",
+		// Only for reaching Cloudflare's release host when this machine cannot reach it
+		// directly: `github.com` is DNS-poisoned on some networks (measured on a China
+		// Unicom line, where the download only completed through a local proxy), and the
+		// bytes are transferred with `curl`, so an http(s) proxy URL is the whole fix.
+		cloudflaredProxy: ""
 	};
 }
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** An http(s) proxy URL, or an empty string. Anything else reads as "no proxy". */
+function normalizeProxy(value) {
+	if (typeof value !== "string") return "";
+	const trimmed = value.trim();
+	if (trimmed === "") return "";
+	try {
+		const url = new URL(trimmed);
+		return url.protocol === "http:" || url.protocol === "https:" ? trimmed : "";
+	} catch {
+		return "";
+	}
+}
 
 /** Deep-merge a patch over a base, returning a new value. */
 export function mergeDeep(base, patch) {
@@ -53,6 +71,7 @@ export function normalizeConfig(raw) {
 	merged.token = typeof merged.token === "string" && /^[0-9a-f]{32,}$/u.test(merged.token) ? merged.token : "";
 	merged.port = Number.isInteger(merged.port) && merged.port >= 0 && merged.port <= 65535 ? merged.port : 0;
 	merged.cloudflaredPath = typeof merged.cloudflaredPath === "string" ? merged.cloudflaredPath : "";
+	merged.cloudflaredProxy = normalizeProxy(merged.cloudflaredProxy);
 	return merged;
 }
 

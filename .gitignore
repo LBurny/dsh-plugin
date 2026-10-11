@@ -9,6 +9,10 @@ tools/visual/browser-profile/
 # 只在本机使用，永不入库
 .sandbox/
 
+# dsh-remote 自己装 cloudflared 的落点。真机上是 <DSH_HOME>/../tunnel/，沙箱的 home 是
+# .sandbox/，于是它落在仓库根目录，是一个约 55MB 的二进制，绝不能入库
+/tunnel/
+
 # 热重载工具（tools/hotreload）的 pid/状态与日志
 .hotreload/
 
