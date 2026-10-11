@@ -23,6 +23,11 @@
  *   `#dsh-launchers`        hidden while this plugin is installed: one page
  *                           listing every feature replaces the corner buttons.
  *
+ * The page also carries the update half of the hub, which is the host's to do: a
+ * refresh asks `GET /dsh-features/api/updates` whether each install source has
+ * moved past the commit the profile pinned, a behind row gets a 可更新 pill, and
+ * the head's one update button sends the names to `POST /dsh-features/api/update`.
+ *
  * Nothing here reads dsh's internal CSS classes or module table — the sidebar
  * entry, the page and the skin use only the documented slot API and the
  * platform's own icon set.
@@ -69,24 +74,46 @@ window.__ModuleLoader__.load({
 			"subtitle": "本仓插件的统一入口，一个页面查看与设置全部功能",
 			"loading": "正在加载…",
 			"refresh": "刷新",
+			"refreshHint": "刷新列表并检查更新",
 			"back": "返回",
 			"dragHint": "拖拽调整顺序",
 			"empty": "没有检测到功能插件。",
 			"emptyHint": "安装任意 dsh-* 功能插件后，它会自动出现在这里。",
 			"unloaded": "已安装，但它的面板脚本没有加载（重启 dsh 后再试）。",
-			"failed": "面板加载失败"
+			"failed": "面板加载失败",
+			"updatable": "可更新",
+			"update": "更新",
+			"checking": "正在检查安装来源…",
+			"upToDate": "安装来源都是最新的。",
+			"checkFailed": "检查更新失败",
+			"updating": "正在更新…",
+			"updateApplied": "更新已写入，重启 dsh 后生效。",
+			"updateFailed": "更新失败",
+			"includesSelf": "其中包含功能管理本身，它没有自己的行。",
+			"noManager": "这个 profile 里没有插件管理器，只能回 dsh 的插件页去更新。"
 		};
 		const en = {
 			"panel": "Features",
 			"subtitle": "One home for this repository's plugins: see and configure every feature here",
 			"loading": "Loading…",
 			"refresh": "Refresh",
+			"refreshHint": "Refresh the list and check for updates",
 			"back": "Back",
 			"dragHint": "Drag to reorder",
 			"empty": "No feature plugins found.",
 			"emptyHint": "Install any dsh-* feature plugin and it appears here on its own.",
 			"unloaded": "Installed, but its panel script did not load (restart dsh and retry).",
-			"failed": "The panel failed to load"
+			"failed": "The panel failed to load",
+			"updatable": "Update available",
+			"update": "Update",
+			"checking": "Checking the install sources…",
+			"upToDate": "Every install source is current.",
+			"checkFailed": "The update check failed",
+			"updating": "Updating…",
+			"updateApplied": "The update is on disk. Restart dsh to load it.",
+			"updateFailed": "The update failed",
+			"includesSelf": "This includes the hub itself, which has no row of its own.",
+			"noManager": "This profile has no plugin manager, so updating has to go through dsh's Plugins page."
 		};
 
 		/* ----------------------------------------------------------------- skin */
@@ -210,6 +237,52 @@ window.__ModuleLoader__.load({
 	color: var(--dsh-fg);
 }
 
+#dsh-features-root .hub-icon-btn:disabled,
+#dsh-features-root .hub-update-btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+/* The one control that writes: only on the page while a source is behind. */
+#dsh-features-root .hub-update-btn {
+	flex: none;
+	height: 30px;
+	padding: 0 12px;
+	border: 1px solid var(--dsh-accent);
+	border-radius: 8px;
+	background: transparent;
+	color: var(--dsh-accent);
+	font: inherit;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+#dsh-features-root .hub-update-btn:hover:not(:disabled) {
+	background: var(--dsh-hover);
+}
+
+/* One line about the last check or update: quiet by default, loud when it failed. */
+#dsh-features-root .hub-banner {
+	margin: 0 22px 10px;
+	padding: 9px 12px;
+	border: 1px solid var(--dsh-border);
+	border-radius: 10px;
+	background: var(--dsh-subtle);
+	color: var(--dsh-muted);
+	font-size: 12px;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
+}
+
+#dsh-features-root .hub-banner[data-kind="ok"],
+#dsh-features-root .hub-banner[data-kind="error"] {
+	color: var(--dsh-fg);
+}
+
+#dsh-features-root .hub-banner[data-kind="error"] {
+	border-color: #d9534f;
+}
+
 /* ----------------------------------------------------------------- the list */
 
 #dsh-features-root .hub-stage {
@@ -296,6 +369,18 @@ window.__ModuleLoader__.load({
 	white-space: nowrap;
 }
 
+/* Sits beside the row's name, so a behind source is visible without opening it. */
+#dsh-features-root .hub-pill {
+	flex: none;
+	color: var(--dsh-accent);
+	border: 1px solid var(--dsh-accent);
+	border-radius: 5px;
+	padding: 0 5px;
+	font-size: 11px;
+	line-height: 1.7;
+	white-space: nowrap;
+}
+
 #dsh-features-root .hub-go {
 	flex: none;
 	display: flex;
@@ -349,6 +434,10 @@ window.__ModuleLoader__.load({
 
 	#dsh-features-root .hub-stage[data-view="list"] {
 		padding: 2px 14px 20px;
+	}
+
+	#dsh-features-root .hub-banner {
+		margin: 0 14px 8px;
 	}
 }
 `;
@@ -549,6 +638,7 @@ window.__ModuleLoader__.load({
 				const scan = async () => {
 					let inventory = [];
 					let navOrder;
+					let updates;
 					try {
 						const answer = await fetch(`${API}/features`, { credentials: "same-origin" }).then((response) => response.json());
 						if (answer?.ok === true) {
@@ -556,11 +646,14 @@ window.__ModuleLoader__.load({
 							// The reader's order comes from the host, so the phone (another
 							// origin) shows the arrangement the desktop set.
 							navOrder = answer.navOrder;
+							// The host's last update check rides along, so a reloaded page keeps
+							// the badges it saw without asking the network again.
+							updates = answer.updates;
 						}
 					} catch {
 						/* the page works from the registry alone */
 					}
-					if (live) setSnapshot({ loading: false, features: mergeFeatures(globalThis.__dshFeatures, inventory), navOrder });
+					if (live) setSnapshot({ loading: false, features: mergeFeatures(globalThis.__dshFeatures, inventory), navOrder, updates });
 				};
 				void scan();
 				// A feature's browser half lands after the shell boots; one late rescan
@@ -574,6 +667,94 @@ window.__ModuleLoader__.load({
 			return [snapshot, () => setNonce((value) => value + 1)];
 		}
 
+		/** The phrase for a refused update: the reason code the host sends, or pnpm's own words. */
+		function reasonText(t, answer) {
+			if (answer?.reason === "no-plugin-manager" || answer?.reason === "no-pnpm-runner") return t("noManager");
+			return answer?.error ?? answer?.reason ?? "the host refused the update";
+		}
+
+		/**
+		 * The update half of the page: ask the install sources, then apply what the check
+		 * found. Kept apart from the inventory hook because the two answer different
+		 * questions — the list is local and free, the check is one `git ls-remote` per
+		 * source repository.
+		 *
+		 * Nothing here reaches the network on load. The check runs when the reader asks
+		 * for it, and a page opened later adopts the host's last check (which lives in
+		 * the host process, so it outlives the page).
+		 *
+		 * Applying is the host's job and only names packages this profile installs: the
+		 * page sends the names it is showing.
+		 * @param t - the bound dictionary.
+		 * @param cached - the host's last check, from the inventory answer.
+		 * @param features - the merged feature list, so a behind package with no row can
+		 *   be named instead of silently inflating the button's count.
+		 * @returns `{ phase, notice, behind, check, apply }`.
+		 */
+		function useUpdates(t, cached, features) {
+			const [state, setState] = React.useState({ phase: undefined, report: undefined, notice: undefined });
+			/** Settle a round trip: a new notice, and the report it produced when it has one. */
+			const settle = (notice, report) => setState((current) => ({ phase: undefined, report: report ?? current.report, notice }));
+			React.useEffect(() => {
+				if (cached === undefined) return;
+				// Never replace a check this browser just ran with an older cached one.
+				setState((current) => (current.report === undefined ? { ...current, report: cached } : current));
+			}, [cached]);
+
+			const check = () => {
+				setState((current) => ({ ...current, phase: "checking", notice: { kind: "info", text: t("checking") } }));
+				void (async () => {
+					let answer;
+					try {
+						answer = await fetch(`${API}/updates`, { credentials: "same-origin" }).then((response) => response.json());
+						if (answer?.ok !== true) throw new Error(answer?.error ?? "the host refused the check");
+					} catch (error) {
+						settle({ kind: "error", text: `${t("checkFailed")}: ${String(error?.message ?? error)}` });
+						return;
+					}
+					const errors = Array.isArray(answer.errors) ? answer.errors : [];
+					const behind = Array.isArray(answer.updatable) ? answer.updatable : [];
+					// The hub checks and updates itself too, and it has no row to put a pill
+					// on: say so rather than let the count outnumber the pills.
+					const rowless = behind.some((packageName) => !(features ?? []).some((feature) => feature.package === packageName));
+					if (errors.length > 0) settle({ kind: "error", text: `${t("checkFailed")}: ${errors[0]}` }, answer);
+					else if (behind.length === 0) settle({ kind: "ok", text: t("upToDate") }, answer);
+					else if (rowless) settle({ kind: "info", text: t("includesSelf") }, answer);
+					// Otherwise the head's own button and the rows' pills carry it.
+					else settle(undefined, answer);
+				})();
+			};
+
+			const apply = (packages) => {
+				setState((current) => ({ ...current, phase: "updating", notice: { kind: "info", text: t("updating") } }));
+				void (async () => {
+					let answer;
+					try {
+						answer = await fetch(`${API}/update`, {
+							method: "POST",
+							credentials: "same-origin",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify({ packages })
+						}).then((response) => response.json());
+						if (answer?.ok !== true) throw new Error(reasonText(t, answer));
+					} catch (error) {
+						settle({ kind: "error", text: `${t("updateFailed")}: ${String(error?.message ?? error)}` });
+						return;
+					}
+					settle({ kind: "ok", text: t("updateApplied") }, answer.updates);
+				})();
+			};
+
+			return {
+				phase: state.phase,
+				notice: state.notice,
+				/** The packages the last check found behind, by name. */
+				behind: new Set(state.report?.updatable ?? []),
+				check,
+				apply
+			};
+		}
+
 		/**
 		 * The hub page. A list of rows, one per feature plugin, laid out like dsh's
 		 * own 插件 page: glyph, name, summary, chevron. Clicking a row opens that
@@ -582,14 +763,19 @@ window.__ModuleLoader__.load({
 		 * under the mount point; this page only decides when to call it.
 		 *
 		 * Exactly one refresh control exists at a time, in the head: it rescans the
-		 * inventory and remounts the open feature, which re-fetches its own data on
-		 * mount. Panels hide their own refresh while embedded, and
-		 * {@link stripDuplicateRefresh} removes a leftover one from a panel build that
-		 * predates that cooperation.
+		 * inventory, remounts the open feature (which re-fetches its own data on mount)
+		 * and asks the install sources whether they have moved. Panels hide their own
+		 * refresh while embedded, and {@link stripDuplicateRefresh} removes a leftover
+		 * one from a panel build that predates that cooperation.
+		 *
+		 * The update half is {@link useUpdates}: a row whose package a check found
+		 * behind gets a 可更新 pill, and the head offers one button for all of them.
+		 * Nothing is installed without that second click.
 		 * @param props - composed slot props; `t` is the bound dictionary.
 		 */
 		function FeaturesPage({ t }) {
 			const [snapshot, reload] = useFeatures();
+			const updates = useUpdates(t, snapshot.updates, snapshot.features);
 			const [navOrder, setNavOrder] = React.useState(readNavOrder);
 			// The host answers with the order it holds. An empty answer means "nothing saved
 			// yet", not "reset it": the first reorder in either browser is what seeds it, so
@@ -701,7 +887,9 @@ window.__ModuleLoader__.load({
 				},
 					React.createElement("span", { className: "hub-tile" }, featureGlyph(feature.icon, 17)),
 					React.createElement("span", { className: "hub-text" },
-						React.createElement("span", { className: "hub-row-name" }, feature.title ?? feature.key),
+						React.createElement("span", { className: "hub-line" },
+							React.createElement("span", { className: "hub-row-name" }, feature.title ?? feature.key),
+							updates.behind.has(feature.package) ? React.createElement("span", { className: "hub-pill" }, t("updatable")) : null),
 						feature.summary === undefined ? null : React.createElement("span", { className: "hub-row-note" }, feature.summary)),
 					React.createElement("span", { className: "hub-go" }, chevronGlyph()))),
 				React.createElement("div", {
@@ -731,13 +919,30 @@ window.__ModuleLoader__.load({
 						onClick: () => setActive(undefined)
 					}, backGlyph()),
 					titles,
+					// Offered only when a source is behind: a check that found nothing, or
+					// that nobody ran, leaves the head with the single refresh control it had.
+					updates.behind.size === 0 ? null : React.createElement("button", {
+						className: "hub-update-btn",
+						type: "button",
+						disabled: updates.phase !== undefined,
+						onClick: () => updates.apply([...updates.behind])
+					}, `${t("update")} (${updates.behind.size})`),
 					React.createElement("button", {
 						className: "hub-icon-btn",
 						type: "button",
-						title: t("refresh"),
+						title: t("refreshHint"),
 						"aria-label": t("refresh"),
-						onClick: reload
+						disabled: updates.phase !== undefined,
+						// One click still rescans the list, and now also asks the sources.
+						onClick: () => {
+							reload();
+							updates.check();
+						}
 					}, refreshGlyph())),
+				updates.notice === undefined ? null : React.createElement("div", {
+					className: "hub-banner",
+					"data-kind": updates.notice.kind
+				}, updates.notice.text),
 				React.createElement("div", { className: "hub-stage", "data-view": open === undefined ? "list" : "feature" },
 					features.length === 0
 						? React.createElement("div", { className: "hub-empty" },

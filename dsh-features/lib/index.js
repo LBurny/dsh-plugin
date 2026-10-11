@@ -8,7 +8,7 @@
  * own client module system serves — see `dsh.client` in package.json, and note
  * that the host row in cordis.patch.yml is what makes that bundle discoverable.
  *
- * The host half owns the two things a browser bundle cannot do:
+ * The host half owns the things a browser bundle cannot do:
  *
  *   `GET /dsh-features/api/status`
  *     The probe a feature panel uses to decide whether to dock its own corner
@@ -20,24 +20,52 @@
  *     The inventory: installed packages declaring the `dsh.ui.feature` marker.
  *     A feature the browser never registered can then be named on the page
  *     ("installed, but its panel did not load") instead of silently vanishing.
+ *     The last update check rides along, so a reloaded page keeps its badges
+ *     without a new round trip.
+ *
+ *   `GET /dsh-features/api/updates`
+ *     Ask every install source whether it has moved past the commit the profile
+ *     pinned (see lib/updates.js). Read-only, and the one route that talks to the
+ *     network: which is why the page asks for it on a refresh, never on load.
+ *
+ *   `POST /dsh-features/api/update`
+ *     Apply that for the named packages, through the plugin manager's own pnpm
+ *     runner. The new code is on disk afterwards, and a restart is what loads it.
  *
  * @module dsh-features/index
  */
+import { readFileSync } from "node:fs";
 import { guard, readJson, sendJson } from "./http.js";
 import { readInventory } from "./inventory.js";
 import { resolveLayout } from "./layout.js";
 import { loadNavOrder, saveNavOrder } from "./order.js";
+import { applyUpdates, checkUpdates, readSources } from "./updates.js";
 
 const name = "features";
 const inject = [];
 /** Shown by /api/status; bump alongside package.json. */
 const VERSION = "0.1.0";
 
+/**
+ * This package's own name, read from its manifest. The hub is not a feature, so it
+ * has no row on its own page, but it is installed from a source like everything
+ * else and the Plugins page cannot update it: the update check covers it by name.
+ */
+const HUB_PACKAGE = (() => {
+	try {
+		return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).name ?? "dsh-features";
+	} catch {
+		return "dsh-features";
+	}
+})();
+
 /** Every route this plugin owns hangs off this prefix. */
 const ROUTE_PREFIX = "/dsh-features";
 const STATUS_PATH = `${ROUTE_PREFIX}/api/status`;
 const FEATURES_PATH = `${ROUTE_PREFIX}/api/features`;
 const ORDER_PATH = `${ROUTE_PREFIX}/api/order`;
+const UPDATES_PATH = `${ROUTE_PREFIX}/api/updates`;
+const UPDATE_PATH = `${ROUTE_PREFIX}/api/update`;
 
 /**
  * Create the plugin state. Layout resolution is lazy: the config-editor service
@@ -47,10 +75,23 @@ const ORDER_PATH = `${ROUTE_PREFIX}/api/order`;
  */
 function createState(ctx) {
 	return {
+		/** The last update check, so a reloaded page keeps the badges it saw. */
+		lastCheck: undefined,
 		webServer: () => ctx.get("webServer"),
 		log(message) {
 			ctx.logger.info(`[dsh-features] ${message}`);
 		}
+	};
+}
+
+/** Drop the packages an update just brought up to date from a cached check. */
+function withoutPackages(report, packages) {
+	if (report === undefined) return undefined;
+	const updated = new Set(packages);
+	return {
+		...report,
+		packages: report.packages.filter((row) => !updated.has(row.package)),
+		updatable: report.updatable.filter((packageName) => !updated.has(packageName))
 	};
 }
 
@@ -93,7 +134,41 @@ function mount(ready, state, ctx) {
 				return sendJson(res, 200, { ok: true, hub: "dsh-features", route: ROUTE_PREFIX, version: VERSION });
 			}
 			if (path === FEATURES_PATH && method === "GET") {
-				return sendJson(res, 200, { ok: true, ...(await inventory(ctx)) });
+				return sendJson(res, 200, { ok: true, ...(await inventory(ctx)), updates: state.lastCheck });
+			}
+			if (path === UPDATES_PATH && method === "GET") {
+				// The one route that reaches the network: one `git ls-remote` per distinct
+				// source repository, so a shared monorepo costs one round trip, not seven.
+				const configEditor = ctx.get("configEditor");
+				if (configEditor === undefined) return sendJson(res, 400, { ok: false, error: "no config-editor service" });
+				const report = await checkUpdates((await inventory(ctx)).features, {
+					layout: resolveLayout(configEditor),
+					self: HUB_PACKAGE
+				});
+				state.lastCheck = report;
+				state.log(`update check: ${report.updatable.length} of ${report.packages.length} behind`);
+				return sendJson(res, 200, { ok: true, ...report });
+			}
+			if (path === UPDATE_PATH && method === "POST") {
+				const body = await readJson(req);
+				if (body === undefined) return sendJson(res, 400, { ok: false, error: "expected a JSON body" });
+				// Only packages this profile installs can be updated here. The features come
+				// from the inventory; the hub's own name is accepted when the profile
+				// declares it, because it is installed from a source like everything else.
+				const configEditor = ctx.get("configEditor");
+				if (configEditor === undefined) return sendJson(res, 400, { ok: false, error: "no config-editor service" });
+				const installed = new Set((await inventory(ctx)).features.map((feature) => feature.package));
+				if ((await readSources(resolveLayout(configEditor))).sources.has(HUB_PACKAGE)) installed.add(HUB_PACKAGE);
+				const wanted = (Array.isArray(body.packages) ? body.packages : []).filter((packageName) => installed.has(packageName));
+				if (wanted.length === 0) return sendJson(res, 400, { ok: false, error: "no installed package names the request" });
+				const outcome = await applyUpdates(wanted, { manager: ctx.get("pluginManager") });
+				if (outcome.ok !== true) {
+					state.log(`update of ${wanted.join(", ")} failed: ${outcome.reason ?? ""} ${outcome.error ?? ""}`.trim());
+					return sendJson(res, 502, { ok: false, ...outcome, updates: state.lastCheck });
+				}
+				state.lastCheck = withoutPackages(state.lastCheck, outcome.packages);
+				state.log(`updated ${outcome.packages.join(", ")}; restart required`);
+				return sendJson(res, 200, { ok: true, ...outcome, updates: state.lastCheck });
 			}
 			if (path === ORDER_PATH && method === "POST") {
 				// The reader's arrangement, shared by every browser that reaches this dsh:
@@ -110,7 +185,7 @@ function mount(ready, state, ctx) {
 		})
 	}), "dsh-features http routes");
 
-	state.log(`hub routes served: ${STATUS_PATH}, ${FEATURES_PATH}, ${ORDER_PATH}`);
+	state.log(`hub routes served: ${STATUS_PATH}, ${FEATURES_PATH}, ${UPDATES_PATH}, ${UPDATE_PATH}, ${ORDER_PATH}`);
 }
 
 /**

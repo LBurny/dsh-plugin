@@ -9,7 +9,7 @@
  * Run from the repository root:
  *   node test/hub-contract.test.mjs
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,9 +22,12 @@ const PACKAGES = ["dsh-features", "dsh-skills", "dsh-mcp", "dsh-doctor", "dsh-zo
 const FEATURES = PACKAGES.slice(1);
 /** The two sidebar entries this hub must sit between (official plugins). */
 const SIDEBAR_ORDER = { plugins: 0, schedules: 10, features: 5 };
+/** The language-id shape dsh accepts as a locale file name. */
+const LANGUAGE_FILE = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*\.json$/u;
 
 const read = (path) => readFileSync(join(root, path), "utf8");
 const manifestOf = (pkg) => JSON.parse(read(join(pkg, "package.json")));
+const localeOf = (pkg, language) => JSON.parse(read(join(pkg, "locale", `${language}.json`)));
 
 /* ----------------------------------------------------------- every package */
 
@@ -37,6 +40,20 @@ for (const pkg of PACKAGES) {
 	check(read(join(pkg, "cordis.patch.yml")).includes(`name: ${pkg}`), `${pkg}: its patch row mounts the package`, pkg);
 	check(manifest.main === "lib/index.js", `${pkg}: the entry is lib/index.js`, String(manifest.main));
 	check(manifest.files.includes("lib"), `${pkg}: ships its lib`, JSON.stringify(manifest.files));
+	// The Plugins page names a plugin from the package itself: `locale/en.json` anchors
+	// the set, every sibling file is a language id, and each carries `meta.title` /
+	// `meta.description` (dsh-app-boot's readPluginMeta, reached through the exports map).
+	// A package without them is listed under its bare package name, which is how the hub
+	// showed up in a list of 诊断, 任务提醒 and 页面缩放.
+	const languageFiles = readdirSync(join(root, pkg, "locale"));
+	const english = localeOf(pkg, "en");
+	const chinese = localeOf(pkg, "zh");
+	check(languageFiles.every((file) => LANGUAGE_FILE.test(file)), `${pkg}: every locale file is named after a language id`, languageFiles.join(","));
+	check(manifest.exports["./locale/*.json"] === "./locale/*.json", `${pkg}: exports its locale files, without which dsh cannot resolve them`, JSON.stringify(manifest.exports["./locale/*.json"]));
+	check(manifest.files.includes("locale"), `${pkg}: publishes its locale directory`, JSON.stringify(manifest.files));
+	check(typeof english.meta?.title === "string" && english.meta.title !== pkg, `${pkg}: locale/en.json gives it a display name that is not its package name`, JSON.stringify(english.meta?.title));
+	check(typeof english.meta?.description === "string" && typeof chinese.meta?.description === "string", `${pkg}: both languages describe themselves`, JSON.stringify([english.meta?.description, chinese.meta?.description]));
+	check(english.meta.title !== chinese.meta.title, `${pkg}: the two titles differ, so switching the language is visible`, JSON.stringify([english.meta.title, chinese.meta.title]));
 }
 
 /* ------------------------------------------------------------- the hub row */

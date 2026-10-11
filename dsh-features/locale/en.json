@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Features",
+    "description": "One home for this repository's feature plugins: a single sidebar entry that hosts every feature on one page, instead of a stack of floating corner buttons. Also checks those plugins' install sources for updates."
+  }
+}
