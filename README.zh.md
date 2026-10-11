@@ -1,35 +1,39 @@
 # dsh-plugin
 
-[英文](README.md) | 中文
+[English](README.md) | 中文
 
-[deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）的独立小插件集合：一个功能一个包，每个都能单独安装。从 [DSHDesktop](https://github.com/LBurny/deepseek-harness-desktop) 的便利层拆出，让同样的功能直接跑在 dsh 本体里：不要桌面壳，不要 Tauri，不要额外进程。
+给 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）用的小插件合集：一个功能一个包，每个都能单独安装，包与包互不依赖。所有功能都跑在 dsh 本体里，不用装额外的壳，也不用多养一个进程。
 
-## 插件
+## 有哪些插件
+
+一共八个，想用哪个装哪个。
 
 | 包 | 做什么 | 命令 |
 | --- | ------ | ---- |
-| `dsh-features` | 功能管理基座：侧栏一项（在插件与自动化任务之间），把每个已装的功能插件列成一行卡片，样式同 dsh 自己的插件页，点进去是设置页，卡片可拖拽排序。装上它，浮动按钮消失 | 无 |
-| `dsh-skills` | 技能管理：启停 / 删除 / 导入，含本地 ZIP 压缩包 | `/skills` |
-| `dsh-mcp` | 管理当前 profile 补丁层里的 MCP 服务：增删改 / 启停 / 导入 | `/mcp` |
-| `dsh-doctor` | 调试这套插件用：进程内抓取全量日志记录、逐行列出插件树的激活状态，外加真实存在的日志文件 | `/doctor` |
-| `dsh-zoom` | 页面缩放，快捷键可重绑 | `/zoom` |
+| `dsh-features` | 侧栏的功能入口，位置在插件与自动化任务之间。它把已装的功能插件列成一排卡片，样式照 dsh 自己的插件页，点开进设置页，可拖拽排序。装了它，各面板角落里的浮动按钮就收进这个页面 | 无 |
+| `dsh-skills` | 技能管理：启停、删除、导入，支持本地 ZIP 压缩包 | `/skills` |
+| `dsh-mcp` | 管理当前 profile 的 MCP 服务：增删改、启停、导入 | `/mcp` |
+| `dsh-doctor` | 给插件排障：进程内读 harness 自己的日志记录，逐行显示每个插件的激活状态，附实际存在的日志文件 | `/doctor` |
+| `dsh-zoom` | 页面缩放，快捷键可以自己改 | `/zoom` |
 | `dsh-notify` | 任务提醒：页面弹窗、随包音效、系统通知 | `/notify` |
-| `dsh-remote` | 手机远程访问：带鉴权的反向代理、二维码链接、可选 Cloudflare 隧道、移动端界面改写、项目浏览 | `/remote` |
-| `dsh-init` | 为当前工作区生成或更新 `AGENTS.md`，dsh 会把该文件注入这里每一个会话 | `/init` |
+| `dsh-remote` | 在手机上用 dsh：带鉴权的反向代理加二维码链接，可走局域网、Tailscale 组网或 Cloudflare 隧道，附移动端界面改写和项目浏览 | `/remote` |
+| `dsh-init` | 为当前工作区生成或更新 `AGENTS.md`，dsh 会把它注入这里的每一个会话 | `/init` |
 
-每个包都是标准 dsh 插件：声明了 `dsh.bundle.patch`，`dsh plugin add` 会自动挂上它那一层。包与包互不 import，装哪个、装几个都行。
+其中两个的位置有点特殊。
 
-`dsh-init` 是命令不是功能：没有浏览器端、没有面板、不声明 `dsh.ui.feature`，基座因此不会把它列进去，这与它移植自的内置 `/init` 一致。它的提示词按本 harness 真实的指令文件加载规则写（根目录的 `AGENTS.md` 与 `CLAUDE.md`、个人覆盖层、嵌套文件，以及它不许动的全局文件），以折叠上下文行注入，不占用户气泡。
+`dsh-features` 不是功能，是其余功能挂靠的基座，也是唯一带浏览器客户端的包，因为真正的侧栏入口只能由 dsh 客户端插件加。装了它，功能面板搬进它的页面；卸载它，浮动按钮原样回来。
 
-`dsh-features` 不是功能，是其余包挂靠的基座，也是唯一带浏览器端的包（`dsh.client` → `lib/client.js`），因为真正的导航入口只能由 dsh 客户端插件加。装了它，功能面板搬进基座页面，浮动按钮消失；卸载它，按钮原样回来。
+`dsh-init` 是命令，不是功能：没有面板，基座也不会列它。它的提示词按 harness 真实的指令文件规则写，结果以一条折叠的上下文行进入会话，不占用户消息。
+
+每个包都是普通的 dsh 插件：声明了 `dsh.bundle.patch`，`dsh plugin add` 会自动挂载。包之间互不 import，所以随便挑几个装都能用。
 
 ## 安装
 
-每个包单独装，两条路用同一套规格：桌面版的插件页，或命令行 `dsh plugin add`。装完重启 dsh，插件没有 HMR。
+两条路，同一套规格：桌面版的 **插件** 页，或终端里的 `dsh plugin add`。装完重启 dsh，插件没有热更新。
 
-### 在桌面版的插件管理里一条条装
+### 在桌面版里装
 
-官方桌面版自己管 `desktop` 这个 profile，命令行改不动它。打开插件页，点添加插件，粘一条规格安装，装完再粘下一条。输入框接受包名、Git 仓库地址或本地目录路径。
+打开 **插件** 页，点 **添加插件**，粘一条规格，安装，再粘下一条。输入框接受包名、git 地址或本地目录路径。
 
 ```text
 github:LBurny/dsh-plugin#path:/dsh-features
@@ -42,60 +46,69 @@ github:LBurny/dsh-plugin#path:/dsh-remote
 github:LBurny/dsh-plugin#path:/dsh-init
 ```
 
-`#path:/<包名>` 是 pnpm 的仓库子目录写法，八个包同仓，所以每条都带。顺序无所谓，只装几个也行。把 `dsh-features` 也装上，各功能面板就搬进它那唯一的侧栏入口，不再各挂一个浮动按钮。钉 commit 的规格在这里不用转义，`&` 被吃掉是命令行的坑，不是这个页面的。
+`#path:/<包名>` 是 pnpm 指仓库子目录的写法；八个包同在同一个仓，所以每条都带。安装顺序无所谓。
 
-页面自己会提醒两件事。升级是先卸载再装新版，没有自动更新，修复靠重装规格拿到，想可复现就钉 commit。GitHub 拉不动时，用页面的安装源换源重试：默认、npm 官方源、中国大陆镜像源、自定义地址。
+这个页面有两件事值得知道。升级就是先卸载再装一遍：没有自动更新，想装到可复现的版本就在规格里钉上 commit（`#<sha>&path:/<包名>`）。GitHub 拉不动时，用页面的 **安装源** 换源重试：默认、npm 官方、中国大陆镜像或自定义。
 
-### 从命令行装
+### 在命令行里装
 
 ```bash
-dsh plugin --profile web add github:LBurny/dsh-plugin#path:/dsh-skills
+dsh plugin add github:LBurny/dsh-plugin#path:/dsh-skills
 # 钉 commit：
-dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/dsh-skills
-dsh plugin --profile web remove dsh-skills
+dsh plugin add github:LBurny/dsh-plugin#<sha>&path:/dsh-skills
+dsh plugin remove dsh-skills
 ```
 
-`--profile web` 是 DSHDesktop 壳的 profile，桌面版的 profile 走上面的页面。
+用桌面版的话注意：它的 profile 叫 `desktop`，应用运行时由应用独占。先退出桌面版，再给上面的命令加上 `--profile desktop`。一般还是走上面的插件页更省事。
 
-**Windows 上钉 commit。** `dsh plugin` 走应用自带的 `dsh.cmd` 垫片，cmd.exe 会吃掉 `#<sha>&path:/dsh…` 里的 `&`，pnpm 只拿到 `#<sha>` 就报参数非法。在应用页面里钉，规格直给 pnpm；或者直接装上面的分支规格。
+**在 Windows 上钉 commit。** `dsh plugin` 走应用自带的 `dsh.cmd` 垫片，cmd.exe 会吃掉 `#<sha>&path:/…` 里的 `&`，pnpm 只收到 `#<sha>` 就拒绝安装。钉版本请走应用的插件页，规格原样到达 pnpm；或者直接装不钉版本的分支规格。
 
-**pnpm 拉不到 github.com 时。** 它用自己的 TLS 栈，不认系统代理，拦过 TLS 的网络会报 `TypeError: fetch failed`。在 `$DSH_HOME/profiles/<profile>/.npmrc` 里写 `https-proxy=http://127.0.0.1:7890` 和 `proxy=http://127.0.0.1:7890`；或者干脆离线装：把包拷进 `$DSH_HOME/profiles/plugins/<包名>/`，再 add 那个目录路径。
+**pnpm 拉不到 github.com 时。** pnpm 用自己的 TLS 栈，不认系统代理，遇到拦 TLS 的网络会报 `TypeError: fetch failed`。在 `$DSH_HOME/profiles/<profile>/.npmrc` 里写上你的代理：
+
+```ini
+https-proxy=http://127.0.0.1:7890
+proxy=http://127.0.0.1:7890
+```
+
+也可以离线装：把包目录拷进 `$DSH_HOME/profiles/plugins/<包名>/`，再 add 那个目录路径。
 
 ## 约定
 
-- **从一开始就独立。** 任何包都不 import 别的包，各自复制所需的那点 layout/HTTP 辅助代码，某个包缺席、落后或未装都不影响别人。
-- **跨包约定都在 DOM 层。** 各插件入口停靠进共用的 `#dsh-launchers` 角落容器，面板通过发布的 `--dsh-launcher-stack` 高度避开它。
-- **基座约定。** 功能插件把 `{ title, order, mount(host) }` 发布到 `window.__dshFeatures`，并在 package.json 里声明 `dsh.ui.feature`；基座据此就地挂载，并隐藏 `#dsh-launchers`。双向都没有 import。
-- **面板双语，配色跟随 dsh 主题。** 语言取自 `navigator.language`，刻意不读 dsh 的 `locale`，否则每个包都要解析 profile patch。配色优先用壳自己的 `--dsw-alias-*` 令牌，跟着 dsh 的明暗设置走，取不到时回落到硬编码值并按 `prefers-color-scheme` 切换。
-- **相比已退役的单包 `dsh-desktop-kit`：** 没有页面错误上报。那个包是这些包的母本，已经不再维护。
+几条规矩让这套插件能凑在一起又不互相牵连。
 
-改代码前先看 [AGENTS.md](AGENTS.md) 里的约定与坑。
+- **天生独立。** 任何包都不 import 别的包，各自复制需要的那点辅助代码，某个包没装或版本落后都不影响别人。
+- **DOM 层的唯一约定。** 角落的启动按钮停靠进共用的 `#dsh-launchers` 容器，面板靠发布的 `--dsh-launcher-stack` 高度避开它。
+- **基座契约。** 功能插件把 `{ title, order, mount(host) }` 发布到 `window.__dshFeatures`，并在 package.json 里声明 `dsh.ui.feature`；基座据此就地挂载面板，并隐藏 `#dsh-launchers`。两个方向都没有 import。
+- **双语面板，配色跟随主题。** 语言取自 `navigator.language`；配色优先用 dsh 自己的 `--dsw-alias-*` 令牌，取不到就回落到硬编码值，按 `prefers-color-scheme` 切换。
+
+要改代码？先看 [AGENTS.md](AGENTS.md)，坑都写在那里。
 
 ## 测试
 
-```bash
-cd <包名> && node tests/<包名>.test.mjs
-node tests/hub-contract.test.mjs          # 仓级：基座约定，在仓根跑
-node tests/panel-embed.test.mjs           # 仓级：装了基座时六个面板的行为
-node tests/mobile-layer.test.mjs          # 仓级：手机增强层的 DOM 行为
-node tests/manifest.test.mjs              # 仓级：目录名即包名，裸导入必须有声明
-node tests/host-half.test.mjs             # 仓级：每个宿主半边都能挂上，路由与命令都对着
-```
-
-每个套件自己打印总数，这里故意不抄：数字会随每条检查增删而变，写死一个过期的比没有更糟。要紧的是它们全过，包内和仓级都一样。
-
-`dsh-features` 的套件会真跑它的浏览器端（vm 加极简 React 打桩），侧栏槽位、顺序、列表、点进、拖拽排序与挂载交接不用浏览器也能断言。`dsh-init` 的套件把运行时自己的会话格式 V4 准入跑在它注入的那条消息上，并用一个反例证明这个探针能失败，所以"注册成功却什么都不做"这个唯一的坑被钉住了。`panel-embed.test.mjs` 把六个功能面板的浏览器脚本放进 DOM 打桩里跑，证明装了基座时它们不挂浮动按钮，也不多出第二个刷新控件。`mobile-layer.test.mjs` 对手机增强层的浏览器端做同样的事：远端来源的设置页必须让上游那个永远不会成功的重试消失。`tools/visual/` 是截图工具，专看这些套件看不见的排版问题，见其 README。`dsh-remote` 另有实时套件（`tests/remote-live.mjs`），需要一个开着远程访问的沙箱实例。
-
-要把整套装在一起跑，有一个可复用的沙箱：一条命令起一个真 dsh，把本仓八个包都以 `link:` 装上；第一次之后改代码只要重启进程。沙箱落在 `.sandbox/`（已被 gitignore，永不入库，而且它拒绝把包装到你自己的 `~/.dsh` 去）：
+都是纯 Node，没有构建步骤。每个包自带一套测试，仓根另有五套跨包测试检查包之间的约定：
 
 ```bash
-node tools/sandbox/sandbox.mjs up --restart   # 重启正在跑的那个实例
-node tools/sandbox/sandbox.mjs url            # 打印它的 URL（含令牌）
-node tools/sandbox/sandbox.mjs down           # 停掉
+cd <包名> && node tests/<包名>.test.mjs   # 单个包自己的套件
+node tests/hub-contract.test.mjs          # 仓级：基座契约
+node tests/panel-embed.test.mjs           # 仓级：每个面板在有基座和没基座时都能起
+node tests/mobile-layer.test.mjs          # 仓级：手机层的 DOM 行为
+node tests/manifest.test.mjs              # 仓级：目录名即包名，裸导入都有声明
+node tests/host-half.test.mjs             # 仓级：每个宿主半边都能挂载，路由、资产、命令都对
 ```
 
-见 [tools/sandbox/README.md](tools/sandbox/README.md)。
+每套测试自己打印总数，要求是全过。
+
+想把整套装在一起跑，用沙箱：一条命令在 `.sandbox/`（已被 gitignore，且拒绝碰你真实的 `~/.dsh`）起一个真 dsh，把本仓八个包都装上：
+
+```bash
+node tools/sandbox/sandbox.mjs up            # 首次：建目录、安装、启动并打印 URL
+node tools/sandbox/sandbox.mjs up --restart  # 改完代码：重启正在跑的实例
+node tools/sandbox/sandbox.mjs url           # 打印 URL（含令牌）
+node tools/sandbox/sandbox.mjs down          # 停止
+```
+
+详见 [tools/sandbox/README.md](tools/sandbox/README.md)。界面长什么样测试断言不了，`tools/visual/` 里有截图工具，见其 README。
 
 ## License
 
-MIT。`dsh-notify/lib/sounds/` 的音效来自 opencode（经 DSHDesktop）；`dsh-remote/lib/assets/` 的移动端资产 vendored 自 DSHDesktop。
+MIT。`dsh-notify/lib/sounds/` 下的提示音来自 opencode 项目，原样随包分发。

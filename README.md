@@ -2,44 +2,38 @@
 
 English | [中文](README.zh.md)
 
-Small independent [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) plugins: one feature per package, each installable on its own. Ported out of [DSHDesktop](https://github.com/LBurny/deepseek-harness-desktop)'s convenience layer, so the same features run inside dsh itself: no desktop shell, no Tauri, no extra process.
+A set of small plugins for [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). One feature per package, every package installs on its own, and nothing depends on anything else in the set. Everything runs inside dsh itself, so there is no extra app to install and no extra process to keep alive.
 
-## Plugins
+## What you get
+
+Eight packages. Pick the ones you want.
 
 | Package | What it does | Command |
 | ------- | ------------ | ------- |
-| `dsh-features` | The hub (Features): one sidebar entry between Plugins and Scheduled tasks, lists every installed feature plugin as a row like dsh's own Plugins page, opens one on click, reorders by drag. Install it to lose the floating corner buttons | |
-| `dsh-skills` | Manage skills: enable / disable / delete / import, including local ZIP archives | `/skills` |
-| `dsh-mcp` | Manage MCP servers in the active profile's patch layer: add / edit / delete / enable / import | `/mcp` |
-| `dsh-doctor` | Debug this set of plugins: the harness's own log records read in-process, every row of the plugin tree with its activation state, and whichever log files exist | `/doctor` |
-| `dsh-zoom` | Page zoom with rebindable shortcuts | `/zoom` |
+| `dsh-features` | A **Features** entry in the sidebar, between Plugins and Scheduled tasks. It lists every installed feature plugin as a row like dsh's own Plugins page, opens one on click, and reorders rows by drag. With it installed, the floating corner buttons move onto that page | |
+| `dsh-skills` | Manage skills: enable, disable, delete, import, local ZIP archives included | `/skills` |
+| `dsh-mcp` | Manage the MCP servers of the active profile: add, edit, delete, enable, import | `/mcp` |
+| `dsh-doctor` | A debugging panel for plugins: the harness's own log records read in-process, every plugin row with its activation state, plus the log files that exist | `/doctor` |
+| `dsh-zoom` | Page zoom with shortcuts you can rebind | `/zoom` |
 | `dsh-notify` | Task reminders: in-page popup, bundled sounds, browser notification | `/notify` |
-| `dsh-remote` | Phone remote access: authenticated reverse proxy, QR link, Tailscale tailnet / LAN / Cloudflare tunnel, mobile UI rewrite, project browser | `/remote` |
-| `dsh-init` | Write or update this workspace's `AGENTS.md`, the instruction file dsh loads into every session there | `/init` |
+| `dsh-remote` | dsh on your phone: an authenticated reverse proxy with a QR link, over LAN, a Tailscale tailnet or a Cloudflare tunnel, plus a mobile rewrite of the page and a project browser | `/remote` |
+| `dsh-init` | Write or update the workspace's `AGENTS.md`, the instruction file dsh loads into every session there | `/init` |
 
-Each one is a normal dsh plugin: it declares `dsh.bundle.patch`, so `dsh plugin add` mounts its layer automatically. They never import each other, so any subset works.
+Two of them sit a little apart from the rest.
 
-`dsh-init` is a command, not a feature: no browser half, no panel, no `dsh.ui.feature` marker, so
-`dsh-features` does not list it. That matches the built-in `/init` it was ported from. Its prompt is
-written against the harness's real instruction-loading chain (the root `AGENTS.md` and `CLAUDE.md`,
-the personal overlays, nested files, and the user-global file it must not touch), and it arrives as a
-collapsed context row rather than a long user message.
+`dsh-features` is not a feature but the hub the others plug into, and the only package with a browser client, because only a dsh client plugin can add a real sidebar entry. Install it and the feature panels move onto its page; uninstall it and the corner buttons come back, unchanged.
 
-`dsh-features` is not a feature but the hub the other packages plug into. It is the only one with a
-browser half (`dsh.client` → `lib/client.js`), because a real navigation entry can only be added by
-a dsh client plugin. With it installed, feature panels move onto the hub's page and their floating
-corner buttons disappear; uninstall it and the buttons come back, unchanged.
+`dsh-init` is a command, not a feature. It has no panel, so the hub does not list it. Its prompt follows the harness's real instruction-file rules, and the result arrives as a collapsed context row instead of a long user message.
+
+Underneath, every package is an ordinary dsh plugin: it declares `dsh.bundle.patch`, so `dsh plugin add` mounts it automatically. Packages never import each other, which is why any subset works.
 
 ## Install
 
-Each package installs on its own, and both routes take the same specs: the desktop app's **Plugins**
-page, or `dsh plugin add` from a command line. Restart dsh afterwards; plugins have no HMR.
+Two routes, one set of specs: the desktop app's **Plugins** page, or `dsh plugin add` in a terminal. Either way, restart dsh afterwards; plugins have no hot reload.
 
-### One by one in the desktop app
+### In the desktop app
 
-The official desktop app manages its own `desktop` profile, and the command line cannot change that
-one. Open **Plugins**, then **Add plugin**, paste one spec, install, and repeat for the next. The
-box accepts a package name, a Git repository address, or a local directory path.
+Open **Plugins**, click **Add plugin**, paste a spec, install, repeat. The box accepts a package name, a git URL, or a local directory path.
 
 ```text
 github:LBurny/dsh-plugin#path:/dsh-features
@@ -52,88 +46,69 @@ github:LBurny/dsh-plugin#path:/dsh-remote
 github:LBurny/dsh-plugin#path:/dsh-init
 ```
 
-`#path:/<package>` is pnpm's subdirectory-of-a-repository form; all eight live in this one
-repository, so every spec carries it. Order does not matter, and a subset is fine. Install
-`dsh-features` too and the feature panels move onto its single sidebar entry instead of one
-floating corner button each. A pinned spec needs no escaping here; the `&` trap belongs to the
-command line, not to the page.
+`#path:/<package>` is how pnpm names a subdirectory of a repository; all eight packages live in this one, so every spec carries it. Install order does not matter.
 
-The page itself tells you two things. Upgrading is uninstall, then install the new version: there
-is no auto-update, so a fix arrives by reinstalling the spec, pinned if you want it reproducible.
-And when GitHub cannot be reached, retry with the page's **Install source** choice: default, npm
-official, China mirror, or custom.
+Two things worth knowing about that page. Upgrading is uninstall, then install again: there is no auto-update, and pinning a commit (`#<sha>&path:/<package>`) makes a spec reproducible. And if GitHub is unreachable, retry with the page's **Install source** option: default, npm official, China mirror, or custom.
 
 ### From the command line
 
 ```bash
-dsh plugin --profile web add github:LBurny/dsh-plugin#path:/dsh-skills
+dsh plugin add github:LBurny/dsh-plugin#path:/dsh-skills
 # pin a commit:
-dsh plugin --profile web add github:LBurny/dsh-plugin#<sha>&path:/dsh-skills
-dsh plugin --profile web remove dsh-skills
+dsh plugin add github:LBurny/dsh-plugin#<sha>&path:/dsh-skills
+dsh plugin remove dsh-skills
 ```
 
-`--profile web` is DSHDesktop's shell profile; the desktop app's profile goes through its page, above.
+Using the desktop app? Its profile is called `desktop` and the app manages it while it runs, so quit the app first and add `--profile desktop` to the same commands. The Plugins page above is usually the easier route.
 
-**Pinning a commit on Windows.** `dsh plugin` runs through the app's `dsh.cmd` shim, and cmd.exe
-eats the `&` in `#<sha>&path:/dsh…`, so pnpm receives a bare `#<sha>` and refuses it. Pin from
-the app's page, where the spec goes straight to pnpm, or install the branch spec instead.
+**Pinning a commit on Windows.** `dsh plugin` runs through the app's `dsh.cmd` shim, and cmd.exe eats the `&` in `#<sha>&path:/…`, so pnpm receives a bare `#<sha>` and refuses it. Pin from the app's page, where the spec reaches pnpm untouched, or install the unpinned branch spec instead.
 
-**If pnpm cannot reach github.com.** It fetches with its own TLS stack and ignores the system
-proxy, so a TLS-intercepting network fails with `TypeError: fetch failed`. Write
-`https-proxy=http://127.0.0.1:7890` and `proxy=http://127.0.0.1:7890` into
-`$DSH_HOME/profiles/<profile>/.npmrc`, or install offline: copy a package into
-`$DSH_HOME/profiles/plugins/<name>/` and add that directory path.
+**When pnpm cannot reach github.com.** It fetches with its own TLS stack and ignores the system proxy, so a TLS-intercepting network fails with `TypeError: fetch failed`. Point it at your proxy in `$DSH_HOME/profiles/<profile>/.npmrc`:
+
+```ini
+https-proxy=http://127.0.0.1:7890
+proxy=http://127.0.0.1:7890
+```
+
+Or install offline: copy a package into `$DSH_HOME/profiles/plugins/<name>/` and add that directory path.
 
 ## Conventions
 
-- **Independent by construction.** No package imports another; each duplicates the small layout and HTTP helpers it needs, so a missing, drifted or uninstalled sibling breaks nothing.
-- **One DOM-level agreement.** Launchers dock into a shared `#dsh-launchers` corner container, and panels clear it via the published `--dsh-launcher-stack` height.
-- **The hub agreement.** A feature publishes `{ title, order, mount(host) }` to `window.__dshFeatures` and declares `dsh.ui.feature` in its package.json; the hub mounts it inline and hides `#dsh-launchers`. Nothing is imported in either direction.
-- **Bilingual panels, theme-following colours.** Language comes from `navigator.language`, deliberately not dsh's `locale`, which would make every package parse the profile patch. Colours prefer the shell's own `--dsw-alias-*` tokens, so a panel follows dsh's light/dark setting, and fall back to hardcoded values under `prefers-color-scheme`.
-- **Compared to the retired single-package `dsh-desktop-kit`:** no page-error reporting. That package was the origin these were split from and is no longer developed.
+A few ground rules keep the set together without tangling it.
 
-Development notes and the traps worth knowing live in [AGENTS.md](AGENTS.md).
+- **Independent by construction.** No package imports another; each duplicates the few small helpers it needs, so a missing, drifted or uninstalled sibling breaks nothing.
+- **One DOM-level agreement.** Corner launchers dock into a shared `#dsh-launchers` container, and panels clear it via the published `--dsh-launcher-stack` height.
+- **The hub contract.** A feature publishes `{ title, order, mount(host) }` on `window.__dshFeatures` and declares `dsh.ui.feature` in its package.json; the hub mounts it inline and hides `#dsh-launchers`. Nothing is imported in either direction.
+- **Bilingual panels, theme-following colours.** Language comes from `navigator.language`; colours prefer dsh's own `--dsw-alias-*` tokens and fall back to hardcoded values under `prefers-color-scheme`.
+
+Changing the code? Read [AGENTS.md](AGENTS.md) first; the traps worth knowing are written down there.
 
 ## Test
 
-```bash
-cd <name> && node tests/<name>.test.mjs
-node tests/hub-contract.test.mjs          # repo-wide: the hub agreement, from the root
-node tests/panel-embed.test.mjs           # repo-wide: every panel boots without the hub
-node tests/mobile-layer.test.mjs          # repo-wide: the phone layer's DOM behaviour
-node tests/manifest.test.mjs              # repo-wide: the directory name, and every import declared
-node tests/host-half.test.mjs             # repo-wide: every host half mounts, and its routes and command
-```
-
-Each suite prints its own total, and the totals are deliberately not copied here: they change with every
-check added, and a stale count is worse than none. What matters is that all of them pass, per package and
-from the root.
-
-`dsh-features`' suite evaluates its browser half for real (a vm with a minimal React), so the
-sidebar slot, its order, the list, the drill-down and the mount hand-off are asserted without a
-browser. `dsh-init`'s suite runs the runtime's own session-format V4 admission on the message it
-injects, with a negative fixture proving the probe can fail, so the one regression that makes `/init`
-register and then do nothing stays caught. `panel-embed.test.mjs` runs all six feature panels'
-scripts in a DOM stub to prove none of them docks a corner button or a second refresh control while
-the hub is installed. `mobile-layer.test.mjs` does the same for the browser half of the phone layer,
-where a remote-origin settings page has to lose upstream's dead Retry.
-`tools/visual/` holds a screenshot harness for the UI work the suites cannot see; see its README.
-`dsh-remote` also ships a live suite (`tests/remote-live.mjs`) that needs a sandbox instance with
-remote access enabled.
-
-For the whole set running together there is a reusable sandbox: one command brings up a real dsh with
-all eight packages installed from this working tree, and after the first run a code change only needs
-a restart. It lives in `.sandbox/` (gitignored, never committed, and it refuses to touch your own
-`~/.dsh`):
+Everything is plain Node, no build step. Each package carries its own suite, and five repo-wide suites at the root check the packages against each other:
 
 ```bash
-node tools/sandbox/sandbox.mjs up --restart   # reload the running instance
-node tools/sandbox/sandbox.mjs url            # its URL, token included
-node tools/sandbox/sandbox.mjs down           # stop it
+cd <name> && node tests/<name>.test.mjs   # one package on its own
+node tests/hub-contract.test.mjs          # the hub contract
+node tests/panel-embed.test.mjs           # every panel boots, with and without the hub
+node tests/mobile-layer.test.mjs          # the phone layer's DOM behaviour
+node tests/manifest.test.mjs              # directory name == package name; every import declared
+node tests/host-half.test.mjs             # every host half mounts; routes, assets, command
 ```
 
-See [tools/sandbox/README.md](tools/sandbox/README.md).
+Each suite prints its own totals, and all of them pass.
+
+To see the whole set running together, use the sandbox: one command brings up a real dsh home at `.sandbox/` (gitignored, and it refuses to touch your real `~/.dsh`) with all eight packages installed from this working tree:
+
+```bash
+node tools/sandbox/sandbox.mjs up            # first run: create, install, boot, print the URL
+node tools/sandbox/sandbox.mjs up --restart  # after an edit: reload the running instance
+node tools/sandbox/sandbox.mjs url           # print the URL, token included
+node tools/sandbox/sandbox.mjs down          # stop it
+```
+
+See [tools/sandbox/README.md](tools/sandbox/README.md). For the look of the UI, which no suite can judge, `tools/visual/` has a screenshot harness; see its README.
 
 ## License
 
-MIT. Sounds under `dsh-notify/lib/sounds/` come from opencode via DSHDesktop; the mobile assets under `dsh-remote/lib/assets/` are vendored from DSHDesktop.
+MIT. The notification sounds under `dsh-notify/lib/sounds/` come from the opencode project and are bundled as-is.
