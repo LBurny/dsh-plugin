@@ -100,7 +100,7 @@ function publicStatus(status) {
 function renderStatus(state_, status) {
 	const lines = [
 		`remote access: ${status.state}${status.enabled ? "" : " (off)"}`,
-		`mode=${status.mode}${status.proxyPort === undefined ? "" : ` proxy port=${String(status.proxyPort)}`}${status.tunnel === undefined ? "" : ` tunnel=${status.tunnel}`}`
+		`mode=${status.mode}${status.proxyPort === undefined ? "" : ` proxy port=${String(status.proxyPort)}`}${status.tunnel === undefined ? "" : ` tunnel=${status.tunnel.state}`}`
 	];
 	if (status.error !== undefined) lines.push(`error: ${status.error}`);
 	if (status.enabled && status.link !== undefined) {

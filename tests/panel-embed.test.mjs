@@ -196,17 +196,22 @@ function descendants(node, found = []) {
 
 /**
  * Boot one panel. `hub` decides whether the 功能管理 probe route answers; a panel
- * that sees it must stay out of the way of the hub page.
+ * that sees it must stay out of the way of the hub page. `payload` replaces the
+ * default route body, and `timers` collects the delays a panel schedules instead of
+ * running them, which is how the "is it still asking for more?" question is asked.
  * @returns the booted panel with its sandbox, the DOM stub and the mount point.
  */
-async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sidebarRequired, level } = {}) {
+async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sidebarRequired, level, payload: body, timers } = {}) {
 	const dom = makeDom();
 	dom.sidebarRequired = sidebarRequired;
 	// Window listeners are recorded so a test can fire them the way the browser does.
 	const listeners = {};
 	const sandbox = {
 		console,
-		setTimeout,
+		setTimeout: timers === undefined ? setTimeout : (fn, delay) => {
+			timers.push(delay);
+			return 0;
+		},
 		clearTimeout,
 		Node: dom.Node,
 		innerHeight,
@@ -231,7 +236,7 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 				if (!hub) throw new Error("no hub");
 				return { ok: true, status: 200, json: async () => ({ ok: true, hub: "dsh-features" }) };
 			}
-			const payload = { ok: true, ...PAYLOADS[pkg] };
+			const payload = { ok: true, ...(body ?? PAYLOADS[pkg]) };
 			if (level !== undefined && payload.config !== undefined) payload.config = { ...payload.config, level };
 			if (path.includes("/api/logs") || path.includes("/diagnostics")) return { ok: true, status: 200, json: async () => payload };
 			return { ok: true, status: 200, json: async () => payload };
@@ -252,7 +257,7 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 		for (const key of keys) await registry[key].mount(host);
 		await new Promise((resolve) => setTimeout(resolve, 30));
 	}
-	return { sandbox, dom, host, keys, listeners };
+	return { sandbox, dom, host, keys, listeners, timers };
 }
 
 /** The buttons of a subtree, by their visible text. */
@@ -470,6 +475,69 @@ check(
 	zoomedTo(tallWindow) === expectedCap(500, 360),
 	"dsh-zoom: shrinking the window pulls the level back inside the new ceiling",
 	`${zoomedTo(tallWindow)} vs ${expectedCap(500, 360)}`
+);
+
+/* ------------------------- dsh-remote: a link that arrives after "enable" */
+
+// `enable` answers as soon as the proxy is listening, while in tunnel mode the link
+// exists only once cloudflared has reported its hostname, seconds later. The manager
+// already reads "up" by then, so a panel that waited on that state name alone showed
+// no link and no QR until the page was remounted. It has to keep asking until it holds
+// a link, and stop asking once it does.
+const waitingPayload = {
+	remote: {
+		state: "up", enabled: true, mode: "tunnel", proxyPort: 29274,
+		tunnel: { state: "starting", url: "", error: undefined }, lanUrls: []
+	},
+	qrAvailable: true, qrPath: "/dsh-remote/qr.svg", cloudflared: "C:/tools/cloudflared.exe"
+};
+const waiting = await bootPanel("dsh-remote", { payload: waitingPayload, timers: [] });
+check(
+	waiting.timers.includes(2000),
+	"dsh-remote: an enabled panel with no link yet keeps asking for one",
+	waiting.timers.join(",") || "(nothing scheduled)"
+);
+check(
+	!textOf(waiting.host).includes("[object Object]"),
+	"dsh-remote: the waiting status row shows the tunnel state, never its handle",
+	textOf(waiting.host).slice(0, 140)
+);
+
+const linkedPayload = {
+	remote: {
+		state: "up", enabled: true, mode: "tunnel", proxyPort: 29274,
+		link: "https://x-y-z.trycloudflare.com/?token=abc", resumed: false,
+		tunnel: { state: "up", url: "https://x-y-z.trycloudflare.com", error: undefined }, lanUrls: []
+	},
+	qrAvailable: true, qrPath: "/dsh-remote/qr.svg", cloudflared: "C:/tools/cloudflared.exe"
+};
+const linked = await bootPanel("dsh-remote", { payload: linkedPayload, timers: [] });
+check(
+	!linked.timers.includes(2000),
+	"dsh-remote: a panel that has its link stops asking",
+	linked.timers.join(",") || "(nothing scheduled)"
+);
+// The QR is what the reader is actually waiting for, so it is asserted by tag rather
+// than by the surrounding sentence.
+check(
+	descendants(linked.host).some((child) => child.tag === "img"),
+	"dsh-remote: the QR is painted as soon as the link is there",
+	descendants(linked.host).map((child) => child.tag).join(",")
+);
+check(
+	!descendants(waiting.host).some((child) => child.tag === "img"),
+	"dsh-remote: no QR is painted before the link exists",
+	""
+);
+check(
+	textOf(linked.host).includes("tunnel: up"),
+	"dsh-remote: the tunnel state reaches the status row",
+	textOf(linked.host).slice(0, 160)
+);
+check(
+	!textOf(linked.host).includes("[object Object]"),
+	"dsh-remote: an up tunnel is not stringified as an object",
+	textOf(linked.host).slice(0, 160)
 );
 
 /* ----------------------------------------------------------------- report */

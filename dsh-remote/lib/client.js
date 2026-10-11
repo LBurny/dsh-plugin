@@ -28,6 +28,10 @@
 
 	const BASE = "/dsh-remote";
 	const API = `${BASE}/api`;
+	/** How often an open panel re-asks while an enable has not produced its link yet. */
+	const LINK_POLL_MS = 2000;
+	/** Stop waiting for a link after this long; a channel with no usable address never makes one. */
+	const LINK_WAIT_MS = 90_000;
 
 	// ------------------------------------------------------------------ i18n
 
@@ -216,6 +220,8 @@
 	let qrPath;
 	let qrAvailable = false;
 	let cloudflared;
+	/** When this panel started waiting for a link, or undefined while it is not waiting. */
+	let waitingSince;
 	/** The path the reader configured, if any (empty means "search automatically"). */
 	let cloudflaredPath;
 
@@ -238,12 +244,29 @@
 	}
 
 	/**
-	 * Re-render while the tunnel is still coming up: an `enable` returns as soon
-	 * as the proxy is listening, but cloudflared needs a few more seconds to print
-	 * its hostname.
+	 * Re-render while a link is still on its way. An `enable` answers as soon as the
+	 * proxy is listening, but in tunnel mode the link only exists once cloudflared has
+	 * printed its hostname, seconds later, and the manager already reads "up" by then.
+	 * Waiting on that state name alone therefore left the panel showing no link and no
+	 * QR until the page was remounted, so this waits on the link itself too. The
+	 * deadline stops it asking forever when a channel has no address to link to.
 	 */
 	function pollWhileStarting() {
-		if (remote?.state === "starting" && (inHub || (panel !== undefined && !panel.hidden))) setTimeout(() => void render(), 2000);
+		if (!(inHub || (panel !== undefined && !panel.hidden))) return;
+		const noLink = (remote?.link ?? remote?.lanUrls?.[0]) === undefined;
+		const waiting = remote?.state === "starting"
+			|| remote?.tunnel?.state === "starting"
+			|| (remote?.enabled === true && noLink);
+		if (!waiting) {
+			waitingSince = undefined;
+			return;
+		}
+		waitingSince ??= Date.now();
+		if (Date.now() - waitingSince > LINK_WAIT_MS) {
+			waitingSince = undefined;
+			return;
+		}
+		setTimeout(() => void render(), LINK_POLL_MS);
 	}
 
 	async function render() {
@@ -282,12 +305,15 @@
 
 	function renderRemote() {
 		const label = { off: T("stateOff"), starting: T("stateStarting"), up: T("stateUp"), error: T("stateError") }[remote.state] ?? remote.state;
+		// The tunnel's own state, never its handle: the snapshot carries `{state, url, error}`
+		// there, and stringifying that whole object into this row prints "[object Object]".
+		const tunnel = remote.tunnel === undefined ? "" : typeof remote.tunnel === "string" ? remote.tunnel : remote.tunnel.state;
 		const fragment = document.createDocumentFragment();
 		fragment.append(el("div", { class: "note", text: T("remoteHint") }));
 		fragment.append(el("div", { class: "row" },
 			el("div", { class: "row-main" },
 				el("div", { class: "row-name", text: label }),
-				el("div", { class: "row-sub", text: [remote.error, remote.tunnel === undefined ? "" : `tunnel: ${remote.tunnel}`, remote.proxyPort === undefined ? "" : `port ${String(remote.proxyPort)}`].filter(Boolean).join(" · ") }))));
+				el("div", { class: "row-sub", text: [remote.error, tunnel === "" ? "" : `tunnel: ${tunnel}`, remote.proxyPort === undefined ? "" : `port ${String(remote.proxyPort)}`].filter(Boolean).join(" · ") }))));
 
 		const mode = el("select", {},
 			el("option", { value: "tailnet", text: T("modeTailnet"), selected: remote.mode === "tailnet" }),

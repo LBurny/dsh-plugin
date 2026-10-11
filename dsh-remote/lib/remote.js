@@ -840,14 +840,28 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 				// restart should not silently invalidate it: adopt the tunnel the previous
 				// session left running whenever it is still ours and still answers.
 				const saved = loadSession(paths.sessionPath);
-				if (canAdopt(saved, { exe, target }) && (await tunnelAnswers(saved.tunnelUrl, current.token))) {
-					tunnel = createTunnel({
-						exe,
-						target,
-						logPath: paths.tunnelLogPath,
-						onSession: (state_) => saveSession(paths.sessionPath, state_),
-						log
-					});
+				// The link is a credential the reader has already handed to a phone, so a
+				// restart should not silently invalidate it: adopt the tunnel the previous
+				// session left running whenever it is still ours and still answers.
+				const adopt = canAdopt(saved, { exe, target }) && (await tunnelAnswers(saved.tunnelUrl, current.token));
+				tunnel = createTunnel({
+					exe,
+					target,
+					logPath: paths.tunnelLogPath,
+					onSession: (state_) => saveSession(paths.sessionPath, state_),
+					log
+				});
+				// Subscribe before starting or adopting: both notify synchronously, and a
+				// listener attached afterwards never hears about the transition that carries
+				// the URL. That is why the panel used to show no link (and no QR) until it was
+				// remounted, and why an adopted tunnel could go a whole session without one.
+				tunnel.onChange((tunnelStatus) => {
+					state = tunnelStatus.state === "up" ? "up" : tunnelStatus.state === "off" ? "off" : "starting";
+					error = tunnelStatus.error;
+					if (tunnelStatus.url !== "") link = `${tunnelStatus.url}/?token=${settings().token}`;
+					publish();
+				});
+				if (adopt) {
 					tunnel.adopt(saved);
 					resumed = true;
 				} else {
@@ -856,21 +870,8 @@ export function createRemoteManager({ ctx, layout, config, save, log }) {
 					if (saved !== undefined) killStale(saved.tunnelPid);
 					clearSession(paths.sessionPath);
 					resumed = false;
-					tunnel = createTunnel({
-						exe,
-						target,
-						logPath: paths.tunnelLogPath,
-						onSession: (state_) => saveSession(paths.sessionPath, state_),
-						log
-					});
 					tunnel.start();
 				}
-				tunnel.onChange((tunnelStatus) => {
-					state = tunnelStatus.state === "up" ? "up" : tunnelStatus.state === "off" ? "off" : "starting";
-					error = tunnelStatus.error;
-					if (tunnelStatus.url !== "") link = `${tunnelStatus.url}/?token=${settings().token}`;
-					publish();
-				});
 			}
 		}
 		return snapshot();

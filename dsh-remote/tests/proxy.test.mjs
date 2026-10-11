@@ -645,6 +645,16 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 		"disabling remote access does kill the tunnel and forget the session",
 		""
 	);
+	// `start()` and `adopt()` both notify synchronously, so a listener attached after
+	// them misses the transition that carries the URL. That is why the panel showed no
+	// link (and no QR) until it was remounted, and why an adopted tunnel could spend a
+	// whole session without one.
+	const subscribe = remote.indexOf("tunnel.onChange(");
+	check(
+		subscribe !== -1 && subscribe < remote.indexOf("tunnel.adopt(") && subscribe < remote.indexOf("tunnel.start()"),
+		"the URL listener is attached before the tunnel is started or adopted",
+		`onChange@${String(subscribe)} adopt@${String(remote.indexOf("tunnel.adopt("))} start@${String(remote.indexOf("tunnel.start()"))}`
+	);
 	await rm(dir, { recursive: true, force: true });
 }
 
