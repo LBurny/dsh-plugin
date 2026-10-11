@@ -113,25 +113,6 @@
 		};
 	}
 
-	/** Parse a `KEY=VALUE` textarea into an object, ignoring blank lines. */
-	function parsePairs(text) {
-		const out = {};
-		for (const line of String(text ?? "").split(/\r?\n/u)) {
-			const trimmed = line.trim();
-			if (trimmed === "") continue;
-			const at = trimmed.indexOf("=");
-			if (at <= 0) continue;
-			out[trimmed.slice(0, at).trim()] = trimmed.slice(at + 1).trim();
-		}
-		return out;
-	}
-
-	/** Serialize an object back into `KEY=VALUE` lines. */
-	const pairsToText = (value) =>
-		Object.entries(value ?? {})
-			.map(([key, item]) => `${key}=${item}`)
-			.join("\n");
-
 	// ------------------------------------------------------------------- dom
 
 	let panel;
@@ -144,9 +125,7 @@
 	 */
 	let inHub = false;
 
-	/** In-page toast for local feedback. */
-	/**
-	 * In-page toast for local feedback. A body carrying newlines (the reminder's session line and
+	/** In-page toast for local feedback. A body carrying newlines (the reminder's session line and
 	 * its sentence) becomes one line per part rather than one run-on string.
 	 */
 	function toast(title, message) {
@@ -183,18 +162,6 @@
 		return el("div", { class: "row" }, ...children, side.length === 0 ? undefined : el("div", { class: "row-actions" }, ...side));
 	}
 
-	/** Swap the panel body for a sub-view (dialog); the factory supplies it. */
-	function showView(factory) {
-		void (async () => {
-			body.replaceChildren(el("div", { class: "muted", text: T("working") }));
-			try {
-				body.replaceChildren(await factory());
-			} catch (error) {
-				body.replaceChildren(el("div", { class: "row-sub", text: `${T("failed")}: ${String(error?.message ?? error)}` }));
-			}
-		})();
-	}
-
 	// --------------------------------------------------------------- feature
 
 	/**
@@ -211,7 +178,6 @@
 	/** The open SSE stream; the browser reconnects on its own. */
 	let source;
 	let audio;
-	const recent = [];
 
 	/** Human label for a reminder kind. */
 	function labelForKind(kind) {
@@ -283,8 +249,6 @@
 
 	/** Raise one reminder through every channel the settings allow. */
 	function deliver(item) {
-		recent.push(item);
-		if (recent.length > 50) recent.shift();
 		if (item.kind === undefined) return;
 		if (!allows(item.kind)) return;
 		const words = reminderText(item);
