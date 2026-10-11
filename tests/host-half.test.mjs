@@ -70,8 +70,10 @@ async function mountHostHalf(pkg) {
 		skills: anything(),
 		llm: anything()
 	};
+	const logged = [];
 	const logger = Object.assign(() => logger, {
-		info() {}, warn() {}, error() {}, debug() {}, exporter: () => () => {}
+		info: (message) => logged.push(String(message)),
+		warn() {}, error() {}, debug() {}, exporter: () => () => {}
 	});
 	const ctx = {
 		logger,
@@ -79,8 +81,12 @@ async function mountHostHalf(pkg) {
 		// every host half here uses the property form: `ctx.commands.register(...)`.
 		...services,
 		get: (name) => services[name],
-		on(event, handler) {
-			registered.listeners.push({ event, handler });
+		on(event, handler, options) {
+			// `{ prepend: true }` decides whether a listener sees an event at all when another
+			// one claims the waterfall, so the order it asks for is part of what is recorded.
+			const hook = { event, handler, prepend: options?.prepend === true };
+			if (hook.prepend) registered.listeners.unshift(hook);
+			else registered.listeners.push(hook);
 			return () => {};
 		},
 		effect(callback, label) {
@@ -110,7 +116,7 @@ async function mountHostHalf(pkg) {
 	} catch (error) {
 		failure = error;
 	}
-	return { registered, failure, rm: () => rmSync(home, { recursive: true, force: true }) };
+	return { registered, failure, logged, rm: () => rmSync(home, { recursive: true, force: true }) };
 }
 
 /** A response recorder: what a route handler wrote. */
@@ -233,11 +239,13 @@ for (const pkg of PACKAGES) {
 /* ------------------------------ dsh-notify: the events it turns into reminders */
 
 // The host half is the only half that can see an approval or a question, and it learns about
-// them from two dsh waterfalls: `user-approval` dispatches `approval/request` with a fallback
-// that answers `unavailable`. So a listener has two obligations that pull against each other,
-// announce the thing and *not* swallow it: one that answers nothing and forgets `next()`
-// stalls the very approval it just announced. Both are checked here, against the same bus the
-// panel reads.
+// them from two dsh waterfalls. Two things decide whether that works at all. A waterfall
+// listener that does not call `next()` vetoes the rest of the chain, so an observer must both
+// announce the thing and pass it on rather than stall the approval it just announced. And the
+// same waterfall is how the window answers: `dsh-api-remotes` installs a listener that forwards
+// the request to the connected clients and returns their answer, which is a veto like any
+// other, and it is registered before a profile bundle is loaded. So the observer registers with
+// `prepend` — without it, an attached window silently swallows every approval and question.
 const notifier = await mountHostHalf("dsh-notify");
 const notifyRoute = notifier.registered.prefixes[0];
 /** What this plugin has published, as the panel sees it. */
@@ -245,33 +253,52 @@ const published = async () => {
 	const body = JSON.parse((await call(notifyRoute, "/dsh-notify/api/notifications")).body);
 	return Array.isArray(body.items) ? body.items : [];
 };
-/** Fire one waterfall the way dsh does, and count how many listeners handed control on. */
-const dispatch = async (event, request) => {
-	let continued = 0;
-	for (const { handler } of notifier.registered.listeners.filter((entry) => entry.event === event)) {
-		await handler(request, () => {
-			continued += 1;
-			return Promise.resolve();
-		});
+/** The window's answerer, as dsh registers it: it claims the request and answers. */
+let answered = 0;
+const claimer = {
+	event: "",
+	prepend: false,
+	handler: () => {
+		answered += 1;
+		return Promise.resolve("allowed-once");
 	}
-	return continued;
+};
+/** cordis's listener order for one event: the prepended hooks first, then the rest in order. */
+const orderFor = (event) => {
+	const hooks = notifier.registered.listeners.filter((entry) => entry.event === event);
+	return [
+		...hooks.filter((hook) => hook.prepend === true),
+		{ ...claimer, event },
+		...hooks.filter((hook) => hook.prepend !== true)
+	];
+};
+/** Dispatch a waterfall the way cordis does: outermost listener first, a non-`next()` return vetoes. */
+const waterfall = async (event, request) => {
+	const cbs = orderFor(event);
+	let at = -1;
+	const step = async () => {
+		at += 1;
+		const hook = cbs[at];
+		return hook === undefined ? Promise.resolve("unavailable") : hook.handler(request, () => step());
+	};
+	return step();
 };
 
 const asked = { agent: { id: "s-question", session: { header: { title: "绘图" } } } };
-const questionCarriedOn = await dispatch("user-questions/request", asked);
+const questionAnswer = await waterfall("user-questions/request", asked);
 const afterQuestion = await published();
 check(
-	questionCarriedOn === 1 && afterQuestion.some((item) => item.kind === "question" && item.sessionId === "s-question"),
-	"dsh-notify: a question reaches the reminder bus and the waterfall carries on",
-	`next()x${String(questionCarriedOn)} published ${JSON.stringify(afterQuestion.map((item) => item.kind))}`
+	questionAnswer === "allowed-once" && afterQuestion.some((item) => item.kind === "question" && item.sessionId === "s-question"),
+	"dsh-notify: a question is announced before the window's answerer claims the waterfall",
+	`answered=${String(questionAnswer)} published ${JSON.stringify(afterQuestion.map((item) => item.kind))}`
 );
 
-const approvalCarriedOn = await dispatch("approval/request", { agent: { id: "s-approval", session: { header: { title: "部署" } } } });
+const approvalAnswer = await waterfall("approval/request", { agent: { id: "s-approval", session: { header: { title: "部署" } } } });
 const afterApproval = await published();
 check(
-	approvalCarriedOn === 1 && afterApproval.some((item) => item.kind === "approval" && item.sessionId === "s-approval"),
-	"dsh-notify: an approval reaches the reminder bus and the waterfall carries on",
-	`next()x${String(approvalCarriedOn)} published ${JSON.stringify(afterApproval.map((item) => item.kind))}`
+	approvalAnswer === "allowed-once" && afterApproval.some((item) => item.kind === "approval" && item.sessionId === "s-approval"),
+	"dsh-notify: an approval is announced before the window's answerer claims the waterfall",
+	`answered=${String(approvalAnswer)} published ${JSON.stringify(afterApproval.map((item) => item.kind))}`
 );
 check(
 	afterApproval.find((item) => item.kind === "approval")?.title === "部署",
@@ -279,14 +306,22 @@ check(
 	JSON.stringify(afterApproval.find((item) => item.kind === "approval") ?? null)
 );
 
+// A waterfall listener otherwise leaves no trace that it ran, so every reminder also goes to
+// the harness's log, where `dsh-doctor`'s log view can show it inside the running app.
+check(
+	notifier.logged.some((line) => line.includes("announced approval") && line.includes("s-approval")),
+	"dsh-notify: every announced reminder leaves a line in the harness log",
+	notifier.logged.filter((line) => line.includes("announced")).join(" | ") || "(nothing logged)"
+);
+
 // A subagent's own approval is noise, but it is still an approval: declining to announce it
 // must not decline to pass it on.
 const beforeSubagent = (await published()).length;
-const subagentCarriedOn = await dispatch("approval/request", { agent: { id: "s-sub", session: { header: { origin: "subagent" } } } });
+const subagentAnswer = await waterfall("approval/request", { agent: { id: "s-sub", session: { header: { origin: "subagent" } } } });
 check(
-	subagentCarriedOn === 1 && (await published()).length === beforeSubagent,
+	subagentAnswer === "allowed-once" && (await published()).length === beforeSubagent,
 	"dsh-notify: a subagent's approval is not announced, and is not stalled either",
-	`next()x${String(subagentCarriedOn)} count ${String(beforeSubagent)} -> ${String((await published()).length)}`
+	`answered=${String(subagentAnswer)} count ${String(beforeSubagent)} -> ${String((await published()).length)}`
 );
 
 // A finished turn is the other half of the classification, and it arrives as a session

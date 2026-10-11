@@ -43,6 +43,15 @@ Restart dsh afterwards — plugins have no HMR.
 Subagent turns are suppressed, and a turn that did not end with `reason.kind == "completed"` is not
 reported — the same rules the desktop shell applies.
 
+The first two are Cordis **waterfalls**, and that is where this plugin is easy to get wrong. A
+waterfall listener that does not call `next()` vetoes the rest of the chain, and the window answers
+through the very same waterfall: `@deepseek-ai/dsh-api-remotes` forwards the request to the connected
+clients and returns their answer. It is registered before any profile bundle is loaded, so a listener
+that merely observes the request has to register with `prepend` or it is never called — an attached
+window silently swallows every approval and question, while the turn reminders (a plain emit, where
+every listener runs) keep arriving and look like proof that the plugin works. Announcing and passing
+control on is all this plugin does; the window still owns the decision.
+
 Each kind has an **on/off** switch and a **timing**: *always*, or *only when this page is not focused*.
 The two kinds that block the agent (`approval`, `question`) default to *always*, because a focused
 window is usually showing another session and a missed approval costs a stalled agent. The two

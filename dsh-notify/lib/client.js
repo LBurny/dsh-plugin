@@ -300,6 +300,28 @@
 		void render();
 	}
 
+	/**
+	 * Re-read the settings from the host. They live in a file that any page of this
+	 * plugin may write (the desktop window, the phone through the proxy), so a cached
+	 * copy goes stale the moment the reader changes one somewhere else — and an edit
+	 * made outside the panel would otherwise stay invisible to this page for its whole
+	 * life, which is exactly the kind of "I set it and nothing happened" that reads as a
+	 * broken plugin. Refreshing on focus covers both and costs one local request.
+	 */
+	async function refreshSettings() {
+		if (document.hidden === true) return;
+		try {
+			const data = await getJson(`${API}/settings`);
+			if (data.ok !== true) return;
+			config = data.config;
+			sounds = data.sounds ?? [];
+			configPath = data.configPath;
+			if (inHub || (panel !== undefined && !panel.hidden)) void render();
+		} catch {
+			/* the host being unreachable is the panel's own render's business */
+		}
+	}
+
 	async function render() {
 		body.replaceChildren(el("div", { class: "muted", text: "…" }));
 		try {
@@ -510,6 +532,12 @@
 		} catch {
 			/* a settings read that fails must not hide the panel */
 		}
+		// Coming back to the front is when a stale copy matters: it is both the moment the
+		// next reminder will be judged against it and the moment the reader may have changed
+		// the settings on another page. `visibilitychange` covers a hidden page that is
+		// restored without ever losing focus.
+		window.addEventListener("focus", () => void refreshSettings());
+		document.addEventListener("visibilitychange", () => void refreshSettings());
 		registerWithHub();
 		if (await hubInstalled()) return;
 		buildChrome();

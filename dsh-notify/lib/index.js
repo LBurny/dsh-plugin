@@ -141,6 +141,18 @@ function mountEventBridge(ready, state) {
 	const titles = new Map();
 	const titleOf = (sessionId, session) => titles.get(sessionId) ?? session?.header?.title ?? undefined;
 
+	/**
+	 * Publish one reminder and leave a breadcrumb. A waterfall listener gives no other sign
+	 * that it ran, and "the reminder never happened" and "something upstream claimed the
+	 * event first" look identical from the outside, so the log is where the difference is
+	 * visible: `dsh-doctor`'s log view reads these records out of the running harness.
+	 */
+	function announce(record) {
+		const item = state.bus.publish(record);
+		state.log(`announced ${item.kind}${item.sessionId === undefined ? "" : ` for ${item.sessionId}`}`);
+		return item;
+	}
+
 	ready.on("session/event", (session, event) => {
 		try {
 			const sessionId = session?.id;
@@ -166,7 +178,7 @@ function mountEventBridge(ready, state) {
 					if (session?.header?.origin === "subagent") break;
 					if (reason !== "completed") break;
 					const title = titleOf(sessionId, session);
-					state.bus.publish({
+					announce({
 						kind: worked ? "turn_done" : "answer_done",
 						sessionId,
 						title,
@@ -184,10 +196,21 @@ function mountEventBridge(ready, state) {
 
 	// Waterfall events: publish, then hand control on. Not calling `next()` would
 	// stall the approval/question the record is about.
+	//
+	// `prepend` is load-bearing, and its absence is invisible. The same waterfall is how the
+	// window answers these requests: `@deepseek-ai/dsh-api-remotes` installs a listener that
+	// forwards the request to the connected clients and returns whatever they answer, and a
+	// waterfall listener that does not call `next()` vetoes the rest of the chain. A profile
+	// bundle is loaded after dsh's own rows, so without `prepend` this observer is simply
+	// never called whenever a window is attached — which looks exactly like a plugin that
+	// does not work, while its turn reminders (a plain emit, where every listener runs)
+	// keep arriving and seem to prove the opposite. Running first costs nothing: announcing
+	// and passing control on is all this listener does.
+	const observeFirst = { prepend: true };
 	ready.on("approval/request", (request, next) => {
 		try {
 			if (request?.agent?.session?.header?.origin !== "subagent") {
-				state.bus.publish({
+				announce({
 					kind: "approval",
 					sessionId: request?.agent?.id,
 					title: titleOf(request?.agent?.id, request?.agent?.session),
@@ -198,12 +221,12 @@ function mountEventBridge(ready, state) {
 			state.log(`approval observation failed: ${String(error?.message ?? error)}`);
 		}
 		return next();
-	});
+	}, observeFirst);
 
 	ready.on("user-questions/request", (request, next) => {
 		try {
 			if (request?.agent?.session?.header?.origin !== "subagent") {
-				state.bus.publish({
+				announce({
 					kind: "question",
 					sessionId: request?.agent?.id,
 					title: titleOf(request?.agent?.id, request?.agent?.session),
@@ -214,7 +237,7 @@ function mountEventBridge(ready, state) {
 			state.log(`question observation failed: ${String(error?.message ?? error)}`);
 		}
 		return next();
-	});
+	}, observeFirst);
 
 	ready.on("session/disposed", (session) => {
 		if (typeof session?.id === "string") {

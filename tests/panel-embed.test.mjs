@@ -254,9 +254,12 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 				if (!hub) throw new Error("no hub");
 				return { ok: true, status: 200, json: async () => ({ ok: true, hub: "dsh-features" }) };
 			}
-			const payload = { ok: true, ...(body ?? PAYLOADS[pkg]) };
+			// `payload` may be a function of the requested path, which is how a test changes
+			// what the host answers between two calls (a settings edit made from another page)
+			// without handing the panel the very object it already holds.
+			const served = typeof body === "function" ? body(path) : body ?? PAYLOADS[pkg];
+			const payload = { ok: true, ...served };
 			if (level !== undefined && payload.config !== undefined) payload.config = { ...payload.config, level };
-			if (path.includes("/api/logs") || path.includes("/diagnostics")) return { ok: true, status: 200, json: async () => payload };
 			return { ok: true, status: 200, json: async () => payload };
 		}
 	};
@@ -663,6 +666,29 @@ check(
 	shipped.shown.length === 1 && shipped.played.length === 1 && shipped.shown[0]?.title === "waiting for your approval",
 	"dsh-notify: by default an approval rings even on a focused page, and a finished turn stays quiet",
 	`shown=${shipped.shown.map((notice) => String(notice.title)).join(",") || "(nothing)"} played=${String(shipped.played.length)}`
+);
+
+/* ------------- dsh-notify: a settings change made elsewhere reaches the page */
+
+// The settings are a file on the host, so a page that cached them at boot is wrong the moment
+// they change somewhere else: the phone writes the same file, and so does anyone editing it by
+// hand. Without a refresh the page keeps judging reminders by the old rules for its whole life,
+// which is how "I set it and it still did not ring" happens. The host answers a fresh object per
+// call here, so only a real re-read can pick the change up.
+const quietRule = { ...notifyPayload, config: { ...notifyPayload.config, question: { enabled: true, timing: "background" } } };
+let servedSettings = quietRule;
+const page = { played: [], shown: [] };
+const stalePage = await bootPanel("dsh-notify", { payload: () => servedSettings, notifications: page });
+page.source?.push({ kind: "question", text: "before the change" });
+const beforeRefresh = page.played.length;
+servedSettings = { ...quietRule, config: { ...quietRule.config, question: { enabled: true, timing: "always" } } };
+for (const handler of stalePage.listeners.focus ?? []) handler();
+await new Promise((resolve) => setTimeout(resolve, 30));
+page.source?.push({ kind: "question", text: "after the change" });
+check(
+	beforeRefresh === 0 && page.played.length === 1,
+	"dsh-notify: settings changed elsewhere reach this page when it comes back to the front",
+	`before=${String(beforeRefresh)} after=${String(page.played.length)}`
 );
 
 /* ------------- dsh-notify: what a raised reminder then does */
