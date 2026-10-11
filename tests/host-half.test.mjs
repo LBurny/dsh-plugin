@@ -231,6 +231,59 @@ for (const pkg of PACKAGES) {
 		);
 		const outside = await call(route, "/somebody-elses-route");
 		check(outside.status !== 200, `${pkg}: does not answer outside its prefix`, `status ${String(outside.status)}`);
+
+		// Mutating routes take JSON only. A cross-site form or a text/plain fetch is
+		// CORS-simple, so parsing anything but application/json would let any web page
+		// drive them (the harness's own fence does not cover plugin routes).
+		const actionPath = { "dsh-remote": "/dsh-remote/api/remote", "dsh-features": "/dsh-features/api/update" }[pkg];
+		if (actionPath !== undefined) {
+			const forged = recorder();
+			await route.handler(
+				{
+					url: actionPath,
+					method: "POST",
+					headers: { "content-type": "text/plain" },
+					async *[Symbol.asyncIterator]() {
+						yield Buffer.from('{"packages":["dsh-remote"]}');
+					}
+				},
+				forged
+			);
+			check(
+				(forged.status === 400 || forged.status === 500) && forged.body.includes("expected a JSON body"),
+				`${pkg}: a non-JSON POST never reaches the action`,
+				`status ${String(forged.status)} body ${forged.body.slice(0, 70)}`
+			);
+		}
+
+		// Two settings saves that overlap must merge onto each other, never onto the same
+		// stale base: a read-merge-write with nothing serializing it drops whichever patch
+		// the later write did not carry.
+		if (pkg === "dsh-notify") {
+			const post = (patch) => {
+				const res = recorder();
+				const done = route.handler(
+					{
+						url: "/dsh-notify/api/settings",
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						async *[Symbol.asyncIterator]() {
+							yield Buffer.from(JSON.stringify(patch));
+						}
+					},
+					res
+				);
+				return done.then(() => res);
+			};
+			await Promise.all([post({ volume: 0.3 }), post({ toast: false })]);
+			const settled = await call(route, "/dsh-notify/api/settings");
+			const config = JSON.parse(settled.body)?.config ?? {};
+			check(
+				config.volume === 0.3 && config.toast === false,
+				"dsh-notify: overlapping settings saves lose neither patch",
+				`volume=${String(config.volume)} toast=${String(config.toast)}`
+			);
+		}
 	}
 
 	mounted.rm();

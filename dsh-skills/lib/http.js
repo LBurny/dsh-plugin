@@ -46,6 +46,11 @@ export function sendBuffer(res, status, buffer, type) {
  * @returns the parsed value, or `undefined` when the body is absent/oversized/invalid.
  */
 export async function readJson(req) {
+	// A JSON body must arrive as JSON. Anything else (a cross-site form, a text/plain
+	// fetch) is never parsed: application/json is not a CORS-simple content type, so
+	// refusing the rest is what keeps a foreign web page from driving these routes.
+	const type = req.headers?.["content-type"];
+	if (typeof type !== "string" || !type.toLowerCase().startsWith("application/json")) return undefined;
 	const chunks = [];
 	let size = 0;
 	for await (const chunk of req) {
