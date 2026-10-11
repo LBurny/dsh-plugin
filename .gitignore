@@ -8,3 +8,10 @@ tools/visual/browser-profile/
 # 可复用的本地沙箱（tools/sandbox）：一个完整的 dsh home，含 profile、会话与 pnpm 链接，
 # 只在本机使用，永不入库
 .sandbox/
+
+# 热重载工具（tools/hotreload）的 pid/状态与日志
+.hotreload/
+
+# 本机垃圾暂存区（可删但先别删的落点），以及浏览器 MCP 的产物
+.trash/
+.playwright-mcp/

@@ -19,7 +19,9 @@ installing eight packages takes minutes, and doing it per test means every run p
 
 - **the home is kept**: `.sandbox/` in this repository, reused forever after the first run.
 - **the packages are `link:` installs** from this working tree, so a code change needs nothing but a
-  restart of the process. No reinstall, no copy step.
+  restart of the process. No reinstall, no copy step. (`tools/hotreload` can drop even that restart:
+  run it with `--home .sandbox --profile sandbox --no-restart` and the module watch reloads a host
+  half in place.)
 - **the profile is generated once** from the official app's own `web` template
   (`--from-default-profile`, which creates it and then boots it — the tool waits for the files and
   stops that first instance, whose only job was to write them).
