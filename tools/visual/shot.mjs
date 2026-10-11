@@ -224,6 +224,14 @@ if (typeof panelName === "string") {
 	const fixtures = JSON.parse(
 		readFileSync(typeof fixturePath === "string" ? resolve(String(fixturePath)) : join(here, "fixtures", `${String(panelName)}.json`), "utf8")
 	);
+	// The hub keys a feature by its `dsh.ui.feature.key`, not by the package name
+	// (`dsh-doctor` publishes itself as `doctor`), so the preview has to mount that one.
+	// The page is a real dsh and every other installed plugin has registered here too,
+	// which is why "the first key in the registry" is the wrong panel to reach for.
+	const featureKey = (() => {
+		const key = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"))?.dsh?.ui?.feature?.key;
+		return typeof key === "string" && key !== "" ? key : String(panelName).replace(/^dsh-/, "");
+	})();
 	const hubSource = readFileSync(join(here, "..", "..", "dsh-features", "lib", "client.js"), "utf8");
 	const skinAt = hubSource.indexOf("const SKIN = `");
 	const hubSkin = hubSource.slice(skinAt + "const SKIN = `".length, hubSource.indexOf("`;", skinAt));
@@ -267,14 +275,16 @@ ${readFileSync(join(dir, "lib", "client.css"), "utf8")}`;
 	const panelSource = ${JSON.stringify(readFileSync(join(dir, "lib", "client.js"), "utf8"))};
 	// The panel is an IIFE that expects to be injected as one: run it, then let the hub
 	// do what it does on a visit — mount the published feature into the stage.
+	const FEATURE_KEY = ${JSON.stringify(featureKey)};
 	new Function(panelSource)();
-	// Boot is async (it probes the host first), so wait for the feature to be published.
-	for (let i = 0; i < 40 && Object.keys(window.__dshFeatures ?? {}).length === 0; i++) {
+	// Boot is async (it probes the host first), so wait for this package's feature.
+	for (let i = 0; i < 40 && window.__dshFeatures?.[FEATURE_KEY] === undefined; i++) {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 	}
-	const keys = Object.keys(window.__dshFeatures ?? {});
-	if (keys.length === 0) throw new Error("panel published no feature");
-	window.__dshFeatures[keys[0]].mount(root.querySelector(".hub-stage"));
+	if (window.__dshFeatures?.[FEATURE_KEY] === undefined) {
+		throw new Error('panel published no feature "' + FEATURE_KEY + '" (saw: ' + (Object.keys(window.__dshFeatures ?? {}).join(", ") || "none") + ")");
+	}
+	window.__dshFeatures[FEATURE_KEY].mount(root.querySelector(".hub-stage"));
 	// ...and for the mount's own round trip to paint the list.
 	await new Promise((resolve) => setTimeout(resolve, 600));
 })()`;
