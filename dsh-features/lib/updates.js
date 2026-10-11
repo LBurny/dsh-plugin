@@ -115,7 +115,7 @@ export function parseLockCommits(text) {
 	const found = new Map();
 	let current;
 	for (const raw of String(text).split(/\r?\n/u)) {
-		if (raw.startsWith(" ") && !raw.startsWith("  ")) {
+		if (raw.startsWith("    ")) {
 			// Four or more spaces: a key of the entry that is already open.
 			if (current !== undefined && /^\s*resolution:/u.test(raw)) mergeInto(found, current, resolutionFields(raw));
 			continue;
@@ -222,21 +222,23 @@ async function gitHead(repo) {
  * page, but it is installed from a source like any other package and the Plugins
  * page has no way to update it, so it is checked here whenever the profile
  * declares it. The page calls that out instead of letting the count exceed the
- * pills with no explanation.
+ * pills with no explanation. `selfVersion` is the version the hub's own manifest
+ * declares: a `file:` install has no commit to compare, so the row would read
+ * "unknown" forever without it, and with it the copy is correctly current or behind.
  *
  * @param entries - inventory entries (`{ package, version }`), the hub's own list.
- * @param options - `layout`, the hub's own package name, and the git runner to use
- *   (injected by tests).
+ * @param options - `layout`, the hub's own package name and version, and the git
+ *   runner to use (injected by tests).
  * @returns `{ checkedAt, packages, updatable, errors }`.
  */
-export async function checkUpdates(entries, { layout, self, runGit = gitHead } = {}) {
+export async function checkUpdates(entries, { layout, self, selfVersion, runGit = gitHead } = {}) {
 	const { sources, error } = await readSources(layout);
 	const errors = error === undefined ? [] : [error];
 	const wanted = (entries ?? []).filter((entry) => typeof entry?.package === "string");
 	if (typeof self === "string" && !wanted.some((entry) => entry.package === self)) {
 		// A profile that does not install the hub gets no row for it: there would be
 		// nothing to compare against, and nothing pnpm could update.
-		if (sources.has(self)) wanted.push({ package: self, self: true });
+		if (sources.has(self)) wanted.push({ package: self, self: true, ...(typeof selfVersion === "string" ? { version: selfVersion } : {}) });
 	}
 	const rows = [];
 	for (const entry of wanted) {

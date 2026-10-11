@@ -27,6 +27,8 @@
  * refresh asks `GET /dsh-features/api/updates` whether each install source has
  * moved past the commit the profile pinned, a behind row gets a 可更新 pill, and
  * the head's one update button sends the names to `POST /dsh-features/api/update`.
+ * An answer that updated the hub itself carries `updatedSelf`, and is called out
+ * in the banner: the page reading it is then still the old build.
  *
  * Nothing here reads dsh's internal CSS classes or module table — the sidebar
  * entry, the page and the skin use only the documented slot API and the
@@ -88,6 +90,7 @@ window.__ModuleLoader__.load({
 			"checkFailed": "检查更新失败",
 			"updating": "正在更新…",
 			"updateApplied": "更新已写入，重启 dsh 后生效。",
+			"updateAppliedSelf": "更新已写入，其中包含功能管理本身；重启 dsh 前，本页仍按旧版本运行。",
 			"updateFailed": "更新失败",
 			"includesSelf": "其中包含功能管理本身，它没有自己的行。",
 			"noManager": "这个 profile 里没有插件管理器，只能回 dsh 的插件页去更新。"
@@ -111,6 +114,7 @@ window.__ModuleLoader__.load({
 			"checkFailed": "The update check failed",
 			"updating": "Updating…",
 			"updateApplied": "The update is on disk. Restart dsh to load it.",
+			"updateAppliedSelf": "The update is on disk, and it includes the hub itself: this page keeps running the old build until dsh restarts.",
 			"updateFailed": "The update failed",
 			"includesSelf": "This includes the hub itself, which has no row of its own.",
 			"noManager": "This profile has no plugin manager, so updating has to go through dsh's Plugins page."
@@ -498,6 +502,9 @@ window.__ModuleLoader__.load({
 			};
 		}
 
+		/** While true, the host's answer about the order predates the reader's last drag. */
+		let orderSaveInFlight = false;
+
 		/** Hand the order to the host, so every browser that reaches this dsh agrees. */
 		const saveNavOrder = debounce((keys) => {
 			void fetch(`${API}/order`, {
@@ -505,9 +512,13 @@ window.__ModuleLoader__.load({
 				credentials: "same-origin",
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ keys })
-			}).catch(() => {
-				/* the local cache still holds it; the next reorder tries again */
-			});
+			})
+				.catch(() => {
+					/* the local cache still holds it; the next reorder tries again */
+				})
+				.finally(() => {
+					orderSaveInFlight = false;
+				});
 		}, 300);
 
 		/**
@@ -741,7 +752,7 @@ window.__ModuleLoader__.load({
 						settle({ kind: "error", text: `${t("updateFailed")}: ${String(error?.message ?? error)}` });
 						return;
 					}
-					settle({ kind: "ok", text: t("updateApplied") }, answer.updates);
+					settle({ kind: "ok", text: answer.updatedSelf === true ? t("updateAppliedSelf") : t("updateApplied") }, answer.updates);
 				})();
 			};
 
@@ -783,11 +794,14 @@ window.__ModuleLoader__.load({
 			React.useEffect(() => {
 				const served = snapshot.navOrder;
 				if (!Array.isArray(served)) return;
+				// A rescan can answer with the order from before an unsent save; adopting
+				// it would snap a fresh drag back. The save's settle re-enables adoption.
+				if (orderSaveInFlight) return;
 				if (served.length === 0) {
 					if (readNavOrder().length > 0) saveNavOrder(readNavOrder());
 					return;
 				}
-				if (served.join("\u0000") === navOrder.join("\u0000")) return;
+				if (served.join(" ") === navOrder.join(" ")) return;
 				writeNavOrder(served);
 				setNavOrder(served);
 			}, [snapshot.navOrder]);
@@ -841,6 +855,9 @@ window.__ModuleLoader__.load({
 				if (to === -1) return;
 				keys.splice(to, 0, fromKey);
 				writeNavOrder(keys);
+				// Mark the save before it is even debounced: the adoption effect reads the
+				// flag, and a rescan in between must not snap this drag back.
+				orderSaveInFlight = true;
 				saveNavOrder(keys);
 				setNavOrder(keys);
 			};

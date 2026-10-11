@@ -31,6 +31,8 @@
  *   `POST /dsh-features/api/update`
  *     Apply that for the named packages, through the plugin manager's own pnpm
  *     runner. The new code is on disk afterwards, and a restart is what loads it.
+ *     The answer carries `updatedSelf` when the hub itself was among them, because
+ *     the page that receives it is then still the old build.
  *
  * @module dsh-features/index
  */
@@ -47,15 +49,19 @@ const inject = [];
 const VERSION = "0.1.0";
 
 /**
- * This package's own name, read from its manifest. The hub is not a feature, so it
- * has no row on its own page, but it is installed from a source like everything
- * else and the Plugins page cannot update it: the update check covers it by name.
+ * This package's own name and version, read from its manifest. The hub is not a
+ * feature, so it has no row on its own page, but it is installed from a source
+ * like everything else and the Plugins page cannot update it: the update check
+ * covers it by name. The version is what a `file:` install is compared by, since
+ * that source carries no commit; an unreadable manifest costs the name's fallback
+ * and leaves the version undefined, which the check reports as unknown.
  */
-const HUB_PACKAGE = (() => {
+const { HUB_PACKAGE, HUB_VERSION } = (() => {
 	try {
-		return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).name ?? "dsh-features";
+		const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+		return { HUB_PACKAGE: manifest.name ?? "dsh-features", HUB_VERSION: typeof manifest.version === "string" ? manifest.version : undefined };
 	} catch {
-		return "dsh-features";
+		return { HUB_PACKAGE: "dsh-features", HUB_VERSION: undefined };
 	}
 })();
 
@@ -143,7 +149,8 @@ function mount(ready, state, ctx) {
 				if (configEditor === undefined) return sendJson(res, 400, { ok: false, error: "no config-editor service" });
 				const report = await checkUpdates((await inventory(ctx)).features, {
 					layout: resolveLayout(configEditor),
-					self: HUB_PACKAGE
+					self: HUB_PACKAGE,
+					selfVersion: HUB_VERSION
 				});
 				state.lastCheck = report;
 				state.log(`update check: ${report.updatable.length} of ${report.packages.length} behind`);
@@ -168,7 +175,9 @@ function mount(ready, state, ctx) {
 				}
 				state.lastCheck = withoutPackages(state.lastCheck, outcome.packages);
 				state.log(`updated ${outcome.packages.join(", ")}; restart required`);
-				return sendJson(res, 200, { ok: true, ...outcome, updates: state.lastCheck });
+				// When the hub updated itself the page running this answer is the old
+				// build, so the client says so instead of the generic restart message.
+				return sendJson(res, 200, { ok: true, ...outcome, updatedSelf: outcome.packages.includes(HUB_PACKAGE), updates: state.lastCheck });
 			}
 			if (path === ORDER_PATH && method === "POST") {
 				// The reader's arrangement, shared by every browser that reaches this dsh:

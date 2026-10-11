@@ -213,6 +213,14 @@ check(sources.get("dsh-notify")?.kind === "registry", "a version range is a regi
 check(sources.get("dsh-absent")?.repo === "https://github.com/someone/absent.git", "a second repository is read from its own spec", JSON.stringify(sources.get("dsh-absent")));
 check(parseLockCommits("lockfileVersion: '9.0'\n\npackages:\n\n  pkg@1.0.0:\n    resolution: {integrity: sha512-x}\n").size === 0, "a registry entry in the lockfile is not a git source", "");
 check(parseLockCommits("packages:\n\n  pkg@git+https://example.invalid/r.git#0123456789abcdef:\n    resolution: {commit: 0123456789abcdef, repo: https://example.invalid/r.git, type: git}\n").get("pkg")?.commit === "0123456789abcdef", "a plain git entry keeps the commit its resolution line holds", "");
+// The commit can live only on the deeper-indented resolution line (four spaces, not
+// the entry key's two): the branch that reads it once matched exactly one space, which
+// a lockfile never has, so the fallback was dead.
+check(
+	parseLockCommits("packages:\n\n  pkg@https://example.invalid/r.tgz:\n    resolution: {commit: aaaabbbbccccddddeeeeffff00001111, repo: https://example.invalid/r.git, type: git}\n").get("pkg")?.commit === "aaaabbbbccccddddeeeeffff00001111",
+	"a key without a commit falls back to the resolution line",
+	JSON.stringify(parseLockCommits("packages:\n\n  pkg@https://example.invalid/r.tgz:\n    resolution: {commit: aaaabbbbccccddddeeeeffff00001111, repo: https://example.invalid/r.git, type: git}\n").get("pkg"))
+);
 const noManifest = await readSources({ profileDir: join(updateRoot, "nothing-here") });
 check(noManifest.sources.size === 0 && typeof noManifest.error === "string", "an unreadable profile manifest is a reason, not a throw", String(noManifest.error));
 
@@ -256,6 +264,37 @@ check(selfRow?.self === true && selfRow.outdated === true, "the hub's own packag
 check(withSelf.updatable.includes("dsh-features") && withSelf.updatable.length === report.updatable.length + 1, "and it is offered for update like any other package", withSelf.updatable.join(","));
 const absentSelf = await checkUpdates(entries, { layout: updateLayout, self: "dsh-nothing", runGit: async () => AHEAD });
 check(absentSelf.packages.length === 7, "a profile that does not install a package gets no row for it", String(absentSelf.packages.length));
+
+// A hub installed with `file:` carries no commit, so the check can only compare the
+// version its manifest declares. The hub's own version has to be handed to the check
+// for that: without it the hub would read "unknown" forever instead of current or behind.
+const copyRoot = await mkdtemp(join(tmpdir(), "dsh-features-self-"));
+const copyProfile = join(copyRoot, "profiles", "desktop");
+const hubCopy = join(copyProfile, "vendor", "dsh-features");
+await mkdir(hubCopy, { recursive: true });
+await writeFile(join(hubCopy, "package.json"), JSON.stringify({ name: "dsh-features", version: "0.2.0" }), "utf8");
+await writeFile(join(copyProfile, "package.json"), JSON.stringify({
+	name: "dsh-profile-desktop",
+	private: true,
+	dependencies: { "dsh-features": "file:./vendor/dsh-features" }
+}), "utf8");
+await writeFile(join(copyProfile, "pnpm-lock.yaml"), `lockfileVersion: '9.0'
+
+packages:
+
+  dsh-features@file:vendor/dsh-features:
+    resolution: {directory: vendor/dsh-features, type: directory}
+    version: 0.1.0
+`, "utf8");
+const copyLayout = resolveLayout({ documentPath: join(copyProfile, "cordis.patch.yml") });
+const hubBehind = await checkUpdates([], { layout: copyLayout, self: "dsh-features", selfVersion: "0.1.0", runGit: async () => AHEAD });
+const hubBehindRow = hubBehind.packages.find((row) => row.package === "dsh-features");
+check(hubBehindRow?.kind === "copy" && hubBehindRow.outdated === true, "a copied hub is compared by the version its manifest declares", JSON.stringify(hubBehindRow));
+const hubCurrent = await checkUpdates([], { layout: copyLayout, self: "dsh-features", selfVersion: "0.2.0", runGit: async () => AHEAD });
+check(hubCurrent.packages.find((row) => row.package === "dsh-features")?.outdated === false, "the same version reads as current, not unknown", JSON.stringify(hubCurrent.packages));
+const hubUnknown = await checkUpdates([], { layout: copyLayout, self: "dsh-features", runGit: async () => AHEAD });
+check(hubUnknown.packages.find((row) => row.package === "dsh-features")?.outdated === undefined, "with no version to compare the copied hub stays unknown rather than guessed", JSON.stringify(hubUnknown.packages));
+await rm(copyRoot, { recursive: true, force: true });
 
 /* ------------------------------------------------------------- the apply */
 
@@ -307,7 +346,7 @@ function bootHost({ withConfigEditor = true, profile = profileDir, services: ext
 }
 
 /** Call a captured prefix route with a fake request/response pair. */
-async function call(route, path, method = "GET", body) {
+async function call(route, path, method = "GET", body, contentType = "application/json") {
 	const answer = { status: 0, body: "" };
 	const res = {
 		headersSent: false,
@@ -319,9 +358,13 @@ async function call(route, path, method = "GET", body) {
 			answer.body = body ?? "";
 		}
 	};
-	// A body, when there is one, is read the way a request stream is (async iterable).
-	const req = { method, url: path };
-	if (body !== undefined) req[Symbol.asyncIterator] = async function* () { yield Buffer.from(body, "utf8"); };
+	// A body, when there is one, is read the way a request stream is (async iterable),
+	// and it must arrive as JSON: the route refuses anything else before touching it.
+	const req = { method, url: path, headers: {} };
+	if (body !== undefined) {
+		req.headers["content-type"] = contentType;
+		req[Symbol.asyncIterator] = async function* () { yield Buffer.from(body, "utf8"); };
+	}
 	await route.handler(req, res);
 	return { ...answer, json: answer.body === "" ? undefined : JSON.parse(answer.body) };
 }
@@ -353,6 +396,11 @@ check(served.json.navOrder.join(",") === "mcp,skills", "the inventory serves the
 const junk = await call(route, "/dsh-features/api/order", "POST", JSON.stringify({ keys: ["mcp", 5, "", "mcp", "x".repeat(200)] }));
 check(junk.json.navOrder.join(",") === "mcp", "junk in the order is dropped entry by entry, not stored", JSON.stringify(junk.json.navOrder));
 check((await call(route, "/dsh-features/api/order", "POST", "not json")).status === 400, "a malformed body is a 400", "");
+// A cross-site page can only POST CORS-simple types, so refusing them is what keeps a
+// foreign page from saving an order or running an update.
+await call(route, "/dsh-features/api/order", "POST", JSON.stringify({ keys: ["zoom"] }), "text/plain");
+const servedAfterForgery = await call(route, "/dsh-features/api/features");
+check(servedAfterForgery.json.navOrder.join(",") === "mcp", "a text/plain POST never reaches the save", JSON.stringify(servedAfterForgery.json.navOrder));
 check(normalizeOrder(undefined).length === 0, "an absent order normalizes to empty", "");
 check(loadNavOrder(join(root, "no-such-file.json")) instanceof Promise, "a missing file reads as no saved order", "");
 check((await loadNavOrder(join(root, "no-such-file.json"))).length === 0, "a missing file reads as no saved order", "");
@@ -449,7 +497,10 @@ packages:
 	const managed = await call(managedRoute, "/dsh-features/api/update", "POST", JSON.stringify({ packages: ["dsh-features", "dsh-doctor"] }));
 	check(updateRuns[0]?.join(" ") === "update dsh-doctor dsh-features", "the route runs pnpm update through the plugin manager, the hub's own name included", JSON.stringify(updateRuns));
 	check(managed.json.ok === true && managed.json.restartRequired === true, "the route reports the restart the new code needs", JSON.stringify(managed.json));
+	check(managed.json.updatedSelf === true, "an update that named the hub reports that the running page is now the old build", JSON.stringify(managed.json.updatedSelf));
 	check(managed.json.updates.updatable.length === 0 && managed.json.updates.packages.length === 0, "the packages just updated leave the cached report, so their badges cannot go stale", JSON.stringify(managed.json.updates));
+	const featureOnly = await call(managedRoute, "/dsh-features/api/update", "POST", JSON.stringify({ packages: ["dsh-doctor"] }));
+	check(featureOnly.json.ok === true && featureOnly.json.updatedSelf === false, "an update of features alone is not reported as touching the hub", JSON.stringify(featureOnly.json.updatedSelf));
 	await rm(liveRoot, { recursive: true, force: true });
 }
 
@@ -721,6 +772,7 @@ const T = (key) => ({
 	checkFailed: "检查更新失败",
 	updating: "正在更新…",
 	updateApplied: "更新已写入，重启 dsh 后生效。",
+	updateAppliedSelf: "更新已写入，其中包含功能管理本身；重启 dsh 前，本页仍按旧版本运行。",
 	updateFailed: "更新失败",
 	includesSelf: "其中包含功能管理本身，它没有自己的行。",
 	noManager: "没有插件管理器。"
@@ -765,7 +817,6 @@ check(headRefresh().length === 1, "the detail view still has exactly one refresh
 check(stage().props["data-view"] === "feature", "the stage switches to the feature view", String(stage().props["data-view"]));
 check(findAll(element, (node) => node.props?.className === "hub-rows").length === 0, "the list is gone while a feature is open", "");
 const title = findAll(element, (node) => node.props?.className === "hub-line")[0];
-console.log('DEBUG line children:', title.props.children.map((c) => JSON.stringify([c?.props?.className, c?.props?.children])).join(' | '));
 check(title?.props.children[0]?.props.children?.join("") === "MCP", "the head names the open feature", String(title?.props.children[0]?.props.children));
 check(title?.props.children[1]?.props.children?.join("") === "dsh-mcp", "the head names the package it came from", String(title?.props.children[1]?.props.children));
 
@@ -965,6 +1016,28 @@ check(bannerText(updaterElement) === T("updateApplied"), "the page says the upda
 check(bannerIn(updaterElement).props["data-kind"] === "ok", "the message is the reassuring kind", String(bannerIn(updaterElement).props["data-kind"]));
 check(updateButtonIn(updaterElement) === undefined && rowPill(rowFor(updaterElement, "诊断")) === undefined, "the report that came back clears both badges", "");
 
+// When the update included the hub itself, the page must say it is still the old build:
+// the host half is only swapped by a restart, and the client half may even be hot-swapped
+// onto the old host, so the generic "restart to load it" would understate it.
+const selfUpdated = updateBrowser({
+	update: {
+		ok: true,
+		packages: ["dsh-doctor", "dsh-features"],
+		updatedSelf: true,
+		restartRequired: true,
+		updates: { ...UPDATE_REPORT, packages: [UPDATE_REPORT.packages[1]], updatable: [] }
+	}
+});
+let selfUpdatedElement = await selfUpdated.render(pageOf(selfUpdated), { t: T });
+refreshIn(selfUpdatedElement)[0].props.onClick();
+await sleep(15);
+selfUpdatedElement = await selfUpdated.render(pageOf(selfUpdated), { t: T });
+updateButtonIn(selfUpdatedElement).props.onClick();
+await sleep(15);
+selfUpdatedElement = await selfUpdated.render(pageOf(selfUpdated), { t: T });
+check(bannerText(selfUpdatedElement) === T("updateAppliedSelf"), "an update that included the hub warns that this page is still the old build", bannerText(selfUpdatedElement));
+check(bannerIn(selfUpdatedElement).props["data-kind"] === "ok", "the stronger self-update message is still the reassuring kind", String(bannerIn(selfUpdatedElement).props["data-kind"]));
+
 // A page opened after a check adopts what the host still holds, without asking again.
 const adopter = updateBrowser({ cached: UPDATE_REPORT });
 const adopterElement = await adopter.render(pageOf(adopter), { t: T });
@@ -1049,7 +1122,6 @@ findAll(swept, (node) => node.props?.className === "hub-row")[0].props.onClick()
 swept = await sweeper.render(sweeperPage, { t: T });
 await new Promise((resolve) => setTimeout(resolve, 5));
 const sweptHost = findAll(swept, (node) => node.props?.ref !== undefined)[0].props.ref.current;
-console.log('DEBUG sweep children:', sweptHost.children.length, JSON.stringify(sweptHost.children.map((c) => c.tag + ":" + c.textContent)));
 check(sweptHost.children.length === 0, "a panel's bare refresh button is swept out of the mount point", String(sweptHost.children.length));
 check(
 	findAll(swept, (node) => node.props?.["aria-label"] === T("refresh")).length === 1,
