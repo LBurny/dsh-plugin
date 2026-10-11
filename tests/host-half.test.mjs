@@ -230,6 +230,100 @@ for (const pkg of PACKAGES) {
 	mounted.rm();
 }
 
+/* ------------------------------ dsh-notify: the events it turns into reminders */
+
+// The host half is the only half that can see an approval or a question, and it learns about
+// them from two dsh waterfalls: `user-approval` dispatches `approval/request` with a fallback
+// that answers `unavailable`. So a listener has two obligations that pull against each other,
+// announce the thing and *not* swallow it: one that answers nothing and forgets `next()`
+// stalls the very approval it just announced. Both are checked here, against the same bus the
+// panel reads.
+const notifier = await mountHostHalf("dsh-notify");
+const notifyRoute = notifier.registered.prefixes[0];
+/** What this plugin has published, as the panel sees it. */
+const published = async () => {
+	const body = JSON.parse((await call(notifyRoute, "/dsh-notify/api/notifications")).body);
+	return Array.isArray(body.items) ? body.items : [];
+};
+/** Fire one waterfall the way dsh does, and count how many listeners handed control on. */
+const dispatch = async (event, request) => {
+	let continued = 0;
+	for (const { handler } of notifier.registered.listeners.filter((entry) => entry.event === event)) {
+		await handler(request, () => {
+			continued += 1;
+			return Promise.resolve();
+		});
+	}
+	return continued;
+};
+
+const asked = { agent: { id: "s-question", session: { header: { title: "绘图" } } } };
+const questionCarriedOn = await dispatch("user-questions/request", asked);
+const afterQuestion = await published();
+check(
+	questionCarriedOn === 1 && afterQuestion.some((item) => item.kind === "question" && item.sessionId === "s-question"),
+	"dsh-notify: a question reaches the reminder bus and the waterfall carries on",
+	`next()x${String(questionCarriedOn)} published ${JSON.stringify(afterQuestion.map((item) => item.kind))}`
+);
+
+const approvalCarriedOn = await dispatch("approval/request", { agent: { id: "s-approval", session: { header: { title: "部署" } } } });
+const afterApproval = await published();
+check(
+	approvalCarriedOn === 1 && afterApproval.some((item) => item.kind === "approval" && item.sessionId === "s-approval"),
+	"dsh-notify: an approval reaches the reminder bus and the waterfall carries on",
+	`next()x${String(approvalCarriedOn)} published ${JSON.stringify(afterApproval.map((item) => item.kind))}`
+);
+check(
+	afterApproval.find((item) => item.kind === "approval")?.title === "部署",
+	"dsh-notify: an approval reminder names the session it belongs to",
+	JSON.stringify(afterApproval.find((item) => item.kind === "approval") ?? null)
+);
+
+// A subagent's own approval is noise, but it is still an approval: declining to announce it
+// must not decline to pass it on.
+const beforeSubagent = (await published()).length;
+const subagentCarriedOn = await dispatch("approval/request", { agent: { id: "s-sub", session: { header: { origin: "subagent" } } } });
+check(
+	subagentCarriedOn === 1 && (await published()).length === beforeSubagent,
+	"dsh-notify: a subagent's approval is not announced, and is not stalled either",
+	`next()x${String(subagentCarriedOn)} count ${String(beforeSubagent)} -> ${String((await published()).length)}`
+);
+
+// A finished turn is the other half of the classification, and it arrives as a session
+// event rather than a waterfall: a turn that used a tool is "done", a plain answer is
+// "ready", and a subagent's turn is neither.
+const session = { id: "s-turn", header: { title: "曲线图" } };
+const fireSession = (event) => {
+	for (const { handler } of notifier.registered.listeners.filter((entry) => entry.event === "session/event")) handler(session, event);
+};
+fireSession({ type: "turn/start" });
+fireSession({ type: "tool/call" });
+fireSession({ type: "turn/end", data: { reason: { kind: "completed" } } });
+const afterWorked = await published();
+check(
+	afterWorked.some((item) => item.kind === "turn_done" && item.sessionId === "s-turn"),
+	"dsh-notify: a turn that used a tool is announced as a completed task",
+	JSON.stringify(afterWorked.map((item) => item.kind))
+);
+fireSession({ type: "turn/start" });
+fireSession({ type: "turn/end", data: { reason: { kind: "completed" } } });
+const afterAnswer = await published();
+check(
+	afterAnswer.filter((item) => item.sessionId === "s-turn").at(-1)?.kind === "answer_done",
+	"dsh-notify: a turn that only answered is announced as an answer instead",
+	JSON.stringify(afterAnswer.filter((item) => item.sessionId === "s-turn").map((item) => item.kind))
+);
+const beforeSubagentTurn = (await published()).length;
+for (const { handler } of notifier.registered.listeners.filter((entry) => entry.event === "session/event")) {
+	handler({ id: "s-sub-turn", header: { origin: "subagent" } }, { type: "turn/end", data: { reason: { kind: "completed" } } });
+}
+check(
+	(await published()).length === beforeSubagentTurn,
+	"dsh-notify: a subagent's own turn is not a reminder",
+	String(beforeSubagentTurn)
+);
+notifier.rm();
+
 /* ----------------------------------------------------------------- report */
 
 const failed = results.filter((item) => !item.ok);
