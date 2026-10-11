@@ -89,7 +89,7 @@ function createState(ctx) {
 function renderRows(rows, empty) {
 	if (rows.length === 0) return empty;
 	return rows
-		.map((row) => `${row.enabled ? "[x]" : "[ ]"} ${row.name}${row.description ? ` — ${row.description}` : ""}`)
+		.map((row) => `${row.enabled ? "[x]" : "[ ]"} ${row.name}${row.description ? ` - ${row.description}` : ""}`)
 		.join("\n");
 }
 
@@ -152,7 +152,7 @@ async function handleAction(state, body) {
 		}
 		case "import-zip": {
 			const stash = state.takeZip(body.uploadId);
-			if (stash === undefined) throw new Error("the uploaded archive expired — pick the file again");
+			if (stash === undefined) throw new Error("the uploaded archive expired; pick the file again");
 			const result = await importZipSkills(layout, stash.buffer, stash.name, body.names, body.onConflict);
 			state.log(`skills imported from zip ${stash.name}: ${result.imported.length}`);
 			return { ok: true, ...result };
@@ -174,7 +174,7 @@ function mount(ready, state) {
 		try {
 			sendText(res, 200, await readFile(join(LIB_DIR, file), "utf8"), type);
 		} catch (error) {
-			sendText(res, 500, `dsh-skills: asset ${file} unavailable — ${String(error?.message ?? error)}`);
+			sendText(res, 500, `dsh-skills: asset ${file} unavailable: ${String(error?.message ?? error)}`);
 		}
 	};
 

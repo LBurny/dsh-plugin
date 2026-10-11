@@ -64,7 +64,9 @@ function buildZip(entries) {
 		central.writeUInt16LE(0, 8);
 		central.writeUInt16LE(entry.method, 10);
 		central.writeUInt32LE(data.length, 20);
-		central.writeUInt32LE(entry.data.length, 24);
+		// The declared uncompressed size is authoritative for the reader, so a bomb
+		// test needs to lie about it here.
+		central.writeUInt32LE(entry.declaredSize ?? entry.data.length, 24);
 		central.writeUInt16LE(nameBytes.length, 28);
 		central.writeUInt32LE(offset, 42);
 		centrals.push(central, nameBytes);
@@ -123,6 +125,12 @@ check(stored.toString("utf8").startsWith("#!/bin/sh"), "stored entry reads verba
 
 await expectZipError(() => listEntries(Buffer.from("not a zip at all", "utf8")), "garbage is not a ZIP");
 await expectZipError(() => listEntries(Buffer.alloc(10)), "a truncated buffer is not a ZIP");
+
+// A deflate entry that expands past its declared size is a zip bomb: inflation must be
+// capped at the declaration, or a 64 MiB upload can allocate gigabytes before any size
+// check runs. Here 4 MiB of content declares 64 bytes.
+const bomb = buildZip([{ name: "SKILL.md", data: Buffer.alloc(4 * 1024 * 1024, 0x41), method: 8, declaredSize: 64 }]);
+await expectZipError(() => readEntry(bomb, listEntries(bomb)[0]), "an entry that inflates past its declared size is rejected as a bomb");
 
 /* ---------------------------------------------------------------- discovery */
 
@@ -276,6 +284,40 @@ try {
 	unknownSource = String(error?.message ?? error).includes("unknown import source");
 }
 check(unknownSource, "an unknown source id is rejected");
+
+// A failed copy must not leave a half-imported skill in the managed root: a
+// self-referential link inside the source makes `cp` throw part-way (ELOOP), and the
+// partial tree used to stay behind, listed as installed and refusing later imports.
+const loopyDir = join(sourceDir, "loopy");
+await mkdir(loopyDir, { recursive: true });
+await writeFile(join(loopyDir, "SKILL.md"), "---\nname: loopy\n---\n", "utf8");
+let loopArmed = true;
+try {
+	await symlink(loopyDir, join(loopyDir, "loop"), "junction");
+} catch {
+	loopArmed = false;
+}
+if (loopArmed) {
+	let loopThrew = false;
+	try {
+		await importSkills(importStore, "codex", ["loopy"], "overwrite", importSources(homeDir));
+	} catch {
+		loopThrew = true;
+	}
+	check(loopThrew, "a symlink loop inside the source fails the import");
+	check(!(await exists(join(importStore.skillsDir, "loopy"))), "a failed copy leaves nothing in the managed root", "");
+}
+
+// A destination that cannot be created (a stray file sits where the skill dir would
+// go) must fail that one name, not the whole import after earlier names landed.
+const blockedZip = buildZip([
+	{ name: "good/SKILL.md", data: Buffer.from("---\nname: good\n---\n", "utf8"), method: 0 },
+	{ name: "blocked/SKILL.md", data: Buffer.from("---\nname: blocked\n---\n", "utf8"), method: 0 }
+]);
+await mkdir(importStore.skillsDir, { recursive: true });
+await writeFile(join(importStore.skillsDir, "blocked"), "not a directory\n", "utf8");
+const blocked = await importZipSkills(importStore, blockedZip, "pack.zip", ["good", "blocked"], "overwrite");
+check(blocked.imported.join(",") === "good" && blocked.errors.length === 1, "an uncreatable destination fails only its own name", JSON.stringify(blocked));
 
 await rm(homeDir, { recursive: true, force: true });
 

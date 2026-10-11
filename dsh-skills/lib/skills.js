@@ -204,7 +204,16 @@ export async function importSkills(layout, sourceId, names, onConflict = "skip",
 		}
 		// dereference: the managed root must hold real files, not a link back into
 		// the tool the skill was imported from (source farms are often symlinked).
-		await cp(from, join(layout.skillsDir, name), { recursive: true, dereference: true });
+		const destination = join(layout.skillsDir, name);
+		try {
+			await cp(from, destination, { recursive: true, dereference: true });
+		} catch (error) {
+			// A failed copy (e.g. a symlink loop inside the source) must not leave a
+			// half-imported skill behind: it would list as installed and refuse later
+			// imports as a conflict.
+			await rm(destination, { recursive: true, force: true });
+			throw error;
+		}
 		imported.push(name);
 	}
 	return { imported, skipped };
@@ -264,8 +273,10 @@ export async function importZipSkills(layout, buffer, archiveName, names, onConf
 			}
 		}
 		const destination = join(layout.skillsDir, name);
-		await mkdir(destination, { recursive: true });
 		try {
+			// The mkdir belongs inside the guard too: a non-directory already sitting at
+			// that path must fail this one name, not the whole import.
+			await mkdir(destination, { recursive: true });
 			await extractZipPrefix(buffer, entry.prefix, destination);
 			imported.push(name);
 		} catch (error) {

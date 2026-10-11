@@ -136,7 +136,10 @@ export function readEntry(buffer, entry) {
 	const data = buffer.subarray(dataStart, dataStart + entry.compressedSize);
 	if (entry.method === 0) return Buffer.from(data);
 	try {
-		const out = inflateRawSync(data);
+		// Cap the inflation at the declared size: a deflated entry that expands past
+		// what its central directory claims is a bomb, and must never get to allocate
+		// it (a 64 MiB upload can claim gigabytes).
+		const out = inflateRawSync(data, { maxOutputLength: Math.max(1, Math.min(entry.size, MAX_ZIP_BYTES)) });
 		if (out.length !== entry.size) throw invalid(`entry "${entry.name}" decompressed to an unexpected size`);
 		return out;
 	} catch (error) {
