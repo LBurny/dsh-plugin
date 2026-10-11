@@ -181,6 +181,8 @@ export async function collectDiagnostics({ webServer, sessions, layout, loader, 
 		logFiles: files.map((file) => ({ source: file.source, path: file.path, lines: file.lines.length })),
 		capture: capture === undefined
 			? undefined
-			: { attached: capture.attached === true, reason: capture.reason, boot: capture.boot ?? 0, records: capture.store?.count ?? 0 }
+			// `records` and `bytes` are the ring's occupancy against the budget the logs
+			// route reports, so a reader can tell how close the history is to being trimmed.
+			: { attached: capture.attached === true, reason: capture.reason, boot: capture.boot ?? 0, records: capture.store?.count ?? 0, bytes: capture.store?.bytes ?? 0 }
 	};
 }

@@ -23,19 +23,21 @@
 import { format } from "node:util";
 
 /**
- * Records kept in the ring. Each one is a small object plus one line of text, so a few
- * thousand cost about a megabyte: cheap enough to hold a whole session's worth, which is
- * the point of a panel you reach for after something already went wrong.
+ * How much the ring may hold. Memory is the bound worth having: a count or an age alone
+ * throws away exactly the history a bug hunt wants, and a line's cost varies by three
+ * orders of magnitude, so neither one tracks what the panel actually costs the process.
+ * Oldest-first trimming on the way in keeps this a hard ceiling with no timer to own.
  */
-export const RECORD_LIMIT = 5000;
+export const RECORD_BYTES_LIMIT = 4 * 1024 * 1024;
 /**
- * How much logged time the ring spans. A count alone is the wrong bound on its own: one
- * chatty minute would push out an hour of boot history, and an idle session would sit on
- * stale lines forever. Age is measured against the newest record rather than the wall
- * clock, so a replayed boot record keeps its own older timestamp without dragging the
- * window back with it. Trimming happens on the way in, which needs no timer to leak.
+ * What a record costs besides its text: the object, its five fields and the two string
+ * headers around them. Charging this per record is what makes the budget a bound on
+ * memory rather than on the number of characters, so a flood of tiny lines cannot slip
+ * under it.
  */
-export const RECORD_WINDOW_MS = 60 * 60 * 1000;
+const RECORD_OVERHEAD_BYTES = 128;
+/** Bytes a record is charged: its text and source name, plus per-record overhead. */
+const costOf = (record) => RECORD_OVERHEAD_BYTES + Buffer.byteLength(record.text) + Buffer.byteLength(record.name);
 /** Records sent in one response; a client keeps its own window anyway. */
 export const SEND_LIMIT = 2000;
 
@@ -79,20 +81,16 @@ function textOf(message) {
 
 /**
  * A bounded ring of log records, newest last.
- * @param limit - records to keep.
- * @param windowMs - how much logged time to keep, oldest first.
- * @returns `{ add, snapshot, select, count, lastSn }`.
+ * @param budget - bytes the ring may hold, oldest dropped first.
+ * @returns `{ add, snapshot, select, count, bytes, lastSn }`.
  */
-export function createRecordStore(limit = RECORD_LIMIT, windowMs = RECORD_WINDOW_MS) {
+export function createRecordStore(budget = RECORD_BYTES_LIMIT) {
 	const records = [];
 	let sn = 0;
-	/** Drop what has aged out of the window, oldest first. */
+	let bytes = 0;
+	/** Drop the oldest until the ring is back inside its budget. */
 	const trim = () => {
-		if (records.length === 0) return;
-		const cutoff = records[records.length - 1].ts - windowMs;
-		let drop = 0;
-		while (drop < records.length && records[drop].ts < cutoff) drop += 1;
-		if (drop > 0) records.splice(0, drop);
+		while (bytes > budget && records.length > 0) bytes -= costOf(records.shift());
 	};
 	return {
 		/** Record one cordis `Message`; returns the stored record. */
@@ -106,7 +104,7 @@ export function createRecordStore(limit = RECORD_LIMIT, windowMs = RECORD_WINDOW
 				text: textOf(message)
 			};
 			records.push(record);
-			if (records.length > limit) records.splice(0, records.length - limit);
+			bytes += costOf(record);
 			trim();
 			return record;
 		},
@@ -130,6 +128,10 @@ export function createRecordStore(limit = RECORD_LIMIT, windowMs = RECORD_WINDOW
 		/** Records currently held. */
 		get count() {
 			return records.length;
+		},
+		/** Bytes those records are charged, never more than the budget. */
+		get bytes() {
+			return bytes;
 		},
 		/** `sn` of the newest record ever recorded. */
 		get lastSn() {

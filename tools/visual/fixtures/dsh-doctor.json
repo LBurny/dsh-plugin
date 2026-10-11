@@ -21,7 +21,7 @@
    "rowsActive": 6, "rowsTotal": 8, "rowsFailed": ["remote"],
    "requiredRowIds": ["agent-loop", "webserver", "modules", "connection", "headless-runner", "acp", "sdk-jsonrpc-server"],
    "logFiles": [{ "source": "tunnel", "path": "C:/Users/<user>/.dsh/dsh-remote-tunnel.log", "lines": 40 }],
-   "capture": { "attached": true, "boot": 214, "records": 6 }
+   "capture": { "attached": true, "boot": 214, "records": 6, "bytes": 4096 }
   },
   "plugin": { "name": "doctor", "version": "0.2.0" }
  },
@@ -40,7 +40,7 @@
   "files": [
    { "source": "tunnel", "path": "C:/Users/<user>/.dsh/dsh-remote-tunnel.log", "lines": ["INF Thank you for trying Cloudflare Tunnel", "ERR failed to serve incoming request"] }
   ],
-  "retention": { "records": 5000, "minutes": 60 }
+  "retention": { "bytes": 4194304 }
  },
  "default": { "ok": true }
 }

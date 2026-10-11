@@ -41,13 +41,13 @@ const PAYLOADS = {
 			],
 			rowsAvailable: true, rowsSummary: "2/2 rows active", rowsActive: 2, rowsTotal: 2, rowsFailed: [],
 			requiredRowIds: ["webserver"], logFiles: [],
-			capture: { attached: true, boot: 12, records: 2 }
+			capture: { attached: true, boot: 12, records: 2, bytes: 4096 }
 		},
 		records: [
 			{ sn: 1, ts: 1700000000000, name: "loader", type: "info", level: 1, text: "apply plugin dsh-doctor" },
 			{ sn: 2, ts: 1700000001000, name: "doctor", type: "warn", level: 2, text: "panel served" }
 		],
-		source: "capture", reset: true, files: [], retention: { records: 5000, minutes: 60 }
+		source: "capture", reset: true, files: [], retention: { bytes: 4 * 1024 * 1024 }
 	},
 	"dsh-zoom": {
 		config: {
@@ -479,12 +479,12 @@ check(
 
 /* ------------------- dsh-doctor: the capture window is stated, not left to guess */
 
-// "47 records" invites the question of whether that is everything or a trimmed tail, so
-// the panel repeats the window the host reported rather than leaving the reader to guess.
+// "47 records" invites the question of whether that is everything or a trimmed tail, so the
+// panel repeats the memory the host is holding them in, and the line window it paints itself.
 const doctorLogs = await bootPanel("dsh-doctor");
 check(
-	textOf(doctorLogs.host).includes("保留窗口 5000"),
-	"dsh-doctor: the log view states the retention window the host reported",
+	textOf(doctorLogs.host).includes("保留窗口 4 MB / 显示最近 2000 条记录"),
+	"dsh-doctor: the log view states the retention budget the host reported",
 	textOf(doctorLogs.host).slice(0, 200)
 );
 

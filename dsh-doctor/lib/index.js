@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { attachLogger, createRecordStore, RECORD_LIMIT, RECORD_WINDOW_MS } from "./capture.js";
+import { attachLogger, createRecordStore, RECORD_BYTES_LIMIT } from "./capture.js";
 import { collectDiagnostics, createLogRing, readLogFiles } from "./diagnostics.js";
 import { guard, sendJson, sendText } from "./http.js";
 import { resolveLayout } from "./layout.js";
@@ -104,9 +104,9 @@ async function status(state) {
 async function logs(state, since) {
 	const captured = state.capture;
 	const numeric = since === null || since === undefined || since === "" ? undefined : Number(since);
-	// The window is sent along so the panel can say what it is looking at: a reader who
-	// sees "47 records" deserves to know whether that is everything or a trimmed tail.
-	const retention = { records: RECORD_LIMIT, minutes: Math.round(RECORD_WINDOW_MS / 60_000) };
+	// The ring's budget is sent along so the panel can say what it is looking at: a reader
+	// who sees "47 records" deserves to know whether that is everything or a trimmed tail.
+	const retention = { bytes: RECORD_BYTES_LIMIT };
 	if (!captured.attached) {
 		// Without a capture the ring is all there is. Its lines shift as it trims, so
 		// there is no stable `sn` to resume from: every read is a full one.

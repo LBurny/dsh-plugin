@@ -76,7 +76,11 @@ check(redact("open http://127.0.0.1:29274/?token=abc123def now") === "open http:
 check(redact("see https://calm-river-1234.trycloudflare.com/?token=x") === "see <tunnel-url>", "a tunnel link is masked whole", redact("see https://calm-river-1234.trycloudflare.com/?token=x"));
 check(redact("Authorization: Bearer abcdefghijklmnop") === "Authorization: Bearer <redacted>", "an authorization header value is masked", redact("Authorization: Bearer abcdefghijklmnop"));
 
-const store = createRecordStore(3);
+// The ring is bounded by the memory it costs: each record is charged its text, its source
+// name and a per-record overhead. A count would not track that (a line's size varies by
+// orders of magnitude), and an age would throw away exactly the older history a bug hunt
+// reaches for, which is the one thing this panel exists to keep.
+const store = createRecordStore();
 const message = (extra) => ({ ts: 1700000000000, name: "loader", type: "info", level: 1, args: ["%s plugin %C", "apply", "dsh-skills"], ...extra });
 const first = store.add(message());
 check(first.sn === 1 && first.name === "loader" && first.type === "info", "a record carries an id, a source and a level", JSON.stringify(first));
@@ -85,35 +89,27 @@ store.add(message({ name: "doctor", type: "warn", level: 2, args: ["panel served
 store.add(message({ type: "error", level: 0, args: [{ detail: "boom" }] }));
 store.add(message({ args: ["fourth"] }));
 const held = store.snapshot();
-check(held.length === 3 && held[0].sn === 2, "the store keeps at most its limit, dropping the oldest", held.map((record) => record.sn).join(","));
+check(held.length === 4 && store.bytes > 0, "a ring inside its budget holds every record", `${String(held.length)}:${String(store.bytes)}`);
 check(held.at(-1).sn === 4 && store.lastSn === 4, "sn keeps counting past the window", String(store.lastSn));
 
-// A count alone is the wrong bound on its own: one chatty minute would push out an hour of
-// boot history, and an idle session would sit on stale lines forever. The ring also drops
-// what has aged out, measured against the newest record so a replayed boot line keeps its
-// own older timestamp without dragging the window back with it.
-const timed = createRecordStore(10, 60 * 60 * 1000);
-const at = (minutes) => ({ ts: 1700000000000 + minutes * 60_000, name: "loader", type: "info", level: 1, args: [`t+${String(minutes)}`] });
-timed.add(at(0));
-timed.add(at(30));
-timed.add(at(90));
-check(
-	timed.snapshot().map((record) => record.text).join(",") === "t+30,t+90",
-	"a record older than the age window is dropped, keeping the last hour of logged time",
-	timed.snapshot().map((record) => record.text).join(",")
-);
-check(timed.snapshot().length === 2, "the count cap is not what limited it", String(timed.snapshot().length));
-// The floor is one hour of logged time, so a burst inside the window is kept whole even
-// when it lands in the same millisecond as everything else.
-const burst = createRecordStore(100, 60 * 60 * 1000);
-for (let i = 0; i < 5; i += 1) burst.add(at(1));
-check(burst.snapshot().length === 5, "records inside the window are all kept", String(burst.snapshot().length));
+// Spending the budget drops the oldest first, and never the newest.
+const small = createRecordStore(1024);
+for (let i = 1; i <= 20; i += 1) small.add(message({ args: [`line ${String(i)}`] }));
+check(small.bytes <= 1024, "the ring stays inside its byte budget", String(small.bytes));
+check(small.count > 0 && small.count < 20, "records are dropped once the budget is spent", String(small.count));
+check(small.snapshot().at(-1).sn === 20, "the newest record is never the one dropped", String(small.snapshot().at(-1).sn));
+check(small.snapshot()[0].sn > 1, "the oldest record is the one that goes first", String(small.snapshot()[0].sn));
+// A ring of tiny lines must not slip under the budget: the per-record overhead is charged
+// too, so the bound is on memory rather than on characters.
+const tiny = createRecordStore(1024);
+for (let i = 0; i < 200; i += 1) tiny.add(message({ name: "x", args: [""] }));
+check(tiny.bytes <= 1024 && tiny.count < 200, "a flood of one-character lines is bounded too", `${String(tiny.count)}:${String(tiny.bytes)}`);
 
 const resumed = store.select(2);
 check(resumed.reset === false && resumed.records.map((record) => record.sn).join(",") === "3,4", "a resumed read returns only what is newer", `${String(resumed.reset)}:${resumed.records.map((record) => record.sn).join(",")}`);
 check(store.select(4).records.length === 0, "a client that is up to date gets nothing");
-check(store.select(0).reset === true, "a read from before the window asks the client to replace it");
-check(store.select(undefined).records.length === 3, "a full read returns the window");
+check(small.select(0).reset === true, "a read from before what the trimmed ring still holds asks the client to replace it");
+check(store.select(undefined).records.length === 4, "a full read returns everything held");
 
 // Attaching: the service's own buffer is the boot history, the exporter is the live
 // stream. Both a logger without an exporter and a missing service must degrade.
@@ -126,7 +122,7 @@ const logger = {
 		return () => {};
 	}
 };
-const target = createRecordStore(10);
+const target = createRecordStore();
 const attached = attachLogger(logger, target);
 check(attached.attached === true && attached.boot === 2, "attaching replays the service's boot buffer", JSON.stringify({ attached: attached.attached, boot: attached.boot }));
 check(target.snapshot()[1].text === "boot warning", "the replayed records are readable", target.snapshot()[1].text);
@@ -135,9 +131,9 @@ exporter.export({ ts: 3, name: "skills", type: "error", level: 0, args: ["import
 check(target.snapshot().at(-1).text === "import failed", "a record after attach lands in the store", target.snapshot().at(-1).text);
 check(typeof attached.dispose === "function", "attaching hands back a disposer");
 
-const noExporter = attachLogger({ buffer: [] }, createRecordStore(2));
+const noExporter = attachLogger({ buffer: [] }, createRecordStore());
 check(noExporter.attached === false && typeof noExporter.reason === "string", "a logger without an exporter reports why", String(noExporter.reason));
-const noLogger = attachLogger(undefined, createRecordStore(2));
+const noLogger = attachLogger(undefined, createRecordStore());
 check(noLogger.attached === false && noLogger.boot === 0, "a missing logger service does not throw", String(noLogger.reason));
 
 /* ---------------------------------------------------------------- rows */
@@ -188,7 +184,7 @@ const document = await collectDiagnostics({
 			yield { id: "doctor", options: { id: "doctor", name: "dsh-doctor" }, disabled: false, fiber: { state: 2 } };
 		}
 	},
-	capture: { attached: true, boot: 12, store: createRecordStore(5) }
+	capture: { attached: true, boot: 12, store: createRecordStore() }
 });
 check(typeof document.version === "string" && document.version.length > 0, "the runtime version is reported", document.version);
 check(document.node === process.version, "the node version is reported");

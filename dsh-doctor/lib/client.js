@@ -73,7 +73,8 @@
 		failedRows: ["failed", "失败"],
 		records: ["record(s)", "条记录"],
 		keptWindow: ["window", "保留窗口"],
-		minutes: ["min", "分钟"],
+		mb: ["MB", "MB"],
+		showsLast: ["shows the last", "显示最近"],
 		sourceCapture: ["in-process capture", "进程内捕获"],
 		sourcePlugin: ["this plugin's ring", "本插件环形缓冲"],
 		required: ["required", "必需"],
@@ -267,7 +268,7 @@
 				...value("platform", `${status.platform} ${status.arch}`),
 				...value(T("capture"), status.capture === undefined || status.capture.attached !== true
 					? `${T("captureOff")}${status.capture?.reason === undefined ? "" : ` (${status.capture.reason})`}`
-					: `${String(status.capture.records)} ${T("records")}`)),
+					: `${String(status.capture.records)} ${T("records")}${status.capture.bytes > 0 ? ` · ${String(Math.round(status.capture.bytes / 1024))} KB` : ""}`)),
 			renderRows(status));
 	}
 
@@ -389,11 +390,12 @@
 	/** The log view: where the records came from, the filters, the lines, the files. */
 	function renderLogs() {
 		const source = logView.source === "capture" ? T("sourceCapture") : logView.source === "plugin" ? T("sourcePlugin") : logView.source;
-		// "47 records" invites the question of whether that is all of them or a trimmed
-		// tail, so the window the host is keeping rides along when it reports one.
+		// "47 records" invites the question of whether that is all of them or a trimmed tail,
+		// so the memory the host is holding them in, and how many of them this panel paints,
+		// both ride along when the host reports a budget.
 		const window_ = logView.retention === undefined
 			? ""
-			: ` · ${T("keptWindow")} ${String(logView.retention.records)} ${T("records")} / ${String(logView.retention.minutes)} ${T("minutes")}`;
+			: ` · ${T("keptWindow")} ${String(Math.round(logView.retention.bytes / 1024 / 1024))} ${T("mb")} / ${T("showsLast")} ${String(WINDOW_LIMIT)} ${T("records")}`;
 		logView.meta = el("div", { class: "row-sub", text: `${T("logs")} · ${T("logSource")}: ${source}${logView.records.length === 0 ? "" : ` · ${String(logView.records.length)} ${T("records")}`}${window_}${logView.reason === undefined ? "" : ` · ${String(logView.reason)}`}` });
 		logView.list = el("div", { class: "loglines" });
 		const files = logView.files.length === 0
