@@ -113,7 +113,18 @@ function makeDom() {
 			children: [],
 			parent: undefined,
 			offsetHeight: 0,
-			classList: { add() {}, remove() {} },
+			// Recorded rather than ignored: a panel announcing itself through a class
+			// (`attention` on the corner button) has no other observable effect.
+			classes: [],
+			classList: {
+				add(name) {
+					if (!node.classes.includes(String(name))) node.classes.push(String(name));
+				},
+				remove(name) {
+					const at = node.classes.indexOf(String(name));
+					if (at !== -1) node.classes.splice(at, 1);
+				}
+			},
 			append(...added) {
 				for (const child of added) {
 					if (child === undefined || child === null || child === false) continue;
@@ -165,6 +176,11 @@ function makeDom() {
 	const body = makeNode("body");
 	const document = {
 		readyState: "complete",
+		// A reminder may be deferred to the background, so the stub has to answer the two
+		// questions the client asks about focus: is the page hidden, and does it hold focus.
+		hidden: false,
+		focused: true,
+		hasFocus: () => document.focused !== false,
 		head: { append() {} },
 		body,
 		documentElement: { style: { setProperty() {} } },
@@ -247,12 +263,15 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 	// A reminder panel is the one client whose whole job is a side effect, so its sound and
 	// its system notification are what a test has to look at. Both are recorded rather than
 	// performed, and the stream keeps its own instance so a test can push a frame the way
-	// the host does.
+	// the host does. `played` holds the sound URLs and `audios` the players themselves, so a
+	// test can read back the volume the panel set; `permission` stands in for the browser's
+	// own grant, which a reader can refuse.
 	if (notifications !== undefined) {
 		sandbox.Audio = class {
 			constructor() {
 				this.src = "";
 				this.volume = 1;
+				(notifications.audios ??= []).push(this);
 			}
 			play() {
 				notifications.played.push(this.src);
@@ -263,7 +282,7 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 			constructor(title, options) {
 				notifications.shown.push({ title, ...options });
 			}
-			static permission = "granted";
+			static permission = notifications.permission ?? "granted";
 			static requestPermission() {
 				return Promise.resolve("granted");
 			}
@@ -564,6 +583,188 @@ check(
 	withDefault.played.length === 0 && withDefault.shown[0]?.silent === false,
 	"dsh-notify: system default hands the sound to the OS and plays nothing itself",
 	`played=${String(withDefault.played.length)} silent=${String(withDefault.shown[0]?.silent)}`
+);
+
+/* ------------- dsh-notify: which reminders are allowed to make themselves known */
+
+// Every reminder is gated twice: its own rule (on/off plus a timing) and then, when the
+// timing defers to it, the page's focus state. All four kinds ship as `background`, so the
+// deferral is what a reader meets first, and it is the whole answer to "I turned a reminder
+// on and a question passed unnoticed" — one that arrives while the window is in front
+// raises nothing at all, not even the popup. The matrix below pins all 24 cells: four
+// kinds, two timings, three focus states.
+
+const KINDS = ["approval", "question", "turn_done", "answer_done"];
+/** The four states a page can be in when a reminder arrives, as the browser reports them. */
+const FOCUS = ["focused", "unfocused", "hidden"];
+
+/** A config giving every kind the same timing. */
+const timedConfig = (timing) =>
+	Object.assign({}, notifyPayload.config, ...KINDS.map((kind) => ({ [kind]: { enabled: true, timing } })));
+
+/** The panel's toast stack, wherever it was mounted. */
+const toastsOf = (dom, host) => [...descendants(host), ...descendants(dom.body)].find((node) => node.className === "toasts");
+
+/**
+ * Deliver all four kinds to a panel sitting in one focus state, and report which of them
+ * were raised. Each frame carries its own kind as its text, so the titles of the raised
+ * notifications name the winners.
+ * @returns the booted panel and the raised kinds.
+ */
+async function raisedFrom(timing, state) {
+	const seen = { played: [], shown: [] };
+	const panel = await bootPanel("dsh-notify", {
+		payload: { ...notifyPayload, config: timedConfig(timing) },
+		notifications: seen
+	});
+	panel.dom.document.hidden = state === "hidden";
+	panel.dom.document.focused = state === "focused";
+	for (const kind of KINDS) seen.source?.push({ kind, text: kind });
+	return { panel, seen, raised: seen.shown.map((notice) => String(notice.title)) };
+}
+
+const ALL_KINDS = KINDS.join(",");
+for (const [timing, expected] of [
+	["always", { focused: ALL_KINDS, unfocused: ALL_KINDS, hidden: ALL_KINDS }],
+	["background", { focused: "", unfocused: ALL_KINDS, hidden: ALL_KINDS }]
+]) {
+	for (const state of FOCUS) {
+		const { raised } = await raisedFrom(timing, state);
+		check(
+			raised.join(",") === expected[state],
+			`dsh-notify: timing=${timing} with the page ${state} raises ${expected[state] === "" ? "no kind" : "all four kinds"}`,
+			raised.join(",") || "(nothing)"
+		);
+	}
+}
+
+// The popup is gated by the same rule, so the quiet case is quiet through every channel: a
+// reminder that arrives while the reader is looking at the window leaves no trace at all.
+const popupQuiet = await raisedFrom("background", "focused");
+const popupLoud = await raisedFrom("always", "focused");
+check(
+	(toastsOf(popupQuiet.panel.dom, popupQuiet.panel.host)?.children ?? []).length === 0,
+	"dsh-notify: the popup stays away too, not just the notification and the sound",
+	String((toastsOf(popupQuiet.panel.dom, popupQuiet.panel.host)?.children ?? []).length)
+);
+check(
+	(toastsOf(popupLoud.panel.dom, popupLoud.panel.host)?.children ?? []).length === KINDS.length,
+	"dsh-notify: timing=always pops one in-page reminder per kind",
+	String((toastsOf(popupLoud.panel.dom, popupLoud.panel.host)?.children ?? []).length)
+);
+
+/* ------------- dsh-notify: what a raised reminder then does */
+
+// Past the gate the three channels are independent switches: the sound, the popup and the
+// system notification. The sound choice then decides one more thing, whether the system
+// notification may ring on top of it, which is the double-sound fix.
+
+const sw = { played: [], shown: [] };
+await bootPanel("dsh-notify", { payload: notifyPayload, notifications: sw });
+sw.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	String(sw.played[0]).endsWith("/sounds/staplebops-02.wav"),
+	"dsh-notify: the chosen sound is fetched from this package's own route",
+	sw.played.join(",") || "(nothing played)"
+);
+check(
+	sw.audios?.[0]?.volume === notifyPayload.config.volume,
+	"dsh-notify: the player carries the configured volume",
+	String(sw.audios?.[0]?.volume)
+);
+check(
+	sw.shown[0]?.tag === "dsh-notify-turn_done",
+	"dsh-notify: each kind carries its own tag, so a newer one replaces the older",
+	String(sw.shown[0]?.tag)
+);
+
+const swOff = { played: [], shown: [] };
+const panelOff = await bootPanel("dsh-notify", {
+	payload: { ...notifyPayload, config: { ...notifyPayload.config, toast: false } },
+	notifications: swOff
+});
+swOff.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	swOff.shown.length === 1 && swOff.played.length === 1 && (toastsOf(panelOff.dom, panelOff.host)?.children ?? []).length === 0,
+	"dsh-notify: with the popup switched off the sound and the notification still fire",
+	`played=${String(swOff.played.length)} shown=${String(swOff.shown.length)} popups=${String((toastsOf(panelOff.dom, panelOff.host)?.children ?? []).length)}`
+);
+
+const swNoBrowser = { played: [], shown: [] };
+await bootPanel("dsh-notify", {
+	payload: { ...notifyPayload, config: { ...notifyPayload.config, browser: false } },
+	notifications: swNoBrowser
+});
+swNoBrowser.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	swNoBrowser.shown.length === 0 && swNoBrowser.played.length === 1,
+	"dsh-notify: with the system notification switched off the sound still fires",
+	`played=${String(swNoBrowser.played.length)} shown=${String(swNoBrowser.shown.length)}`
+);
+
+const swDenied = { played: [], shown: [], permission: "denied" };
+await bootPanel("dsh-notify", { payload: notifyPayload, notifications: swDenied });
+swDenied.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	swDenied.shown.length === 0 && swDenied.played.length === 1,
+	"dsh-notify: a refused notification permission costs the toast, never the sound",
+	`played=${String(swDenied.played.length)} shown=${String(swDenied.shown.length)}`
+);
+
+const swSilent = { played: [], shown: [] };
+await bootPanel("dsh-notify", {
+	payload: { ...notifyPayload, config: { ...notifyPayload.config, sound: "silent" } },
+	notifications: swSilent
+});
+swSilent.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	swSilent.played.length === 0 && swSilent.shown[0]?.silent === true,
+	"dsh-notify: a silent sound setting plays nothing and keeps the notification silent",
+	`played=${String(swSilent.played.length)} silent=${String(swSilent.shown[0]?.silent)}`
+);
+
+// A switched-off kind is silent whatever the page is doing; the second frame proves the
+// panel was live and only the rule was refusing.
+const swOffKind = { played: [], shown: [] };
+await bootPanel("dsh-notify", {
+	payload: { ...notifyPayload, config: { ...notifyPayload.config, question: { enabled: false, timing: "always" } } },
+	notifications: swOffKind
+});
+swOffKind.source?.push({ kind: "question", text: "switched off" });
+const afterOffKind = swOffKind.shown.length;
+swOffKind.source?.push({ kind: "turn_done", text: "still switched on" });
+check(
+	afterOffKind === 0 && swOffKind.shown.length === 1,
+	"dsh-notify: a switched-off kind raises nothing while its neighbours still do",
+	`off=${String(afterOffKind)} on=${String(swOffKind.shown.length)}`
+);
+
+// A record with no kind is the host's own bookkeeping; it must never be raised.
+const swKindless = { played: [], shown: [] };
+await bootPanel("dsh-notify", { payload: notifyPayload, notifications: swKindless });
+swKindless.source?.push({ text: "no kind on this one" });
+const afterKindless = swKindless.shown.length;
+swKindless.source?.push({ kind: "turn_done", text: "the turn finished" });
+check(
+	afterKindless === 0 && swKindless.shown.length === 1,
+	"dsh-notify: a frame naming no kind is not a reminder",
+	`kindless=${String(afterKindless)} real=${String(swKindless.shown.length)}`
+);
+
+// With no hub the panel is a floating one, closed until its corner button is clicked, so a
+// reminder has to say where to look. The payload here is the one every other kind uses
+// (`timing: always`); the package's own default, `background`, would be quiet on a page
+// that has focus and the pulse would never happen.
+const floated = { played: [], shown: [] };
+const floating = await bootPanel("dsh-notify", { hub: false, mount: false, payload: notifyPayload, notifications: floated });
+floated.source?.push({ kind: "turn_done", text: "the turn finished" });
+const corner = descendants(floating.dom.body).find((node) => node.className === "dsh-launch");
+check(
+	corner !== undefined && corner.classes.includes("attention"),
+	"dsh-notify: a reminder pulses the closed panel's corner button",
+	corner === undefined
+		? "(no corner button)"
+		: `classes=${corner.classes.join(",") || "(none)"} played=${String(floated.played.length)} shown=${String(floated.shown.length)}`
 );
 
 /* ------------------------- dsh-remote: a link that arrives after "enable" */
