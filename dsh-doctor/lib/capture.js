@@ -120,7 +120,9 @@ export function createRecordStore(budget = RECORD_BYTES_LIMIT) {
 		 * @returns `{ records, reset }`.
 		 */
 		select(since) {
-			if (!Number.isFinite(since)) return { records: records.slice(-SEND_LIMIT), reset: false };
+			// A full read returns the whole window, so it must say `reset`: anything else
+			// makes the client append the window to itself on every refresh.
+			if (!Number.isFinite(since)) return { records: records.slice(-SEND_LIMIT), reset: true };
 			const oldest = records.length === 0 ? sn + 1 : records[0].sn;
 			if (since + 1 < oldest) return { records: records.slice(-SEND_LIMIT), reset: true };
 			return { records: records.filter((record) => record.sn > since), reset: false };

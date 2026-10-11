@@ -110,6 +110,7 @@ check(resumed.reset === false && resumed.records.map((record) => record.sn).join
 check(store.select(4).records.length === 0, "a client that is up to date gets nothing");
 check(small.select(0).reset === true, "a read from before what the trimmed ring still holds asks the client to replace it");
 check(store.select(undefined).records.length === 4, "a full read returns everything held");
+check(store.select(undefined).reset === true, "a full read asks the client to replace, so a refresh never duplicates the window");
 
 // Attaching: the service's own buffer is the boot history, the exporter is the live
 // stream. Both a logger without an exporter and a missing service must degrade.

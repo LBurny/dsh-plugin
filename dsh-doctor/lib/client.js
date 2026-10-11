@@ -170,8 +170,8 @@
 		records: [],
 		files: [],
 		/** What the host keeps before it trims, as it reported it; undefined on an older host. */
-	retention: undefined,
-	lastSn: 0,
+		retention: undefined,
+		lastSn: 0,
 		level: "all",
 		onlyOurs: false,
 		match: "",
@@ -255,7 +255,7 @@
 				// The hub's own header refreshes an embedded panel, so it hides this one.
 				inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })),
 			el("dl", { class: "grid" },
-				...value("dsh", `${status.version}`, ),
+				...value("dsh", `${status.version}`),
 				...value("node", status.node),
 				...value(T("port"), String(status.port ?? "?")),
 				...value(T("pid"), String(status.pid)),

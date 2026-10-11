@@ -193,7 +193,7 @@ function mount(ready, state) {
 		try {
 			sendText(res, 200, await readFile(join(LIB_DIR, file), "utf8"), type);
 		} catch (error) {
-			sendText(res, 500, `dsh-doctor: asset ${file} unavailable — ${String(error?.message ?? error)}`);
+			sendText(res, 500, `dsh-doctor: asset ${file} unavailable: ${String(error?.message ?? error)}`);
 		}
 	};
 
