@@ -618,12 +618,12 @@ const toastsOf = (dom, host) => [...descendants(host), ...descendants(dom.body)]
 
 // The labels a reminder carries, which is what the reader sees: the stub speaks zh-CN, so a
 // reminder that arrived in the host's English would not match any of them and would show up in
-// the assertions below as its own title.
+// the assertions below as its own title. The kind is the whole title, alone.
 const KIND_LABEL = { approval: "等待批准", question: "等待回答", turn_done: "任务完成", answer_done: "回答就绪" };
 /** The kind a raised reminder belongs to, by the title it ended up with. */
 const kindOfTitle = (title) => {
 	const text = String(title);
-	return Object.keys(KIND_LABEL).find((kind) => text === KIND_LABEL[kind] || text.startsWith(`${KIND_LABEL[kind]} · `)) ?? text;
+	return Object.keys(KIND_LABEL).find((kind) => text === KIND_LABEL[kind]) ?? text;
 };
 
 /**
@@ -691,18 +691,26 @@ check(
 
 // The host publishes facts and the page says them, in the language of whoever is reading: the
 // frame below carries the host's English, and what the reader gets is the page's own Chinese.
+// The kind is the title line and nothing else, and the session opens the body, so the bold line
+// a system notification shows stays short.
 const localised = { played: [], shown: [] };
-await bootPanel("dsh-notify", { payload: notifyPayload, notifications: localised });
+const localisedPanel = await bootPanel("dsh-notify", { payload: notifyPayload, notifications: localised });
 localised.source?.push({ kind: "question", title: "绘图", text: "dsh has a question waiting for your answer" });
 check(
-	localised.shown[0]?.title === "等待回答 · 绘图",
-	"dsh-notify: a reminder is titled in the page's language and names its session",
+	localised.shown[0]?.title === "等待回答",
+	"dsh-notify: a reminder's title is its kind alone, in the page's language",
 	String(localised.shown[0]?.title)
 );
 check(
-	localised.shown[0]?.body === "有一个问题等待你回答",
-	"dsh-notify: the body is the page's own sentence, not the one the host sent",
-	String(localised.shown[0]?.body)
+	localised.shown[0]?.body === "绘图\n有一个问题等待你回答",
+	"dsh-notify: the body names the session and then says it in the page's own sentence",
+	JSON.stringify(localised.shown[0]?.body ?? null)
+);
+const popupLines = (toastsOf(localisedPanel.dom, localisedPanel.host)?.children ?? []).map((node) => textOf(node));
+check(
+	popupLines.some((line) => line.includes("等待回答") && line.includes("绘图") && line.includes("有一个问题等待你回答")),
+	"dsh-notify: the in-page popup spells the same three lines out, not one run-on",
+	popupLines.join(" | ")
 );
 
 // A kind this page has no sentence for, but whose settings rule exists (a newer host adding a

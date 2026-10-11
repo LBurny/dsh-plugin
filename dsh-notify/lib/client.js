@@ -152,11 +152,16 @@
 	let inHub = false;
 
 	/** In-page toast for local feedback. */
+	/**
+	 * In-page toast for local feedback. A body carrying newlines (the reminder's session line and
+	 * its sentence) becomes one line per part rather than one run-on string.
+	 */
 	function toast(title, message) {
 		if (toasts === undefined) return;
+		const lines = String(message ?? "").split("\n").filter((line) => line.length > 0);
 		const node = el("div", { class: "toast" },
 			el("div", { class: "toast-title", text: title }),
-			message ? el("div", { class: "row-sub", text: message }) : undefined);
+			lines.map((line) => el("div", { class: "row-sub", text: line })));
 		node.addEventListener("click", () => node.remove());
 		toasts.append(node);
 		setTimeout(() => node.remove(), 8000);
@@ -239,14 +244,19 @@
 	 * prose: it cannot know which language the page in front of the reader is speaking, and a
 	 * reminder that arrives in the wrong one is worse than a short one. Its `text` stays as the
 	 * fallback for a kind this page has never heard of.
+	 *
+	 * The kind stands alone on the title line. A system notification renders that line bold and
+	 * short, and a session name glued to it with a separator reads as part of the kind; the
+	 * session names the reminder on the body's own first line instead, where it is still the
+	 * first thing read after the kind and the thing that says *which* session is waiting.
 	 * @param item - one reminder record off the stream.
-	 * @returns the localized title (kind, plus the session it belongs to) and body.
+	 * @returns the localized title (the kind alone) and body.
 	 */
 	function reminderText(item) {
-		const label = labelForKind(item.kind);
-		const named = typeof item.title === "string" && item.title.length > 0 ? `${label} · ${item.title}` : label;
 		const key = BODY_KEY[item.kind];
-		return { title: named, body: key === undefined ? (item.text ?? "") : T(key) };
+		const sentence = key === undefined ? (item.text ?? "") : T(key);
+		const named = typeof item.title === "string" && item.title.length > 0;
+		return { title: labelForKind(item.kind), body: named ? `${item.title}\n${sentence}` : sentence };
 	}
 
 	/** Whether a kind may be raised right now: its rule, and whether the page is focused. */
