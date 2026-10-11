@@ -139,6 +139,17 @@ for (const pkg of FEATURES) {
 	check(style.includes("-webkit-line-clamp: 2;") && style.includes("overflow-wrap: break-word;"), `${pkg}: long subtitles clamp to two lines at word boundaries`, "");
 	check(!style.includes("overflow-wrap: anywhere") && !/\.row-(?:name|sub)\s*\{[^}]*word-break: break-all/u.test(style), `${pkg}: no mid-word breaking in row text`, "");
 	check(style.includes("width: 36px;") && style.includes("translateX(16px)"), `${pkg}: the switch matches the official 36px control`, "");
+	// A slider is measured against the row it sits in rather than drawn by us, so its rule
+	// has to clear the box chrome and the padding every other input takes: 12px of padding
+	// puts the thumb's travel inside it, and at 100% the thumb then stops 12px short of the
+	// end, which reads as a slider that never reaches its own maximum.
+	const sliderAt = style.indexOf('input[type="range"]');
+	const sliderRule = style.slice(sliderAt, style.indexOf("}", sliderAt));
+	check(
+		sliderAt !== -1 && sliderRule.includes("padding: 0;") && sliderRule.includes("border: 0;") && sliderRule.includes("background: transparent;"),
+		`${pkg}: the slider clears the input box chrome, so its thumb reaches both ends`,
+		sliderRule.replace(/\s+/gu, " ").trim()
+	);
 	// The clamp hides the tail of a long text, so the full string rides on the
 	// row's tooltip.
 	check(panel.includes('el("div", { class: "row-name", text: name, title: name })'), `${pkg}: a clamped row name keeps its tooltip`, "");

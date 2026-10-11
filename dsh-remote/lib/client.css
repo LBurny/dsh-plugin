@@ -200,9 +200,17 @@
 	accent-color: var(--dsh-accent);
 }
 
-/* A slider is a full-width control, and it takes the brand fill like the switch. */
+/* A slider is a full-width control, and it takes the brand fill like the switch. The box
+   chrome and the padding the rule above gives every input would inset its travel, so at
+   100% the thumb would stop on the padding 12px short of the end. */
 #dsh-remote-root input[type="range"] {
 	accent-color: var(--dsh-accent);
+	width: 100%;
+	height: 20px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
 }
 
 /* The panel sits above the launcher stack, whose height varies with how many
