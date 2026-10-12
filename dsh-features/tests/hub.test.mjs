@@ -826,6 +826,20 @@ element = await browser.render(main.component, { t: T });
 check(rows().length === 3 && stage().props["data-view"] === "list", "back returns to the list", `${rows().length} rows, ${stage().props["data-view"]}`);
 check(rowNames() === "技能,MCP,诊断", "the list still holds every feature", rowNames());
 
+// The 1.5 s rescan exists to catch a feature's browser half that registered late; it must
+// not re-mount the panel the reader already has open. `mergeFeatures` builds a new array on
+// every call and the panel-mount effect keys off that array's identity, so an unchanged
+// rescan used to tear the open panel down and rebuild it, losing input and scroll position.
+rows()[1].props.onClick();
+element = await browser.render(main.component, { t: T });
+const mountsWhenOpened = browser.mounted.length;
+check(browser.mounted.at(-1)?.key === "mcp", "opening a row mounts the panel once", String(mountsWhenOpened));
+await new Promise((resolve) => setTimeout(resolve, 1700));
+element = await browser.render(main.component, { t: T });
+check(browser.mounted.length === mountsWhenOpened, "an unchanged rescan does not re-mount the open panel", `${String(mountsWhenOpened)} -> ${String(browser.mounted.length)}`);
+headBack()[0].props.onClick();
+element = await browser.render(main.component, { t: T });
+
 // An installed-only feature opens to an explanation, not to an empty page.
 // 技能 is the one the profile declares but whose browser half never registered.
 rows()[0].props.onClick();

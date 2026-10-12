@@ -7,10 +7,11 @@
  *   node test/notify.test.mjs
  */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createNotifyBus } from "../lib/bus.js";
-import { focusCommand } from "../lib/focus.js";
+import { createFocuser, focusCommand } from "../lib/focus.js";
 import { resolveLayout } from "../lib/layout.js";
 import { DEFAULT_SOUND, NOTIFY_KINDS, defaultConfig, loadConfig, mergeDeep, normalizeConfig, saveConfig } from "../lib/settings.js";
 import { SILENT, SYSTEM_DEFAULT, listSounds, readSound } from "../lib/sounds.js";
@@ -154,6 +155,47 @@ check(
 	"a platform without an implementation raises nothing instead of guessing",
 	String(focusCommand("darwin", 4321))
 );
+
+// The route awaits activate(), and the script walks the process tree through `Get-CimInstance`,
+// which can stall: a child that never exits used to leave the click spinning forever and the
+// `powershell` process unreaped.
+const hung = new EventEmitter();
+let killed = 0;
+hung.kill = () => {
+	killed += 1;
+};
+// The deadline timer is unref'd, because a raise must never hold the process open, so the
+// test has to keep the loop alive for it to fire at all.
+const keepAlive = setTimeout(() => {}, 500);
+const raised = await createFocuser({ platform: "win32", ppid: 4321, run: () => hung, timeoutMs: 40 }).activate();
+clearTimeout(keepAlive);
+check(raised === false && killed === 1, "a raise that never exits is killed at its deadline and answers false", `${String(raised)} killed=${String(killed)}`);
+
+const done = new EventEmitter();
+done.kill = () => {
+	killed += 1;
+};
+const quick = createFocuser({
+	platform: "win32",
+	ppid: 4321,
+	run: () => {
+		setImmediate(() => done.emit("exit", 0));
+		return done;
+	},
+	timeoutMs: 500
+});
+check((await quick.activate()) === true && killed === 1, "a raise that exits 0 reports success without being killed", String(killed));
+
+let spawned = 0;
+const none = createFocuser({
+	platform: "linux",
+	ppid: 4321,
+	run: () => {
+		spawned += 1;
+		return new EventEmitter();
+	}
+});
+check((await none.activate()) === false && spawned === 0, "a platform without a raise spawns nothing", String(spawned));
 
 /* ------------------------------------------------------------- reporting */
 

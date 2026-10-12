@@ -10,7 +10,7 @@ import { deflateRawSync } from "node:zlib";
 import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { discoverZipSkills, extractZipPrefix, listEntries, normalizeEntryName, readEntry, ZipError } from "../lib/zip.js";
+import { crc32, discoverZipSkills, extractZipPrefix, listEntries, normalizeEntryName, readEntry, ZipError } from "../lib/zip.js";
 import {
 	deleteSkill,
 	importSkills,
@@ -38,8 +38,10 @@ async function exists(path) {
 
 /**
  * Build a minimal ZIP archive in memory: local headers + central directory +
- * EOCD. CRC fields are left zero (the reader does not verify them).
- * @param entries - `[{ name, data: Buffer, method: 0|8 }]`.
+ * EOCD, with the real CRC-32 written into both headers, the way an ordinary zip
+ * tool writes it. `crc` overrides that field alone, which is how the reader's
+ * integrity check is exercised.
+ * @param entries - `[{ name, data: Buffer, method: 0|8, crc? }]`.
  */
 function buildZip(entries) {
 	const locals = [];
@@ -48,11 +50,13 @@ function buildZip(entries) {
 	for (const entry of entries) {
 		const nameBytes = Buffer.from(entry.name, "utf8");
 		const data = entry.method === 8 ? deflateRawSync(entry.data) : entry.data;
+		const crc = entry.crc ?? crc32(entry.data);
 		const local = Buffer.alloc(30);
 		local.writeUInt32LE(0x04034b50, 0);
 		local.writeUInt16LE(20, 4);
 		local.writeUInt16LE(0, 6);
 		local.writeUInt16LE(entry.method, 8);
+		local.writeUInt32LE(crc, 14);
 		local.writeUInt32LE(data.length, 18);
 		local.writeUInt32LE(entry.data.length, 22);
 		local.writeUInt16LE(nameBytes.length, 26);
@@ -63,6 +67,7 @@ function buildZip(entries) {
 		central.writeUInt16LE(20, 6);
 		central.writeUInt16LE(0, 8);
 		central.writeUInt16LE(entry.method, 10);
+		central.writeUInt32LE(crc, 16);
 		central.writeUInt32LE(data.length, 20);
 		// The declared uncompressed size is authoritative for the reader, so a bomb
 		// test needs to lie about it here.
@@ -122,6 +127,12 @@ const inflated = readEntry(archive, entries[0]);
 check(inflated.toString("utf8").includes("name: alpha"), "deflated entry inflates", inflated.length);
 const stored = readEntry(archive, entries[1]);
 check(stored.toString("utf8").startsWith("#!/bin/sh"), "stored entry reads verbatim");
+
+// A bit flip in a stored entry is invisible to the format, which is what the central
+// directory's CRC is for: without the check a corrupt archive imports silently.
+const rotted = buildZip([{ name: "SKILL.md", data: Buffer.from("---\nname: rotted\n---\n", "utf8"), method: 0, crc: crc32(Buffer.from("something else entirely", "utf8")) }]);
+await expectZipError(() => readEntry(rotted, listEntries(rotted)[0]), "an entry whose bytes do not match its CRC is rejected");
+check(crc32(Buffer.from("123456789", "utf8")) === 0xcbf43926, "crc32 matches the standard check value", String(crc32(Buffer.from("123456789", "utf8"))));
 
 await expectZipError(() => listEntries(Buffer.from("not a zip at all", "utf8")), "garbage is not a ZIP");
 await expectZipError(() => listEntries(Buffer.alloc(10)), "a truncated buffer is not a ZIP");
@@ -306,7 +317,31 @@ if (loopArmed) {
 	}
 	check(loopThrew, "a symlink loop inside the source fails the import");
 	check(!(await exists(join(importStore.skillsDir, "loopy"))), "a failed copy leaves nothing in the managed root", "");
+
+	// The same failure on top of an *existing* skill is the case that used to lose data:
+	// the old copy was deleted before the new one was copied, so a failed overwrite left
+	// the reader with neither. Nothing may be touched until the new copy is complete.
+	await mkdir(join(importStore.skillsDir, "loopy"), { recursive: true });
+	await writeFile(join(importStore.skillsDir, "loopy", "SKILL.md"), "---\nname: loopy\ndescription: the original\n---\n", "utf8");
+	let overwriteThrew = false;
+	try {
+		await importSkills(importStore, "codex", ["loopy"], "overwrite", importSources(homeDir));
+	} catch {
+		overwriteThrew = true;
+	}
+	const survived = await readFile(join(importStore.skillsDir, "loopy", "SKILL.md"), "utf8").catch(() => "");
+	check(overwriteThrew && survived.includes("the original"), "a failed overwrite leaves the skill that was already installed", survived.replace(/\s+/gu, " ").trim());
 }
+
+// The ZIP path replaces the same way: a name that cannot be installed must not cost the
+// copy already in place.
+const clashZip = buildZip([{ name: "clash/SKILL.md", data: Buffer.from("---\nname: clash\ndescription: the new one\n---\n", "utf8"), method: 0 }]);
+await mkdir(join(importStore.skillsDir, "clash"), { recursive: true });
+await writeFile(join(importStore.skillsDir, "clash", "SKILL.md"), "---\nname: clash\ndescription: the original\n---\n", "utf8");
+const zipOver = await importZipSkills(importStore, clashZip, "pack.zip", ["clash"], "overwrite");
+const zipKept = await readFile(join(importStore.skillsDir, "clash", "SKILL.md"), "utf8");
+check(zipOver.imported.length === 1 && zipKept.includes("the new one"), "a ZIP overwrite installs the new copy over the old one", zipOver.imported.join(","));
+
 
 // A destination that cannot be created (a stray file sits where the skill dir would
 // go) must fail that one name, not the whole import after earlier names landed.

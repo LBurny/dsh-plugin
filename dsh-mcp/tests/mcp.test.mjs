@@ -124,6 +124,33 @@ check(
 );
 check(cleared?.config?.command === "npx", "the submitted command survives the same update", String(cleared?.config?.command));
 
+// --- renaming moves the row id with the name -------------------------------
+// The id is what the import and delete paths address a row by, and the listed id is what
+// the import path deletes with, so a rename that left `mcp-<oldName>` behind made the row
+// unreachable under its own name: an overwrite-import of the new name threw "no MCP server
+// row" and aborted the whole import.
+await upsertMcpServer(layout2, { serverName: "renamed", transport: "stdio", command: "npx", args: ["y"] }, "mcp-envtest");
+const renamed = (await listMcpServers(layout2)).find((server) => server.serverName === "renamed");
+check(renamed?.id === "mcp-renamed", "renaming a server moves its row id with it", String(renamed?.id));
+check((await listMcpServers(layout2)).every((server) => server.id !== "mcp-envtest"), "the old id is gone", "");
+await setMcpEnabled(layout2, renamed.id, false);
+check((await listMcpServers(layout2)).find((server) => server.serverName === "renamed")?.enabled === false, "the renamed row answers to the id the listing reports", "");
+
+// --- an id that does not follow the convention is left alone ---------------
+const dir3 = await mkdtemp(join(tmpdir(), "kit-mcp-custom-"));
+const layout3 = { patchPath: join(dir3, "cordis.patch.yml"), profileDir: dir3 };
+await writeFile(
+	layout3.patchPath,
+	["- id: custom-id", "  name: '@deepseek-ai/dsh-mcp-client'", "  config:", "    serverName: handwritten", "    transport: stdio", "    command: npx", ""].join("\n"),
+	"utf8"
+);
+await upsertMcpServer(layout3, { serverName: "renamed-hand", transport: "stdio", command: "npx" }, "custom-id");
+const hand = (await listMcpServers(layout3))[0];
+check(hand?.id === "custom-id", "a hand-written row id is not rewritten by a rename", String(hand?.id));
+check(hand?.serverName === "renamed-hand", "the hand-written row still takes the new name", String(hand?.serverName));
+await deleteMcpServer(layout3, hand.id);
+check((await listMcpServers(layout3)).length === 0, "a drifted row deletes by the id the listing reports", "");
+
 const failed = results.filter((result) => !result.ok);
 for (const result of results) console.log(`${result.ok ? "ok  " : "FAIL"} ${result.label}${result.detail ? ` — ${result.detail}` : ""}`);
 console.log(failed.length === 0 ? "\nMCP TEST PASS" : `\nMCP TEST FAIL (${failed.length})`);

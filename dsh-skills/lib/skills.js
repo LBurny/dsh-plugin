@@ -10,6 +10,7 @@
  *
  * @module dsh-skills/lib/skills
  */
+import { randomBytes } from "node:crypto";
 import { cp, mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
@@ -172,6 +173,68 @@ export async function listImportable(layout, sources = importSources()) {
 }
 
 /**
+ * Install a skill directory under the enabled root, replacing an existing copy only once
+ * the new one is complete on disk.
+ *
+ * A copy or an extraction fails partway for ordinary reasons: a symlink loop under
+ * `dereference`, a permission error, a full disk, a malformed archive. Deleting the old
+ * copy *first* (which is what this used to do) meant such a failure cost the reader the
+ * skill they already had, with nothing left to fall back to. So the new copy is built in a
+ * staging directory inside the enabled root, and the old one is moved aside rather than
+ * deleted, so it can be put back if the final swap cannot happen.
+ * @param layout - resolved paths.
+ * @param name - the skill directory name.
+ * @param populate - writes the new skill's contents into the directory it is given.
+ */
+async function installSkill(layout, name, populate) {
+	const destination = join(layout.skillsDir, name);
+	await mkdir(layout.skillsDir, { recursive: true });
+	// The staging directory sits in the enabled root so the install is a same-filesystem
+	// `rename`, and it holds no SKILL.md itself, so `listSkills` never reports it.
+	const staging = join(layout.skillsDir, `.dsh-import-${randomBytes(8).toString("hex")}`);
+	const staged = join(staging, name);
+	try {
+		await mkdir(staged, { recursive: true });
+		await populate(staged);
+		// Move any old copy, in either root, into the staging area instead of deleting it,
+		// so it can be put back if the swap cannot happen.
+		const displaced = [];
+		for (const root of [layout.skillsDir, layout.skillsDisabledDir]) {
+			const old = join(root, name);
+			let info;
+			try {
+				info = await stat(old);
+			} catch {
+				continue; // nothing at that path, which is the common case
+			}
+			// A stray file where the skill directory belongs is not ours to delete: fail this
+			// one name and leave it be, rather than silently replacing what the reader put
+			// there. (A symlink to a directory is a skill, as everywhere else here.)
+			if (!info.isDirectory()) throw new Error(`a file named "${name}" is in the way`);
+			const holder = join(staging, `.old-${randomBytes(4).toString("hex")}`);
+			await rename(old, holder);
+			displaced.push({ old, holder });
+		}
+		try {
+			await rename(staged, destination);
+		} catch (error) {
+			// The new copy could not be moved into place: put the old one back and report it.
+			for (const { old, holder } of displaced.reverse()) {
+				try {
+					await rename(holder, old);
+				} catch {
+					/* best effort; the staging copy still goes below */
+				}
+			}
+			throw error;
+		}
+	} finally {
+		// Takes the staging directory and, with it, whatever displaced copy was not restored.
+		await rm(staging, { recursive: true, force: true });
+	}
+}
+
+/**
  * Copy selected skills from an import source into the enabled root.
  * @param layout - resolved paths.
  * @param sourceId - one of {@link importSources} ids.
@@ -197,23 +260,11 @@ export async function importSkills(layout, sourceId, names, onConflict = "skip",
 			skipped.push({ name, reason: "already exists" });
 			continue;
 		}
-		if (conflict) {
-			for (const root of [layout.skillsDir, layout.skillsDisabledDir]) {
-				await rm(join(root, name), { recursive: true, force: true });
-			}
-		}
 		// dereference: the managed root must hold real files, not a link back into
 		// the tool the skill was imported from (source farms are often symlinked).
-		const destination = join(layout.skillsDir, name);
-		try {
-			await cp(from, destination, { recursive: true, dereference: true });
-		} catch (error) {
-			// A failed copy (e.g. a symlink loop inside the source) must not leave a
-			// half-imported skill behind: it would list as installed and refuse later
-			// imports as a conflict.
-			await rm(destination, { recursive: true, force: true });
-			throw error;
-		}
+		// A failed copy (e.g. a symlink loop inside the source) must not leave a
+		// half-imported skill behind, nor cost the reader the copy already there.
+		await installSkill(layout, name, (staged) => cp(from, staged, { recursive: true, dereference: true }));
 		imported.push(name);
 	}
 	return { imported, skipped };
@@ -267,21 +318,12 @@ export async function importZipSkills(layout, buffer, archiveName, names, onConf
 			skipped.push({ name, reason: "already exists" });
 			continue;
 		}
-		if (conflict) {
-			for (const root of [layout.skillsDir, layout.skillsDisabledDir]) {
-				await rm(join(root, name), { recursive: true, force: true });
-			}
-		}
-		const destination = join(layout.skillsDir, name);
 		try {
-			// The mkdir belongs inside the guard too: a non-directory already sitting at
-			// that path must fail this one name, not the whole import.
-			await mkdir(destination, { recursive: true });
-			await extractZipPrefix(buffer, entry.prefix, destination);
+			// A malformed archive or a full disk must fail this one name, not the whole
+			// import, and must leave whatever is already installed where it is.
+			await installSkill(layout, name, (staged) => extractZipPrefix(buffer, entry.prefix, staged));
 			imported.push(name);
 		} catch (error) {
-			// A failed extraction must not leave a half-written skill behind.
-			await rm(destination, { recursive: true, force: true });
 			errors.push({ name, reason: String(error?.message ?? error) });
 		}
 	}

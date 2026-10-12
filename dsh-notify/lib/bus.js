@@ -26,7 +26,7 @@ const RECENT_LIMIT = 50;
  * @returns publish/subscribe handle used by the host wiring and the HTTP routes.
  */
 export function createNotifyBus() {
-	const subscribers = new Set();
+	const subscribers = new Map();
 	const recent = [];
 	let counter = 0;
 
@@ -37,11 +37,14 @@ export function createNotifyBus() {
 		recent.push(item);
 		if (recent.length > RECENT_LIMIT) recent.splice(0, recent.length - RECENT_LIMIT);
 		const payload = `data: ${JSON.stringify(item)}\n\n`;
-		for (const res of subscribers) {
+		for (const [res, detach] of subscribers) {
 			try {
 				res.write(payload);
 			} catch {
-				subscribers.delete(res);
+				// Run the stream's own teardown, not just a delete: it owns the keepalive
+				// interval, and dropping the entry without clearing that leaves a timer
+				// writing to a dead response forever, with nothing left able to stop it.
+				detach();
 			}
 		}
 		return item;
@@ -68,7 +71,7 @@ export function createNotifyBus() {
 			});
 			res.write("retry: 3000\n\n");
 			res.write(`event: ready\ndata: ${JSON.stringify({ recent: recent.length })}\n\n`);
-			subscribers.add(res);
+			let done = false;
 			const heartbeat = setInterval(() => {
 				try {
 					res.write(": keepalive\n\n");
@@ -78,13 +81,13 @@ export function createNotifyBus() {
 			}, HEARTBEAT_MS);
 			// Do not hold the process open for a keep-alive timer.
 			heartbeat.unref?.();
-			let done = false;
 			function cleanup() {
 				if (done) return;
 				done = true;
 				clearInterval(heartbeat);
 				subscribers.delete(res);
 			}
+			subscribers.set(res, cleanup);
 			res.on("close", cleanup);
 			res.on("error", cleanup);
 			return cleanup;

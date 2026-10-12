@@ -187,6 +187,7 @@ export async function upsertMcpServer(layout, input, currentId) {
 			return { id: rowId, created: true };
 		}
 		const configNode = existing.row.get("config", true);
+		const previousName = String(configToJs(existing.row).serverName ?? "");
 		if (!isMap(configNode)) existing.row.set("config", doc.createNode(config));
 		else {
 			// Every form-owned key goes, not just the other transport's: buildConfig omits
@@ -194,7 +195,16 @@ export async function upsertMcpServer(layout, input, currentId) {
 			for (const key of [...STDIO_KEYS, ...HTTP_KEYS]) configNode.delete(key);
 			for (const [key, value] of Object.entries(config)) configNode.set(key, doc.createNode(value));
 		}
-		return { id: rowId, created: false };
+		// The row id follows `mcp-<serverName>`, so a rename has to move the id with the name.
+		// The id is what the import and delete paths address the row by, and leaving a stale
+		// one behind made the renamed row unaddressable under its own name. A row whose id
+		// does not follow the convention was written by hand, and keeps the id it was given.
+		let id = rowId;
+		if (rowId === `${ROW_ID_PREFIX}${previousName}` && previousName !== config.serverName) {
+			id = `${ROW_ID_PREFIX}${config.serverName}`;
+			existing.row.set("id", id);
+		}
+		return { id, created: false };
 	});
 }
 
@@ -356,7 +366,11 @@ export async function importMcpServers(layout, sourceId, servers, onConflict = "
 	const catalog = await listMcpImportable(layout);
 	const source = catalog.find((entry) => entry.id === sourceId);
 	if (source === undefined || source.available !== true) throw new Error(`import source unavailable: ${sourceId}`);
-	const existing = new Set((await listMcpServers(layout)).map((server) => server.serverName));
+	// Delete by the id the listing actually reported, not by re-deriving `mcp-<name>`: a row
+	// whose id and serverName have drifted (written by hand, or renamed by an older build)
+	// would otherwise make this throw "no MCP server row" and abort the whole import.
+	const installedIds = new Map((await listMcpServers(layout)).map((server) => [server.serverName, server.id]));
+	const existing = new Set(installedIds.keys());
 	const selected = Array.isArray(servers) ? servers.map(String) : [];
 	const imported = [];
 	const skipped = [];
@@ -370,7 +384,7 @@ export async function importMcpServers(layout, sourceId, servers, onConflict = "
 			skipped.push({ serverName: candidate.serverName, reason: "already exists" });
 			continue;
 		}
-		if (existing.has(candidate.serverName)) await deleteMcpServer(layout, `${ROW_ID_PREFIX}${candidate.serverName}`);
+		if (existing.has(candidate.serverName)) await deleteMcpServer(layout, installedIds.get(candidate.serverName));
 		await upsertMcpServer(layout, candidate);
 		imported.push(candidate.serverName);
 	}

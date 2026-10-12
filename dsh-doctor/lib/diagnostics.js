@@ -64,8 +64,11 @@ async function readTail(path, maxBytes) {
 	const handle = await open(path, "r");
 	try {
 		const buffer = Buffer.alloc(length);
-		await handle.read(buffer, 0, length, start);
-		const lines = buffer.toString("utf8").split(/\r?\n/u);
+		// A file can shrink between the `stat` above and this read (log rotation, a tunnel
+		// log being rewritten), in which case fewer bytes come back and the tail of the
+		// buffer is still zeros: decoding all of it appends a line of NULs to the panel.
+		const { bytesRead } = await handle.read(buffer, 0, length, start);
+		const lines = buffer.subarray(0, bytesRead).toString("utf8").split(/\r?\n/u);
 		// A byte-window read usually lands mid-line; drop that fragment.
 		if (start > 0) lines.shift();
 		return lines.filter((line) => line.length > 0);

@@ -43,6 +43,31 @@ function invalid(message = "not a valid ZIP archive") {
 	return new ZipError(message);
 }
 
+/** CRC-32 (IEEE 802.3) lookup table, built once. */
+const CRC_TABLE = (() => {
+	const table = new Uint32Array(256);
+	for (let index = 0; index < 256; index++) {
+		let value = index;
+		for (let bit = 0; bit < 8; bit++) value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+		table[index] = value >>> 0;
+	}
+	return table;
+})();
+
+/**
+ * The CRC-32 a ZIP central directory records per entry. Verified on the way out because
+ * a corrupted archive must fail loudly: a DEFLATE stream does not catch every bit flip,
+ * and a stored entry is copied verbatim, so without this a truncated or bit-rotted upload
+ * imports silently and the reader gets a corrupt SKILL.md with no error to tell them.
+ * @param data - the entry's uncompressed bytes.
+ * @returns the checksum as an unsigned 32-bit number.
+ */
+export function crc32(data) {
+	let crc = 0xffffffff;
+	for (let index = 0; index < data.length; index++) crc = CRC_TABLE[(crc ^ data[index]) & 0xff] ^ (crc >>> 8);
+	return (crc ^ 0xffffffff) >>> 0;
+}
+
 /**
  * Normalize an entry name to a relative, forward-slashed path, or return
  * `undefined` when the name tries to escape (absolute, drive-qualified, or
@@ -99,6 +124,7 @@ export function listEntries(buffer) {
 		if (at + 46 > buffer.length || buffer.readUInt32LE(at) !== CENTRAL_SIGNATURE) throw invalid();
 		const flags = buffer.readUInt16LE(at + 8);
 		const method = buffer.readUInt16LE(at + 10);
+		const crc = buffer.readUInt32LE(at + 16);
 		const compressedSize = buffer.readUInt32LE(at + 20);
 		const size = buffer.readUInt32LE(at + 24);
 		const nameLength = buffer.readUInt16LE(at + 28);
@@ -113,7 +139,7 @@ export function listEntries(buffer) {
 		const nameStart = at + 46;
 		if (nameStart + nameLength > buffer.length) throw invalid();
 		const name = buffer.toString("utf8", nameStart, nameStart + nameLength);
-		entries.push({ name, method, size, compressedSize, dataOffset, directory: name.endsWith("/") });
+		entries.push({ name, method, size, compressedSize, crc, dataOffset, directory: name.endsWith("/") });
 		at = nameStart + nameLength + extraLength + commentLength;
 	}
 	return entries;
@@ -134,18 +160,26 @@ export function readEntry(buffer, entry) {
 	const dataStart = at + 30 + nameLength + extraLength;
 	if (dataStart + entry.compressedSize > buffer.length) throw invalid();
 	const data = buffer.subarray(dataStart, dataStart + entry.compressedSize);
-	if (entry.method === 0) return Buffer.from(data);
-	try {
-		// Cap the inflation at the declared size: a deflated entry that expands past
-		// what its central directory claims is a bomb, and must never get to allocate
-		// it (a 64 MiB upload can claim gigabytes).
-		const out = inflateRawSync(data, { maxOutputLength: Math.max(1, Math.min(entry.size, MAX_ZIP_BYTES)) });
-		if (out.length !== entry.size) throw invalid(`entry "${entry.name}" decompressed to an unexpected size`);
-		return out;
-	} catch (error) {
-		if (error instanceof ZipError) throw error;
-		throw invalid(`entry "${entry.name}" could not be inflated`);
+	let out;
+	if (entry.method === 0) {
+		out = Buffer.from(data);
+	} else {
+		try {
+			// Cap the inflation at the declared size: a deflated entry that expands past
+			// what its central directory claims is a bomb, and must never get to allocate
+			// it (a 64 MiB upload can claim gigabytes).
+			out = inflateRawSync(data, { maxOutputLength: Math.max(1, Math.min(entry.size, MAX_ZIP_BYTES)) });
+		} catch (error) {
+			if (error instanceof ZipError) throw error;
+			throw invalid(`entry "${entry.name}" could not be inflated`);
+		}
 	}
+	if (out.length !== entry.size) throw invalid(`entry "${entry.name}" decompressed to an unexpected size`);
+	// The central directory's CRC is the only integrity check a ZIP carries, and neither the
+	// stored path (copied verbatim) nor DEFLATE catches every corruption. Without this a
+	// truncated or bit-rotted archive imports silently and the reader gets a corrupt file.
+	if (crc32(out) !== entry.crc) throw invalid(`entry "${entry.name}" failed its CRC-32 check`);
+	return out;
 }
 
 /** Skill names become directory names, so they stay deliberately narrow. */

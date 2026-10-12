@@ -401,14 +401,18 @@
 
 	/** Save a settings patch and surface failures. */
 	async function patchConfig(patch) {
-		const result = await postJson(`${API}/settings`, patch);
-		if (result.ok !== true) {
-			toast(T("failed"), result.error ?? "settings save failed");
-			return;
+		try {
+			const result = await postJson(`${API}/settings`, patch);
+			if (result.ok !== true) throw new Error(result.error ?? "settings save failed");
+			config = result.config;
+			if (patch.level !== undefined) applyLevel(config.level, false);
+			void render();
+		} catch (error) {
+			// Callers are `void patchConfig(...)`: a host that is restarting refuses the
+			// connection, and without this the rejection escapes to the console while the
+			// control appears to do nothing at all.
+			toast(T("failed"), String(error?.message ?? error));
 		}
-		config = result.config;
-		if (patch.level !== undefined) applyLevel(config.level, false);
-		void render();
 	}
 
 	async function render() {

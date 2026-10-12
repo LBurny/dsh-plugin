@@ -337,13 +337,20 @@
 
 	/** Repaint only the record list, which is what a filter change or a poll touches. */
 	function paintRecords() {
-		if (logView.list === undefined) return;
+		const list = logView.list;
+		if (list === undefined) return;
+		// Whether the reader is following the tail has to be read *before* the list is
+		// replaced: afterwards the new content has already moved the scroll. Pinning the
+		// view to the bottom unconditionally meant every poll that brought a record yanked
+		// it there, which is what made scrollback unreadable while anything was being
+		// logged, the one moment this panel exists for.
+		const following = list.scrollHeight - list.scrollTop - list.clientHeight <= 24;
 		const records = visibleRecords();
 		const children = records.length === 0
 			? [el("div", { class: "note", text: logView.records.length === 0 ? T("noLogs") : `${T("filter")}: 0/${String(logView.records.length)}` })]
 			: records.map(renderRecord);
-		logView.list.replaceChildren(...children);
-		logView.list.scrollTop = logView.list.scrollHeight;
+		list.replaceChildren(...children);
+		if (following) list.scrollTop = list.scrollHeight;
 	}
 
 	/**

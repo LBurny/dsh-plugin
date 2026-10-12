@@ -275,8 +275,18 @@ export async function respond({ req, res, upstreamRes, assets, log = () => {} })
 
 	// Plain passthrough; event streams get the idle keepalive wrapper.
 	res.writeHead(status, passthroughHeaders(headers));
-	if (isEventStream(contentType)) pipeSseWithKeepalive(upstreamRes, res);
-	else upstreamRes.pipe(res);
+	if (isEventStream(contentType)) {
+		pipeSseWithKeepalive(upstreamRes, res);
+		return;
+	}
+	// `pipe()` does not end the destination when the source errors, so a dsh socket that
+	// resets mid-body would leave the phone holding a half response until it times out.
+	// Ending here makes it a truncated response, which the client reports at once. The
+	// other branches above already handle `error`; this is the one that did not.
+	upstreamRes.on("error", () => {
+		if (res.writableEnded !== true) res.end();
+	});
+	upstreamRes.pipe(res);
 }
 
 /** Response headers for passthrough: everything except dsh's own cookie. */

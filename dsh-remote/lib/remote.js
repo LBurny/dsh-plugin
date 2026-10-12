@@ -497,6 +497,25 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		return refreshSettings();
 	}
 
+	/**
+	 * Lifecycle steps run one at a time through this chain. `enable` awaits several
+	 * things (settings, tailnet discovery, the cookie exchange, `listen`) before it ever
+	 * assigns `server`, so two overlapping calls — the load-time resume against a panel's
+	 * enable — both see it unset, both bind a listener, and the second assignment orphans
+	 * the first: a listener that still authenticates and can never be closed. `disable`
+	 * has the mirror problem, reporting success while an enable is parked on an await and
+	 * still coming up. Serializing removes both interleavings.
+	 * @param operation - the lifecycle step to run.
+	 * @returns whatever the step returns.
+	 */
+	let lifecycle = Promise.resolve();
+	function serialized(operation) {
+		// Run on both settle paths: a failed step must not wedge the queue.
+		const run = lifecycle.then(operation, operation);
+		lifecycle = run.then(() => undefined, () => undefined);
+		return run;
+	}
+
 	/** Proxy port, or undefined while stopped. */
 	const proxyPort = () => server?.address()?.port;
 
@@ -519,14 +538,19 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 	 * safe on every request; the CLI is only consulted while enabling, because it
 	 * spawns a process. `last` carries whatever that run found.
 	 */
-	const tailnetStatus = () => ({
-		addresses: tailnetAddresses(),
-		address: tailnet?.address ?? tailnetAddresses()[0],
-		dnsName: tailnet?.dnsName,
-		backendState: tailnet?.backendState,
-		source: tailnet?.source,
-		cli: findTailscale() ?? null
-	});
+	const tailnetStatus = () => {
+		// One interface scan, not two: this runs on every `/api/remote` read and on every
+		// publish, and `networkInterfaces()` is a synchronous syscall.
+		const addresses = tailnetAddresses();
+		return {
+			addresses,
+			address: tailnet?.address ?? addresses[0],
+			dnsName: tailnet?.dnsName,
+			backendState: tailnet?.backendState,
+			source: tailnet?.source,
+			cli: findTailscale() ?? null
+		};
+	};
 
 	const snapshot = () => ({
 		state,
@@ -630,7 +654,7 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		// A wrong token waits, so the gate cannot be probed for free.
 		if (slow) await new Promise((resolve) => setTimeout(resolve, 500));
 		res.writeHead(403, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-		res.end("<!doctype html><meta charset=utf-8><title>dsh remote</title><p><b>403</b> — open the full link, including its <code>?token=</code>, as shown in the Desktop Kit panel.</p>");
+		res.end("<!doctype html><meta charset=utf-8><title>dsh remote</title><p><b>403</b>. Open the full link, including its <code>?token=</code>, as shown in the dsh-remote panel.</p>");
 	}
 
 	/**
@@ -638,11 +662,10 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 	 * pipeline (HTML rewrite / gzip / SSE keepalive), which owns `res`.
 	 * @param req - the remote request.
 	 * @param res - the remote response.
-	 * @param replay - buffered body to resend after a re-authentication retry.
 	 */
-	function forward(req, res, replay) {
+	function forward(req, res) {
 		const { port } = upstream();
-		const streaming = replay === undefined && (Number(req.headers["content-length"] ?? "0") > BUFFER_LIMIT_BYTES || String(req.url ?? "").includes(STREAM_PATH_HINT));
+		const streaming = Number(req.headers["content-length"] ?? "0") > BUFFER_LIMIT_BYTES || String(req.url ?? "").includes(STREAM_PATH_HINT);
 		const headers = upstreamHeaders(req);
 
 		/** Hand the upstream response to the enhancement pipeline. */
@@ -661,22 +684,23 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 
 		const chunks = [];
 		let size = 0;
-		req.on("data", (chunk) => {
-			chunks.push(chunk);
-			size += chunk.length;
-			// A declared length smaller than the stream means we cannot trust the buffer.
-			if (size > BUFFER_LIMIT_BYTES && replay === undefined) req.destroy();
-		});
-		req.on("error", (cause) => fail(res, cause));
-		req.on("end", () => {
-			const body = replay ?? Buffer.concat(chunks);
+		/**
+		 * Send an already-buffered body upstream. This is its own function, not another
+		 * call to `forward`, because the retry below runs after the request stream has
+		 * ended: re-attaching `data`/`end` to an ended readable never fires again, so a
+		 * recursive call would send nothing and answer nothing, hanging the request.
+		 * @param body - the bytes to send.
+		 * @param retried - true once the session cookie has been re-exchanged, so a
+		 *   second 401 is passed through instead of looping.
+		 */
+		const send = (body, retried) => {
 			const requestHeaders = { ...headers, "content-length": String(body.length) };
 			const upstreamReq = httpRequest({ host: "127.0.0.1", port, method: req.method, path: req.url, headers: requestHeaders }, (upstreamRes) => {
-				if (upstreamRes.statusCode === 401 && replay === undefined) {
+				if (upstreamRes.statusCode === 401 && !retried) {
 					upstreamRes.resume();
 					log("upstream rejected the session cookie; re-exchanging and replaying once");
 					refreshAuthCookie()
-						.then(() => forward(req, res, body))
+						.then(() => send(body, true))
 						.catch((cause) => fail(res, new Error(`re-authentication failed: ${String(cause?.message ?? cause)}`)));
 					return;
 				}
@@ -685,7 +709,16 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 			upstreamReq.on("error", (cause) => fail(res, cause));
 			if (body.length > 0) upstreamReq.write(body);
 			upstreamReq.end();
+		};
+
+		req.on("data", (chunk) => {
+			chunks.push(chunk);
+			size += chunk.length;
+			// A declared length smaller than the stream means we cannot trust the buffer.
+			if (size > BUFFER_LIMIT_BYTES) req.destroy();
 		});
+		req.on("error", (cause) => fail(res, cause));
+		req.on("end", () => send(Buffer.concat(chunks), false));
 	}
 
 	/** Report an upstream failure on a response that has not been written yet. */
@@ -775,7 +808,7 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 	 * joins it rather than spawning a second cloudflared that would orphan the first.
 	 * @returns the snapshot after the attempt.
 	 */
-	async function startTunnel() {
+	async function startTunnelNow() {
 		if (server === undefined || disposed || settings().mode !== "tunnel" || tunnel !== undefined) return snapshot();
 		tunnelOpening ??= openTunnel().finally(() => {
 			tunnelOpening = undefined;
@@ -803,6 +836,10 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		// running whenever it is still ours and still answers.
 		const saved = loadSession(paths.sessionPath);
 		const adopt = canAdopt(saved, { exe, target }) && (await tunnelAnswers(saved.tunnelUrl, settings().token));
+		// The liveness probe above awaits, so a disable or an unload may have run in the
+		// meantime. Spawning now would leave a detached cloudflared answering a proxy that
+		// is gone, which nothing supervises and nothing can reach.
+		if (disposed || server === undefined || settings().mode !== "tunnel") return;
 		tunnel = createTunnel({
 			exe,
 			target,
@@ -834,13 +871,13 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 	}
 
 	/** Start the proxy, and in tunnel mode bring up cloudflared. */
-	async function enable(mode) {
+	async function enableNow(mode) {
 		const wanted = normalizeMode(mode);
 		if (server !== undefined) {
 			// Already running: an enable that asks for the other transport means switch,
 			// not "keep what is there".
 			if (settings().mode === wanted) return snapshot();
-			return setMode(wanted);
+			return setModeNow(wanted);
 		}
 		const current = await refreshSettings();
 		// The tailnet channel binds one specific address, so the address has to exist
@@ -856,12 +893,17 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 			// in); the string is the short form for the status row, and carries no em dash.
 			error = "no Tailscale address found (is Tailscale installed and signed in?)";
 			log(error);
+			// The settings must not claim an enable that never happened, or the next boot
+			// resumes a mode that cannot work and logs a failure on every restart.
+			await persist({ enabled: false });
 			publish();
 			return snapshot();
 		}
 		// Must happen before the proxy accepts a request, or the first proxied
 		// request would go upstream without a session cookie.
 		await refreshAuthCookie();
+
+		if (disposed) return snapshot();
 
 		const listening = createServer((req, res) => {
 			handle(req, res).catch((cause) => fail(res, cause));
@@ -897,6 +939,13 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 				});
 			});
 		await listen(current.port ?? 0);
+		if (disposed) {
+			// Unloaded while this was binding: a listener that outlives the plugin has no
+			// route left that could ever close it, so drop it instead of publishing it.
+			listening.close();
+			listening.closeAllConnections?.();
+			return snapshot();
+		}
 		server = listening;
 		const port = listening.address().port;
 		state = "up";
@@ -913,12 +962,12 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		log(`remote proxy listening on ${bind}:${String(port)}${wanted === "tailnet" && tailnet.dnsName !== undefined ? ` (${tailnet.dnsName})` : ""}`);
 		publish();
 
-		if (wanted === "tunnel") await startTunnel();
+		if (wanted === "tunnel") await startTunnelNow();
 		return snapshot();
 	}
 
 	/** Stop everything and revoke the credential, tunnel included. */
-	async function disable() {
+	async function disableNow() {
 		tunnel?.stop({ revoke: true });
 		tunnel = undefined;
 		resumed = false;
@@ -926,7 +975,15 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		if (server !== undefined) {
 			const victim = server;
 			server = undefined;
-			await new Promise((resolve) => victim.close(() => resolve()));
+			// `close()` stops accepting but its callback only runs once every open
+			// connection has ended, and the phone holds SSE streams and bridged
+			// WebSockets open indefinitely. Without dropping them this promise never
+			// settles and Disable looks frozen; revoking access is the point of the call,
+			// so the sockets go with it.
+			await new Promise((resolve) => {
+				victim.close(() => resolve());
+				victim.closeAllConnections?.();
+			});
 		}
 		authCookie = undefined;
 		state = "off";
@@ -947,6 +1004,16 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		// From here on this manager is done: an install that lands after unload must not
 		// start a tunnel on a plugin dsh has already unloaded.
 		disposed = true;
+		// The proxy listener belongs to this manager, not to the tunnel. On a real process
+		// exit it dies with the process, but on an unload that is not an exit it would keep
+		// answering and still accept the persisted token, and no route would be left that
+		// could ever close it.
+		if (server !== undefined) {
+			const victim = server;
+			server = undefined;
+			victim.close();
+			victim.closeAllConnections?.();
+		}
 		if (tunnel === undefined) return;
 		tunnel.stop();
 		tunnel = undefined;
@@ -954,13 +1021,25 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 	}
 
 	/** Switch transport, keeping the token so a saved link keeps working. */
-	async function setMode(mode) {
+	async function setModeNow(mode) {
 		const next = normalizeMode(mode);
 		const wasEnabled = server !== undefined;
-		if (wasEnabled) await disable();
+		if (wasEnabled) await disableNow();
 		await persist({ mode: next });
-		if (wasEnabled) return enable(next);
+		if (wasEnabled) return enableNow(next);
 		state = "off";
+		publish();
+		return snapshot();
+	}
+
+	/** Issue a fresh credential; every link shared before this stops working. */
+	async function resetTokenNow() {
+		const wasEnabled = server !== undefined;
+		const mode = settings().mode;
+		if (wasEnabled) await disableNow();
+		await persist({ token: generateToken(), enabled: false });
+		log("remote token reset");
+		if (wasEnabled) return enableNow(mode);
 		publish();
 		return snapshot();
 	}
@@ -973,22 +1052,15 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 			listeners.add(listener);
 			return () => listeners.delete(listener);
 		},
-		enable,
-		disable,
+		// Every entry point that starts or stops the proxy goes through the one-at-a-time
+		// queue. The internal `…Now` steps call each other directly, so a switch does not
+		// deadlock against the queue it is already running in.
+		enable: (mode) => serialized(() => enableNow(mode)),
+		disable: () => serialized(() => disableNow()),
 		suspend,
-		setMode,
-		startTunnel,
-		/** Issue a fresh credential; every link shared before this stops working. */
-		async resetToken() {
-			const wasEnabled = server !== undefined;
-			const mode = settings().mode;
-			if (wasEnabled) await disable();
-			await persist({ token: generateToken(), enabled: false });
-			log("remote token reset");
-			if (wasEnabled) return enable(mode);
-			publish();
-			return snapshot();
-		},
+		setMode: (mode) => serialized(() => setModeNow(mode)),
+		startTunnel: () => serialized(() => startTunnelNow()),
+		resetToken: () => serialized(() => resetTokenNow()),
 		refresh: refreshAuthCookie,
 		/**
 		 * Point the tunnel at a specific binary. A path that does not exist is refused

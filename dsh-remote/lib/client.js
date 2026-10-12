@@ -240,6 +240,8 @@
 	let cloudflaredSetup = {};
 	/** When this panel started waiting for a link, or undefined while it is not waiting. */
 	let waitingSince;
+	/** Pending status-retry timer, so a panel that is gone stops asking. */
+	let pollTimer;
 	/** The path the reader configured, if any (empty means "search automatically"). */
 	let cloudflaredPath;
 
@@ -261,42 +263,52 @@
 		toast(ok ? T("copied") : T("failed"), ok ? text.slice(0, 60) : "clipboard unavailable");
 	}
 
-	/**
-	 * Re-render while a link is still on its way. An `enable` answers as soon as the
-	 * proxy is listening, but in tunnel mode the link only exists once cloudflared has
-	 * printed its hostname, seconds later, and the manager already reads "up" by then.
-	 * Waiting on that state name alone therefore left the panel showing no link and no
-	 * QR until the page was remounted, so this waits on the link itself too. The
-	 * deadline stops it asking forever when a channel has no address to link to.
-	 */
-	function pollWhileStarting() {
-		if (!(inHub || (panel !== undefined && !panel.hidden))) return;
-		const noLink = (remote?.link ?? remote?.lanUrls?.[0]) === undefined;
-		const waiting = remote?.state === "starting"
-			|| remote?.tunnel?.state === "starting"
-			|| (remote?.enabled === true && noLink);
-		if (!waiting) {
-			waitingSince = undefined;
-			return;
-		}
-		waitingSince ??= Date.now();
-		if (Date.now() - waitingSince > LINK_WAIT_MS) {
-			waitingSince = undefined;
-			return;
-		}
-		setTimeout(() => void render(), LINK_POLL_MS);
+	/** True while the panel is somewhere a reader can actually see it. */
+	function onScreen() {
+		if (panel !== undefined) return panel.hidden !== true;
+		// Inside the hub the panel is a page, and the hub drops this whole tree when the reader
+		// leaves the feature. `inHub` alone stays true for the rest of the page's life after one
+		// visit, which would keep a departed panel asking for a link nobody is looking at. A DOM
+		// that does not report `isConnected` is not evidence of being gone, so only a definite
+		// false counts.
+		return inHub === true && body?.isConnected !== false;
 	}
 
 	/**
-	 * Keep asking while the plugin is fetching cloudflared: the download runs for
-	 * seconds to minutes, and a panel painted once would sit on "downloading" forever.
-	 * A settled state (ready, failed, or no report at all) schedules nothing.
+	 * Whether another status read is still worth making. An `enable` answers as soon as the
+	 * proxy is listening, while in tunnel mode the link exists only once cloudflared has
+	 * printed its hostname, seconds later, and the manager already reads "up" by then. The
+	 * installer's download is the same shape, running for seconds to minutes.
 	 */
-	function pollWhileInstalling() {
-		if (!(inHub || (panel !== undefined && !panel.hidden))) return;
-		const state = cloudflaredSetup.state;
-		if (state !== "checking" && state !== "downloading") return;
-		setTimeout(() => void render(), LINK_POLL_MS);
+	function waitingForReport() {
+		const noLink = (remote?.link ?? remote?.lanUrls?.[0]) === undefined;
+		const waitingForLink = remote?.state === "starting"
+			|| remote?.tunnel?.state === "starting"
+			|| (remote?.enabled === true && noLink);
+		if (waitingForLink) {
+			waitingSince ??= Date.now();
+			// A channel with no usable address never produces a link; stop asking eventually.
+			if (Date.now() - waitingSince > LINK_WAIT_MS) waitingSince = undefined;
+			else return true;
+		} else {
+			waitingSince = undefined;
+		}
+		const setup = cloudflaredSetup.state;
+		return setup === "checking" || setup === "downloading";
+	}
+
+	/**
+	 * Queue the next status read while something is still on its way. Called from `render`'s
+	 * `finally` rather than its success path, because one transient failure while a tunnel was
+	 * coming up used to end the chain: the panel then sat on "no link yet" until the reader
+	 * pressed Refresh by hand, even after the link had arrived.
+	 */
+	function schedulePoll() {
+		if (!onScreen() || !waitingForReport()) return;
+		pollTimer = setTimeout(() => {
+			pollTimer = undefined;
+			void render();
+		}, LINK_POLL_MS);
 	}
 
 	async function render() {
@@ -313,10 +325,10 @@
 			// report" rather than breaking the panel.
 			cloudflaredSetup = data.cloudflaredSetup ?? {};
 			body.replaceChildren(renderRemote());
-			pollWhileStarting();
-			pollWhileInstalling();
 		} catch (error) {
 			body.replaceChildren(el("div", { class: "row-sub", text: `${T("failed")}: ${String(error?.message ?? error)}` }));
+		} finally {
+			schedulePoll();
 		}
 	}
 
@@ -329,12 +341,16 @@
 	}
 
 	async function act(payload) {
-		const result = await postJson(`${API}/remote`, payload);
-		if (result.ok !== true) {
-			toast(T("failed"), result.error);
-			return;
+		try {
+			const result = await postJson(`${API}/remote`, payload);
+			if (result.ok !== true) throw new Error(result.error ?? "the host refused the change");
+			void render();
+		} catch (error) {
+			// Every caller is a `void act(...)`, so a rejection escapes to the console and the
+			// control just looks dead. A host in the middle of restarting refuses the connection
+			// rather than answering, which is exactly when the reader is watching the button.
+			toast(T("failed"), String(error?.message ?? error));
 		}
-		void render();
 	}
 
 	function renderRemote() {
@@ -513,6 +529,10 @@
 	 * @param host - the hub page's container element.
 	 */
 	function mountInline(host) {
+		// Whatever the previous visit (or the floating panel) had queued belongs to a tree the
+		// hub has just dropped, and would otherwise fire into a detached body.
+		clearTimeout(pollTimer);
+		pollTimer = undefined;
 		if (panel !== undefined) {
 			panel.remove();
 			panel = undefined;

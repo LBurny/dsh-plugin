@@ -255,6 +255,20 @@ check(!untouched.includes("dsh-remote-mobile") && !untouched.includes("dsh-splas
 	check((await res.collected()).equals(png) && res.headers["content-encoding"] === undefined, "binary assets pass through identity");
 }
 
+// A passthrough whose upstream dies mid-body ends the response; `pipe()` alone leaves the
+// destination open on a source error, which showed on the phone as a spinner until timeout.
+{
+	const res = fakeRes();
+	const upstream = new Readable({ read() {} });
+	upstream.headers = { "content-type": "image/png", "content-length": "4096" };
+	upstream.statusCode = 200;
+	await respond({ req: { method: "GET", headers: { accept: "image/png" } }, res, upstreamRes: upstream, assets });
+	upstream.push(Buffer.from("partial"));
+	upstream.destroy(new Error("upstream reset")); // what a reset dsh socket looks like here
+	const body = await res.collected();
+	check(body.toString("utf8") === "partial", "a passthrough that dies mid-body ends the response instead of hanging", body.toString("utf8"));
+}
+
 // SSE → keepalive injection on silence.
 {
 	const res = fakeRes();
@@ -764,10 +778,111 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	manager.suspend();
 	const afterSuspend = await manager.startTunnel();
 	check(afterSuspend.tunnel === undefined, "startTunnel after suspend() does not spawn on a disposed manager", JSON.stringify(afterSuspend.tunnel?.state));
-	// suspend() is the unload path, so it leaves the proxy listening; close it explicitly or
-	// its listener outlives the suite.
+	// suspend() leaves the tunnel alive but closes the proxy listener, so a later disable is
+	// a no-op here; it is kept because it is the state a reader would end in.
 	await manager.disable();
 
+	await new Promise((resolve) => stubDsh.close(resolve));
+	await rm(dir, { recursive: true, force: true });
+}
+
+/* ------------------------- re-authentication replays the buffered body, once */
+{
+	// A stale dsh session cookie makes dsh answer 401; the proxy has to exchange the launch
+	// token again and resend the request. The resend used to be a recursive `forward(req, …)`
+	// call, which re-attached `data`/`end` to a request stream that had already ended: those
+	// never fire again, so no upstream request was ever made and no response ever written, and
+	// every proxied request hung from the moment the cookie went stale. It is a POST so the
+	// retry also has to carry the body it buffered, not an empty stream.
+	const { createRemoteManager } = await import("../lib/remote.js");
+	const { createServer: createHttp, request: httpRequest } = await import("node:http");
+	let protectedHits = 0;
+	let delivered = 0;
+	const stubDsh = createHttp((req, res) => {
+		if (String(req.url).startsWith("/?token=")) {
+			res.writeHead(303, { "set-cookie": "dsh-auth=stub; Path=/; HttpOnly" });
+			res.end();
+			return;
+		}
+		protectedHits += 1;
+		if (protectedHits === 1) {
+			res.writeHead(401, { "content-type": "text/plain" });
+			res.end("stale cookie");
+			return;
+		}
+		delivered += 1;
+		res.writeHead(200, { "content-type": "text/plain" });
+		res.end("ok");
+	});
+	await new Promise((resolve) => stubDsh.listen(0, "127.0.0.1", resolve));
+	const dir = await mkdtemp(join(tmpdir(), "dsh-remote-reauth-"));
+	let settings = { enabled: false, mode: "lan", port: 0, token: "reauth-token", cloudflaredPath: "", cloudflaredProxy: "" };
+	const manager = createRemoteManager({
+		ctx: {
+			get: (name) =>
+				({
+					webServer: { port: stubDsh.address().port },
+					connection: { authenticatedUrl: (base) => `${base}/?token=launch-token` }
+				})[name],
+			logger: { info: () => {}, warn: () => {} }
+		},
+		layout: () => ({
+			dshHome: dir,
+			configPath: join(dir, "dsh-remote.json"),
+			sessionPath: join(dir, "dsh-remote-session.json"),
+			tunnelLogPath: join(dir, "dsh-remote-tunnel.log"),
+			workspaceStorePath: join(dir, "workspaces.json")
+		}),
+		config: async () => settings,
+		save: async (patch) => {
+			settings = { ...settings, ...patch };
+			return settings;
+		},
+		log: () => {},
+		findBinary: () => undefined
+	});
+	const up = await manager.enable("lan");
+	const port = up.proxyPort;
+	const answer = await new Promise((resolve) => {
+		let settled = false;
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			resolve(value);
+		};
+		const body = "hello=dsh";
+		const request = httpRequest(
+			{
+				host: "127.0.0.1",
+				port,
+				method: "POST",
+				path: "/protected",
+				headers: {
+					cookie: `${"__dsh_remote"}=reauth-token`,
+					"content-type": "application/x-www-form-urlencoded",
+					"content-length": String(body.length)
+				}
+			},
+			(response) => {
+				const chunks = [];
+				response.on("data", (chunk) => chunks.push(chunk));
+				response.on("end", () => finish({ status: response.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
+			}
+		);
+		request.on("error", (cause) => finish({ status: 0, body: String(cause?.message ?? cause) }));
+		request.end(body);
+		// A hang is the bug: fail the check instead of the suite.
+		setTimeout(() => {
+			request.destroy();
+			finish({ status: 0, body: "no response" });
+		}, 4000);
+	});
+	check(
+		answer.status === 200 && delivered === 1,
+		"a 401 is re-authenticated and replayed once, with the buffered body, instead of hanging",
+		`status=${String(answer.status)} body=${answer.body} delivered=${String(delivered)}`
+	);
+	await manager.disable();
 	await new Promise((resolve) => stubDsh.close(resolve));
 	await rm(dir, { recursive: true, force: true });
 }
@@ -852,7 +967,9 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	// second's handle orphaned the first's detached child. The attempt is now shared.
 	check(/tunnelOpening \?\?= openTunnel\(\)/u.test(remote), "a concurrent startTunnel joins the attempt in flight instead of spawning twice", "");
 	check(/disposed = true/u.test(remote) && /server === undefined \|\| disposed/u.test(remote), "suspend() disposes the manager, and startTunnel honours it", "");
-	check(/if \(wanted === "tunnel"\) await startTunnel\(\);/u.test(remote), "enable() delegates its tunnel step, so the installer can run it again", "");
+	// The lifecycle steps are serialized now, so enable() calls the internal `startTunnelNow`
+	// while the installer re-enters the same body through the queued export.
+	check(/if \(wanted === "tunnel"\) await startTunnelNow\(\);/u.test(remote), "enable() delegates its tunnel step, so the installer can run it again", "");
 	check(!/cloudflaredSearched/u.test(remote), "the snapshot carries no field that nothing reads", "");
 	// And the same wiring on the other side: provisioning a binary is what re-runs that
 	// step, on both the load-time path and the panel's retry.

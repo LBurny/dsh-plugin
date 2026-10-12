@@ -67,11 +67,18 @@ export function focusCommand(platform, pid) {
 }
 
 /**
+ * A raise that has not finished by then is not going to be useful, and a route is waiting on
+ * it. The script walks the process tree with `Get-CimInstance`, which can stall under WMI
+ * pressure, so the child needs a deadline and a kill rather than an unbounded await.
+ */
+const FOCUS_TIMEOUT_MS = 5_000;
+
+/**
  * A focuser for this process, ready to be called by a route.
  * @param options - injection points; the defaults are the real process and `spawn`.
  * @returns an object whose `activate()` resolves true when the window was raised.
  */
-export function createFocuser({ platform = process.platform, ppid = process.ppid, run = spawn } = {}) {
+export function createFocuser({ platform = process.platform, ppid = process.ppid, run = spawn, timeoutMs = FOCUS_TIMEOUT_MS } = {}) {
 	return {
 		/**
 		 * Attempt to raise the window. Never rejects: a window that cannot be raised is a
@@ -82,12 +89,28 @@ export function createFocuser({ platform = process.platform, ppid = process.ppid
 			const command = focusCommand(platform, ppid);
 			if (command === undefined) return Promise.resolve(false);
 			return new Promise((resolve) => {
+				let timer;
+				const settle = (value) => {
+					clearTimeout(timer);
+					resolve(value);
+				};
 				try {
-					const child = run(command.command, command.args, { windowsHide: true });
-					child.on("error", () => resolve(false));
-					child.on("exit", (code) => resolve(code === 0));
+					// No pipes: nothing reads the child's output, and a retained pipe is one more
+					// thing to leak if the process outlives the attempt.
+					const child = run(command.command, command.args, { windowsHide: true, stdio: "ignore" });
+					timer = setTimeout(() => {
+						try {
+							child.kill();
+						} catch {
+							/* already gone */
+						}
+						settle(false);
+					}, timeoutMs);
+					timer.unref?.();
+					child.on("error", () => settle(false));
+					child.on("exit", (code) => settle(code === 0));
 				} catch {
-					resolve(false);
+					settle(false);
 				}
 			});
 		}
