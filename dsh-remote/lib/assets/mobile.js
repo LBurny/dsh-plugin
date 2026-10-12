@@ -572,3 +572,93 @@
     /* 静默：增强失败不影响页面 */
   }
 })()
+
+/**
+ * 设置页顶部标签条：一行放不下就按比例缩到刚好一行居中。
+ *
+ * 四个标签（通用设置/模型/内置插件/Agent 预设）在 13px、内边距 8px 下固有宽度实测
+ * 338 布局 px。手机 390px、页面 zoom 为 1 时可用宽度 374px，只余 36px；而 zoom 是
+ * **桌面端设的倍率**，手机页面照样继承——用户机器上 dsh-zoom.json 的 level 是 1.14，
+ * 390px 手机于是只剩 326px 可用，差 12px，四个标签折成"三个 + 一个居中"两行，
+ * 就是"设置里上面几个选项怎么换行了"。
+ *
+ * 这个余量不是一个常数能表达的：机型宽度（390/393/360/320）、zoom（dsh-zoom 每步 2%）、
+ * 上游将来多一个设置分区，都会把它吃掉。所以这里量：固宽 > 可用宽时给导航条打
+ * data-dshmobile-tabfit（mobile.css 于是把标签条改成 nowrap 并按 scale 整体缩小）。
+ * 下限 0.8：布局宽度低于 270px（约 1.36 倍 zoom 的 390 手机、1.18 倍的 360 小屏，
+ * 或 320 屏配 1.14）就撤掉属性，交给 mobile.css 里那条居中折行兜底——两行，但字仍是
+ * 原大小（放这么小来换一行，等于把用户调大 zoom 的意图抵掉了）。
+ *
+ * 只碰视觉：属性打在导航条上，React 不管它；标签条重挂时属性随节点消失，观察器补回。
+ * 量宽用 offsetWidth/clientWidth（布局 px）而不是 getBoundingClientRect：页面 zoom 下
+ * rect 是设备 px，混着用会算错。可用宽度盯导航条自己的宽度（zoom 变了窗口 resize
+ * 不一定来，dsh-zoom 随时可以改 <html> 的 zoom）。
+ */
+;(() => {
+  try {
+    const FIT_ATTR = 'data-dshmobile-tabfit'
+    const SCALE_VAR = '--dshmobile-tab-scale'
+    const FLOOR = 0.8
+    /** 导航条 = 设置面板的直接子节点里类名以 _nav 收尾的那个（_navList/_navCell 在更深一层）。 */
+    const navOf = (panel) => {
+      for (const child of panel.children) {
+        if (typeof child.className === 'string' && /(^|\s)\S*_nav(\s|$)/.test(child.className)) return child
+      }
+      return null
+    }
+    let watched = null
+    let observer = null
+    const fit = () => {
+      const panel = document.querySelector('[role="dialog"][class*="_panel"]')
+      const nav = panel === null ? null : navOf(panel)
+      const list = nav === null ? null : nav.querySelector('[class*="_navList"]')
+      if (list === null) return
+      if (nav !== watched) {
+        watched = nav
+        observer?.disconnect()
+        observer = null
+        try {
+          observer = new ResizeObserver(queue)
+          observer.observe(nav)
+        } catch {
+          /* 没有 ResizeObserver 就只跟着文档变动量，zoom/resize 时要等下一次 DOM 变动 */
+        }
+      }
+      let need = 0
+      for (const cell of list.children) need += cell.offsetWidth
+      // 可用宽度取导航条的内容盒，不取标签列表自身的 clientWidth：列表是 flex 项，
+      // nowrap 之后它的盒子会被内容撑到固宽，"缩一下→量着又刚好→复原"就这么来回翻。
+      // 导航条的宽度只由面板与 zoom 决定，量它是稳定的。
+      const pad = getComputedStyle(nav)
+      const avail =
+        nav.clientWidth - (parseFloat(pad.paddingLeft) || 0) - (parseFloat(pad.paddingRight) || 0)
+      const scale = need > 0 && avail > 0 ? avail / need : 1
+      if (need > avail && scale >= FLOOR) {
+        // 缩一点就能一行放下：整条按比例缩，字视觉上小 3~15%，看不出接缝。
+        nav.style.setProperty(SCALE_VAR, scale.toFixed(4))
+        nav.setAttribute(FIT_ATTR, '')
+      } else {
+        nav.removeAttribute(FIT_ATTR)
+        nav.style.removeProperty(SCALE_VAR)
+      }
+    }
+    // 观察器盯整篇文档（面板开关都走这里），量宽每帧最多一次，别在流式渲染里反复强制重排。
+    let queued = false
+    function queue() {
+      if (queued) return
+      queued = true
+      requestAnimationFrame(() => {
+        queued = false
+        try {
+          fit()
+        } catch {
+          /* 静默：量宽失败就保持未增强的样子 */
+        }
+      })
+    }
+    queue()
+    new MutationObserver(queue).observe(document.documentElement, { childList: true, subtree: true })
+  } catch {
+    /* 静默：增强失败不影响页面 */
+  }
+})()

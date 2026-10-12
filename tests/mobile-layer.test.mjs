@@ -67,6 +67,19 @@ function element(tag, className = "", text = "") {
 			node.parent.children.splice(position === "afterend" ? at + 1 : at, 0, inserted);
 			inserted.parent = node.parent;
 			return inserted;
+		},
+		/** The tab-strip fit writes its factor here (`style.setProperty`). */
+		style: {
+			props: {},
+			setProperty(key, value) {
+				this.props[key] = String(value);
+			},
+			getPropertyValue(key) {
+				return this.props[key] ?? "";
+			},
+			removeProperty(key) {
+				delete this.props[key];
+			}
 		}
 	};
 	return node;
@@ -154,6 +167,16 @@ function run(sheet) {
 
 			disconnect() {}
 		},
+		// The tab-strip fit measures the nav's content box and writes its factor before the
+		// next frame; a synchronous frame callback runs the whole thing inside `run`.
+		getComputedStyle: (node) => ({
+			paddingLeft: `${node.padding ?? 8}px`,
+			paddingRight: `${node.padding ?? 8}px`
+		}),
+		requestAnimationFrame: (callback) => {
+			callback();
+			return 0;
+		},
 		window: {},
 		setTimeout,
 		clearTimeout
@@ -161,6 +184,45 @@ function run(sheet) {
 	vm.createContext(sandbox);
 	vm.runInContext(source, sandbox, { filename: "mobile.js" });
 	return sandbox;
+}
+
+/**
+ * A settings sheet with the top tab strip: panel > nav > navList > four cells. The widths are
+ * the real ones (13px, padding 8px, icon gap 4px: 88/62/88/100 = 338 layout px) and
+ * `navWidth` is what the phone's layout gives the nav (390 at zoom 1, 342 at the owner's
+ * zoom 1.14, 316 on a 360px phone at 1.14).
+ */
+function makeTabbedSheet({ lang = "zh", cells = [88, 62, 88, 100], navWidth = 390, pad = 8, listBox } = {}) {
+	const overlay = element("div", "wCInkW_overlay");
+	const panel = element("div", "wCInkW_panel");
+	const nav = element("div", "wCInkW_nav");
+	const list = element("div", "wCInkW_navList");
+	for (const width of cells) {
+		const cell = element("div", "wCInkW_navCell", "标签");
+		cell.offsetWidth = width;
+		list.append(cell);
+	}
+	// `listBox` emulates the nowrap list being stretched to its content: the fit must not
+	// read this one, or it measures its own effect and flips back to wrapping.
+	list.clientWidth = listBox ?? navWidth - pad * 2;
+	nav.padding = pad;
+	nav.clientWidth = navWidth;
+	nav.append(list);
+	panel.append(nav);
+	overlay.append(panel);
+	const body = element("body", "");
+	body.append(overlay);
+	const document = {
+		documentElement: { lang, hasAttribute: () => false, setAttribute() {} },
+		body,
+		querySelector: (selector) => querySelector(body, selector),
+		querySelectorAll: (selector) => querySelectorAll(body, selector),
+		getElementById: () => undefined,
+		addEventListener() {},
+		removeEventListener() {},
+		createElement: (tag) => element(tag, "")
+	};
+	return { body, overlay, panel, nav, list, document };
 }
 
 
@@ -232,6 +294,61 @@ function run(sheet) {
 		sheet.options.children.length === before && sheet.card.hasAttribute("data-dshmobile-unavailable") === false,
 		"a sheet that loads its providers is left completely alone",
 		String(sheet.options.children.length)
+	);
+}
+
+/* ------------------------------------------------ the settings tab strip's one-row fit */
+
+{
+	// 390px phone at the owner's zoom 1.14: the four labels need 338 layout px and the nav has
+	// 342 - 16 = 326, so upstream's centred wrap used to fire and show "three tabs + one
+	// centred underneath". The strip fits by itself once shrunk a hair.
+	const sheet = makeTabbedSheet({ navWidth: 342 });
+	run(sheet);
+	const scale = Number(sheet.nav.style.getPropertyValue("--dshmobile-tab-scale"));
+	check(
+		sheet.nav.hasAttribute("data-dshmobile-tabfit") && Math.abs(scale - 326 / 338) < 0.001,
+		"a strip 12px too wide is shrunk to one row instead of wrapping",
+		`fit=${sheet.nav.hasAttribute("data-dshmobile-tabfit")} scale=${scale.toFixed(4)}`
+	);
+}
+
+{
+	// Same sheet, but the list box has already been stretched to its content by `nowrap`.
+	// Measuring that box would read 338 of 338 and undo the fit on the next mutation, so the
+	// factor must come from the nav's own content box.
+	const sheet = makeTabbedSheet({ navWidth: 342, listBox: 338 });
+	run(sheet);
+	const scale = Number(sheet.nav.style.getPropertyValue("--dshmobile-tab-scale"));
+	check(
+		sheet.nav.hasAttribute("data-dshmobile-tabfit") && Math.abs(scale - 326 / 338) < 0.001,
+		"the factor comes from the nav's content box, not from the list the fit itself stretched",
+		`scale=${scale.toFixed(4)}`
+	);
+}
+
+{
+	// 390px at zoom 1: 338 of 374 fits already, and the strip must be left exactly as it was.
+	const wide = makeTabbedSheet({ navWidth: 390 });
+	run(wide);
+	check(
+		wide.nav.hasAttribute("data-dshmobile-tabfit") === false &&
+			wide.nav.style.getPropertyValue("--dshmobile-tab-scale") === "",
+		"a strip that already fits one row keeps its untouched metrics",
+		`attrs=${JSON.stringify(wide.nav.attrs)}`
+	);
+}
+
+{
+	// A 320px phone at zoom 1.36 leaves 219px: shrinking to that would undo the zoom the
+	// reader chose, so the CSS wrap stays in charge (two centred rows, original type size).
+	const tiny = makeTabbedSheet({ navWidth: 235 });
+	run(tiny);
+	check(
+		tiny.nav.hasAttribute("data-dshmobile-tabfit") === false &&
+			tiny.nav.style.getPropertyValue("--dshmobile-tab-scale") === "",
+		"a layout too narrow to shave leaves the centred wrap in charge",
+		`scale=${tiny.nav.style.getPropertyValue("--dshmobile-tab-scale")}`
 	);
 }
 

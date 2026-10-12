@@ -127,11 +127,18 @@
   /*
    * 标签条：手机实测（390px 真机页面）四个标签 104/76/104/117px 合计 401px，
    * 超过 390px 视口——原来左对齐一排，最后一个「Agent 预设」被屏幕右缘切掉，
-   * 看着既不居中也不整齐。这里让它居中、放不下时换行：标签永远整枚可见，
-   * 既不会被切，也不需要横滑去够（横滑条在手机上几乎没人会发现）。字号 13px、
-   * 内边距 8px、零间距再加图标间隙收窄后实测 338px < 374px 可用宽度，一行居中
-   * 且留 30px 余量（Chromium 与 iOS 字形宽度有 1~2px 差，卡在临界值会突然折行）；
-   * 上游将来多出几个设置分区就自动折成居中两行，不截断、不溢出。
+   * 看着既不居中也不整齐。这里让它居中：字号 13px、内边距 8px、零间距再加图标
+   * 间隙收窄后实测 338px，标签永远整枚可见，既不被切，也不需要横滑去够
+   * （横滑条在手机上几乎没人会发现）。
+   *
+   * 338px 只在页面 zoom 为 1 时够用（390px 手机可用 374px，余 36px）。zoom 是桌面端
+   * 设的倍率而手机页面照抄：用户机器上 dsh-zoom.json 的 level 是 1.14，390px 手机的
+   * 可用宽度掉到 326px，差 12px，四个标签折成"三个 + 一个居中"两行——用户报的
+   * "设置里上面几个选项怎么换行了"就是这个。余量不是一个常数：机型宽度（390/393/
+   * 360/320）、zoom（dsh-zoom 每步 2%）、上游将来多一个设置分区，都会把它吃掉。
+   * 所以 mobile.js 那段量宽：缩一点就放得下时把整条按比例缩到一行居中（见下）；
+   * 下面这条居中折行只留给连缩都救不了的极窄布局（约 1.3 倍 zoom 的手机），
+   * 那时字仍是原大小、两行居中，不截断、不溢出。
    *
    * 注意选择器：`[class*="_nav"]` 会同时命中 `_navList`（本地名是 wCInkW_navList），
    * 拿它当"导航条"用会给标签列表也加上内边距，标签就在条内贴下沿（实测多出 10px、
@@ -162,6 +169,27 @@
     padding: 6px 8px;
     font-size: 13px;
     white-space: nowrap;
+  }
+  /*
+   * 量宽后的一行形态：mobile.js 量到"固宽 > 可用宽、但缩一点就放得下"时给导航条打上
+   * data-dshmobile-tabfit 并把 scale(可用/固宽) 写进 --dshmobile-tab-scale。
+   * 用 transform 而不是 zoom：transform 不动布局，量出来的固宽/可用宽不受上一次缩放
+   * 影响，观察器反复触发也不会来回震荡。缩放后标签条的**布局盒**仍是整条宽，里面
+   * nowrap 的标签左右各溢出几像素，所以列表要 overflow: visible、导航条要 overflow: hidden
+   * ——不裁不滚：缩过的可视内容（≤ 可用宽 + 8px 内边距）本来就落在导航条的内边距盒里。
+   */
+  [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) > [class*="_nav"][data-dshmobile-tabfit] {
+    overflow-x: hidden;
+  }
+  [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) > [class*="_nav"][data-dshmobile-tabfit]
+    [class*="_navList"] {
+    flex-wrap: nowrap;
+    /* nowrap 之下标签的 min-content 就是固宽 338，不压住它整条会被撑到 338 宽、比导航条
+       内容盒宽几像素，居中就偏了；压住它才与 base 形态一致地居中。 */
+    min-width: 0;
+    overflow: visible;
+    transform: scale(var(--dshmobile-tab-scale, 1));
+    transform-origin: center center;
   }
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) > [class*="_content"] {
     flex: 1 1 auto;
