@@ -165,8 +165,8 @@ with no build step, so `lib/` is both source and published artifact and `main` p
   written to `<DSH_HOME>/dsh-features.json` behind `POST /dsh-features/api/order` with `localStorage` kept
   only as the first-frame cache. dsh's own client store has the same trap.
 
-**The hub contract** (two DOM-level facts, both directions optional: no package may assume the other
-exists)
+**The hub contract** (three DOM-level facts, and each side works without the other: no package may
+assume it exists)
 
 - A feature publishes `window.__dshFeatures[key] = { title, icon?, order, mount(host) }` (`icon` is a
   16×16 stroke SVG path for the nav row) and declares `dsh.ui.feature` in its package.json (`key`,
@@ -174,6 +174,11 @@ exists)
   `tests/hub-contract.test.mjs` fails if they drift.
 - `mount(host)` is called again on every visit and the hub drops the DOM when you leave the page, so it
   must rebuild from scratch (see `mountInline`).
+- The hub's stage (`.hub-stage`) carries `contain: layout`, which makes it the containing block for a
+  mounted panel's `position: fixed` overlay. That is what puts a panel's toast over the panel's own
+  column: `left: 50%` of the window is half a sidebar off, and in a floating panel the same rule
+  resolves against the viewport, which is what standalone mode wants. Move to a real `transform` or drop
+  the containment and every banner in the hub shifts sideways; `tests/hub-contract.test.mjs` pins it.
 - The hub page is a list of rows plus a drill-down, modelled on dsh's own Plugins page, deliberately not
   a left-hand nav rail (that reads as a second level of dsh's own sidebar).
 - The page head owns the only refresh control. A panel hides its own while embedded (`inHub ? undefined :
@@ -341,9 +346,15 @@ this repository unless `--allow-foreign-home` is passed; never point it at `~/.d
 The **installed app** has its own loop: `node tools/hotreload/hotreload.mjs up` mirrors this working tree
 into `<home>/profiles/<profile>/node_modules/dsh-*` (the app installs a published commit, so editing here
 changes nothing it can see), writes an `hmr` module-root block into that profile's patch and watches. A
-`lib/client.js` edit is then live by itself: `dsh-client-hmr`, mounted by `dsh-web-app`, stats every client
-bundle every 500ms and pushes a `rebuilt` frame the browser applies in place, so only the panel that was
-open is dropped. A **host half** cannot hot reload in the app: `dsh-hmr` refuses to construct without
+`lib/client.js` edit to a **client plugin** (the hub) is then live by itself: `dsh-client-hmr`, mounted by
+`dsh-web-app`, stats each client-module-graph row's bundle every 500ms and pushes a `rebuilt` frame the
+browser applies in place, so only the page that was open is dropped. A **feature panel** is not in that
+graph at all: its `client.js`/`client.css` are injected into the document as a plain `<script>`/`<link>`
+by the host half, so the browser keeps them until the document is loaded again, and editing one produces
+no frame (measured on the app: 2 frames for an edit of `dsh-features/lib/client.js` and its revert, none
+for `dsh-mcp`, which never appears in the graph). A panel change therefore needs `restart` (or the reader
+reloading the app) to be seen, and the tool will not restart for it. A **host half** cannot hot reload in
+the app: `dsh-hmr` refuses to construct without
 `--expose-internals` in `process.execArgv`, and even with it (the tool's `restart` passes it) a module write
 reloads nothing there, so the tool restarts the app (about four seconds, debounced) on `lib/*.js` edits.
 `status` reports drift, `sync` mirrors once, `down` stops watching and lifts the block out again. The same

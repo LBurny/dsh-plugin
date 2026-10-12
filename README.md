@@ -11,12 +11,12 @@ Eight packages. Pick the ones you want.
 | Package | What it does | Command |
 | ------- | ------------ | ------- |
 | `dsh-features` | A **Features** entry in the sidebar, between Plugins and Scheduled tasks. It lists every installed feature plugin as a row like dsh's own Plugins page, opens one on click, and reorders rows by drag. With it installed, the floating corner buttons move onto that page | |
-| `dsh-skills` | Manage skills: enable, disable, delete, import, local ZIP archives included | `/skills` |
-| `dsh-mcp` | Manage the MCP servers of the active profile: add, edit, delete, enable, import | `/mcp` |
+| `dsh-skills` | Manage skills: enable, disable, delete, import, local ZIP archives included | |
+| `dsh-mcp` | Manage the MCP servers of the active profile: add, edit, delete, enable, import | |
 | `dsh-doctor` | A debugging panel for plugins: the harness's own log records read in-process, every plugin row with its activation state, plus the log files that exist | `/doctor` |
-| `dsh-zoom` | Page zoom with shortcuts you can rebind | `/zoom` |
-| `dsh-notify` | Task reminders: in-page popup, bundled sounds, browser notification | `/notify` |
-| `dsh-remote` | dsh on your phone: an authenticated reverse proxy with a QR link, over LAN, a Tailscale tailnet or a Cloudflare tunnel, plus a mobile rewrite of the page and a project browser | `/remote` |
+| `dsh-zoom` | Page zoom with shortcuts you can rebind | |
+| `dsh-notify` | Task reminders: in-page popup, bundled sounds, browser notification | |
+| `dsh-remote` | dsh on your phone: an authenticated reverse proxy with a QR link, over LAN, a Tailscale tailnet or a Cloudflare tunnel, plus a mobile rewrite of the page and a project browser | |
 | `dsh-init` | Write or update the workspace's `AGENTS.md`, the instruction file dsh loads into every session there | `/init` |
 
 Two of them sit a little apart from the rest.

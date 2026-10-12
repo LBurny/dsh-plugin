@@ -139,6 +139,20 @@ for (const pkg of FEATURES) {
 	check(style.includes("-webkit-line-clamp: 2;") && style.includes("overflow-wrap: break-word;"), `${pkg}: long subtitles clamp to two lines at word boundaries`, "");
 	check(!style.includes("overflow-wrap: anywhere") && !/\.row-(?:name|sub)\s*\{[^}]*word-break: break-all/u.test(style), `${pkg}: no mid-word breaking in row text`, "");
 	check(style.includes("width: 36px;") && style.includes("translateX(16px)"), `${pkg}: the switch matches the official 36px control`, "");
+	// A panel's toast is `position: fixed`, and inside the hub the panel is a page
+	// rather than a card floating over the corner: the offset that clears the launcher
+	// dock put the banner in the empty space under the content, with the dock's height
+	// still subtracted although the hub hides that dock. It hangs off the top of the
+	// box it renders in instead, which the hub's stage bounds, so it lands over the
+	// panel's own column, where dsh's own transient banner sits.
+	const toastRule = style.slice(style.indexOf(".toasts {"), style.indexOf("}", style.indexOf(".toasts {")));
+	check(!toastRule.includes("--dsh-launcher-stack"), `${pkg}: the toast does not reserve the launcher dock`, toastRule.replace(/\s+/gu, " ").trim());
+	check(/top:\s*\d+px;/u.test(toastRule) && !/bottom:/u.test(toastRule), `${pkg}: the toast hangs off the top, not the bottom of the window`, "");
+	// An empty field's example wears the panel's secondary label colour. dsh's own
+	// placeholder token is fainter, but it is drawn on a darker surface there: measured
+	// against our input surface it read at 1.3 to 1, which the reader reports as an
+	// empty box. It must also not be the browser's default, loud enough to read as a value.
+	check(/::placeholder\s*\{[^}]*color: var\(--dsh-tertiary\);/u.test(style), `${pkg}: a placeholder wears the panel's secondary label colour`, "");
 	// A slider is measured against the row it sits in rather than drawn by us, so its rule
 	// has to clear the box chrome and the padding every other input takes: 12px of padding
 	// puts the thumb's travel inside it, and at 100% the thumb then stops 12px short of the
@@ -235,6 +249,14 @@ for (const pkg of FEATURES) {
 		rowBlock.replace(/\s+/gu, " ").slice(0, 96)
 	);
 }
+// An embedded panel's fixed toast resolves against this box, which is what puts the
+// banner over the panel's own column: `left: 50%` of the window is half a sidebar off,
+// and the panel's root is not a containing block under the hub's own rules.
+const stageBlock = client.slice(
+	client.indexOf("#dsh-features-root .hub-stage {"),
+	client.indexOf("}", client.indexOf("#dsh-features-root .hub-stage {"))
+);
+check(/contain: layout;/u.test(stageBlock), "dsh-features: the stage is the containing block for a panel's fixed toast", stageBlock.replace(/\s+/gu, " ").trim());
 // ...and the head's controls, the page's own content and an embedded panel's
 // content must all be on ONE gutter, or the back/refresh controls of a sub-page
 // stop lining up with the buttons and rows underneath them.

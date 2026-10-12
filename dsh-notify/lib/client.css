@@ -187,6 +187,15 @@
 	width: 100%;
 }
 
+/* An empty field shows its example in the panel's secondary text colour, the one a
+   row's subtitle and a note use. dsh's own placeholder token is fainter, but it is drawn
+   on a darker surface there: measured against our input surface it read at 1.3 to 1,
+   which the reader reports as an empty box. */
+#dsh-notify-root input::placeholder,
+#dsh-notify-root textarea::placeholder {
+	color: var(--dsh-tertiary);
+}
+
 #dsh-notify-root input:focus,
 #dsh-notify-root select:focus,
 #dsh-notify-root textarea:focus {
@@ -388,16 +397,23 @@
 	background: var(--dsw-alias-label-primary-foreground, #ffffff);
 }
 
+/* Top-centre of whatever box the panel is rendered in: the window for a floating
+   panel, the 功能管理 page's stage for an embedded one. That stage is the toast's
+   containing block, so the banner lands over the panel's own column; and the width
+   is a percentage of that box rather than 100vw, which is the viewport in both hosts
+   and therefore wrong in the second. Nothing reserves --dsh-launcher-stack here: the
+   dock is hidden inside the hub, so subtracting its height only moved the banner
+   further into empty space. */
 #dsh-notify-root .toasts {
 	position: fixed;
 	left: 50%;
 	transform: translateX(-50%);
-	bottom: calc(26px + var(--dsh-launcher-stack, 46px));
+	top: 40px;
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
 	pointer-events: none;
-	width: min(420px, calc(100vw - 40px));
+	width: min(420px, calc(100% - 40px));
 	z-index: 2147483002;
 }
 

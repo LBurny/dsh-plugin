@@ -28,7 +28,7 @@ import {
 } from "./skills.js";
 
 const name = "skills";
-const inject = ["commands"];
+const inject = [];
 /** Shown in the panel and /api/skills; bump alongside package.json. */
 const VERSION = "0.1.0";
 
@@ -83,51 +83,6 @@ function createState(ctx) {
 			ctx.logger.info(`[dsh-skills] ${message}`);
 		}
 	};
-}
-
-/** Render skills as the one-line-per-item text a command returns. */
-function renderRows(rows, empty) {
-	if (rows.length === 0) return empty;
-	return rows
-		.map((row) => `${row.enabled ? "[x]" : "[ ]"} ${row.name}${row.description ? ` - ${row.description}` : ""}`)
-		.join("\n");
-}
-
-/**
- * Wrap a command handler so a failure (most often a service this profile does
- * not mount) becomes an error result instead of an exception. A management
- * command should report why it could not run, not break the invocation.
- */
-function command(fn) {
-	return async (invocation) => {
-		try {
-			return await fn(invocation);
-		} catch (error) {
-			return { kind: "error", text: `dsh-skills: ${String(error?.message ?? error)}` };
-		}
-	};
-}
-
-/**
- * Register `/skills`. Guarded: command names are first-come, first-served, so a
- * clash with another plugin must degrade to a warning — an exception here would
- * take the whole plugin tree (i.e. dsh itself) down during `apply`.
- */
-function registerCommands(ctx, state) {
-	try {
-		ctx.commands.register({
-			name: "skills",
-			description: "List skills and whether each is enabled (manage them in the dsh-skills panel)",
-			handler: command(async () => {
-				const skills = await listSkills(state.layout());
-				const enabled = skills.filter((skill) => skill.enabled).length;
-				return { kind: "success", text: `${skills.length} skill(s), ${enabled} enabled\n${renderRows(skills, "(no skills found)")}` };
-			})
-		});
-	} catch (error) {
-		const reason = String(error?.message ?? error);
-		ctx.logger.warn(`[dsh-skills] command /skills not registered: ${reason}`);
-	}
 }
 
 /** Apply a skill management action coming from the panel. */
@@ -226,11 +181,10 @@ function mount(ready, state) {
 
 /**
  * Plugin entry point.
- * @param ctx - plugin context (declares `commands`).
+ * @param ctx - plugin context.
  */
 function apply(ctx) {
 	const state = createState(ctx);
-	registerCommands(ctx, state);
 	ctx.inject(["webServer", "configEditor"], (ready) => {
 		mount(ready, state);
 	});

@@ -39,7 +39,6 @@ Restart dsh afterwards — plugins have no HMR.
   copied as real files rather than re-linked. The ZIP reader only reads the central directory,
   supports stored and deflate entries, and enforces entry/size caps plus traversal rejection; a pack
   may hold one skill (`SKILL.md` at the archive root) or many (`<dir>/SKILL.md`).
-- **`/skills`** prints the same list as text, without the browser.
 
 A skill's toggle takes effect through dsh's watcher, so no restart is needed. The panel appears in
 the corner of the dsh web UI, next to any other dsh-plugin packages you have installed.

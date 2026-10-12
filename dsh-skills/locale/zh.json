@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "技能管理",
-    "description": "在 dsh 本体里管理技能：列表、启停、删除，以及从其它 agent 工具目录或本地 ZIP 压缩包导入。自带面板与 /skills 命令。"
+    "description": "在 dsh 本体里管理技能：列表、启停、删除，以及从其它 agent 工具目录或本地 ZIP 压缩包导入。自带面板。"
   }
 }

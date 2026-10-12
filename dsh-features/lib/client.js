@@ -289,11 +289,16 @@ window.__ModuleLoader__.load({
 
 /* ----------------------------------------------------------------- the list */
 
+/* The stage is the nearest containing block for a mounted panel's fixed toast, so
+   the banner a panel raises lands over the panel's own column instead of the
+   window's centre, which the sidebar pushes half a screen off. Layout containment
+   is what establishes it, and it does not clip: a panel's own overflow still shows. */
 #dsh-features-root .hub-stage {
 	flex: 1;
 	min-width: 0;
 	min-height: 0;
 	overflow: auto;
+	contain: layout;
 }
 
 #dsh-features-root .hub-stage[data-view="list"] {
@@ -638,6 +643,26 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * Whether two merged feature lists describe the same thing. A rescan that changed
+		 * nothing must keep the previous array, because the panel-mount effect is keyed on
+		 * that array's identity: a needless new one re-mounts the open panel, discarding the
+		 * reader's input and scroll position and re-running the panel's own fetches.
+		 * @param left - the list held now.
+		 * @param right - the freshly merged list.
+		 * @returns true when the two are equivalent.
+		 */
+		function sameFeatures(left, right) {
+			if (left === right) return true;
+			if (!Array.isArray(left) || left.length !== right.length) return false;
+			for (let index = 0; index < left.length; index++) {
+				const a = left[index];
+				const b = right[index];
+				if (a.key !== b.key || a.title !== b.title || a.summary !== b.summary || a.order !== b.order || a.icon !== b.icon || a.package !== b.package || a.mount !== b.mount) return false;
+			}
+			return true;
+		}
+
+		/**
 		 * Read the feature list, from the host inventory plus the live registry.
 		 * @returns `[snapshot, reload]`.
 		 */
@@ -664,8 +689,18 @@ window.__ModuleLoader__.load({
 					} catch {
 						/* the page works from the registry alone */
 					}
-					if (live) setSnapshot({ loading: false, features: mergeFeatures(globalThis.__dshFeatures, inventory), navOrder, updates });
-				};
+				if (!live) return;
+				const features = mergeFeatures(globalThis.__dshFeatures, inventory);
+				setSnapshot((previous) => ({
+					loading: false,
+					// Keep the previous array when the feature set did not change. The panel-mount
+					// effect keys off this array's identity, so handing it a fresh one every rescan
+					// tore down and re-mounted an open panel mid-use and threw away its state.
+					features: sameFeatures(previous.features, features) ? previous.features : features,
+					navOrder,
+					updates
+				}));
+			};
 				void scan();
 				// A feature's browser half lands after the shell boots; one late rescan
 				// covers a page opened in the same second as the boot.

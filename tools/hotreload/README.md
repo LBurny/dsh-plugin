@@ -20,12 +20,21 @@ Flags: `--home <dir>` (default `$DSH_HOME` or `~/.dsh`), `--profile <name>` (def
 Measured 2026-10-11 against the app's own runtime (dsh 0.2.0-rc.2; the app runs its dsh in a
 `dsh-desktop-host` child process that owns the web port, 19387 by default).
 
-**A `client.js` (or `client.css`) edit is live by itself.** `@deepseek-ai/dsh-web-app` mounts
-`@deepseek-ai/dsh-client-hmr`, which every 500ms stats each graph row's bundle, recomputes its rev and
-pushes a `rebuilt` frame over `/plugins/events`; the browser applies the new bundle in place. The
-panel that was open is dropped when the module is re-registered, so reopen it. Nothing else is needed:
-no restart, no page reload. Verified on the running app by watching that SSE channel while the tool
-mirrored an edited file into the install (two `rebuilt` frames, one per edit and one for the revert).
+**A `client.js` (or `client.css`) edit to a *client plugin* is live by itself.** `@deepseek-ai/dsh-web-app`
+mounts `@deepseek-ai/dsh-client-hmr`, which every 500ms stats each graph row's bundle, recomputes its rev
+and pushes a `rebuilt` frame over `/plugins/events`; the browser applies the new bundle in place. The page
+that was open is dropped when the module is re-registered, so reopen it. Nothing else is needed: no
+restart, no page reload. Verified on the running app by watching that SSE channel while the tool mirrored
+an edited file into the install (two `rebuilt` frames, one per edit and one for the revert).
+
+**An injected panel script is not.** Only `dsh.client` plugins are rows in that graph; a feature panel's
+`client.js`/`client.css` reach the page as a plain `<script>`/`<link>` from the host half's
+`webserver/index-inject`, and its asset is served `cache-control: no-store`, so what a panel edit waits for
+is not a cache but a **document load**: the browser keeps the script it already ran. Measured on the app
+with both watch experiments in one session: an edit of `dsh-features/lib/client.js` and its revert came back
+as 2 `rebuilt` frames, while `dsh-mcp` produced none and never appears in the graph dump at all. This tool
+still logs those files as the category that does not restart the app, so after a panel edit run
+`restart`, or the reader sees nothing until they reload the window themselves.
 
 **A host-half (`lib/index.js`, `lib/updates.js`, `cordis.patch.yml`) edit restarts the app.**
 `@deepseek-ai/dsh-base` mounts `@deepseek-ai/dsh-hmr` with `root: []` ("Profile configuration reloads

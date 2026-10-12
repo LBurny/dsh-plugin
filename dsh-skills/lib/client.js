@@ -50,6 +50,8 @@
 		conflictSkip: ["Skip", "跳过"],
 		conflictOverwrite: ["Overwrite", "覆盖"],
 		import: ["Import", "导入"],
+		imported: ["Imported", "已导入"],
+		skipped: ["skipped", "跳过"],
 		notAvailable: ["not found", "未找到"],
 		alreadyInstalled: ["⚠ already installed", "⚠ 已安装"],
 		zipHint: ["pick the skills to import; folders containing SKILL.md are detected automatically", "勾选要导入的技能；含 SKILL.md 的目录会被自动识别"],
@@ -285,13 +287,16 @@
 					class: "primary",
 					text: T("import"),
 					onclick: async () => {
-						const result = await postJson(`${API}/skills`, { action: "import", source: sourceSelect.value, names: [...selected], onConflict: policy.value });
-						if (result.ok !== true) {
-							toast(T("failed"), result.error);
-							return;
+						try {
+							const result = await postJson(`${API}/skills`, { action: "import", source: sourceSelect.value, names: [...selected], onConflict: policy.value });
+							if (result.ok !== true) throw new Error(result.error ?? "the host refused the import");
+							toast(T("import"), `${T("imported")} ${result.imported.length} · ${T("skipped")} ${result.skipped.length}`);
+							close();
+						} catch (error) {
+							// A host that is restarting refuses the connection instead of answering;
+							// without this the import button appears to do nothing at all.
+							toast(T("failed"), String(error?.message ?? error));
 						}
-						toast(T("import"), `${result.imported.length} → ${result.skipped.length} ${T("conflictSkip")}`);
-						close();
 					}
 				}),
 				el("button", { text: T("cancel"), onclick: close }))));
@@ -350,7 +355,7 @@
 							return;
 						}
 						const failed = (result.errors ?? []).length;
-						toast(T("import"), `${result.imported.length} → ${result.skipped.length} ${T("conflictSkip")}${failed > 0 ? ` · ${failed} ${T("failed")}` : ""}`);
+						toast(T("import"), `${T("imported")} ${result.imported.length} · ${T("skipped")} ${result.skipped.length}${failed > 0 ? ` · ${failed} ${T("failed")}` : ""}`);
 						close();
 					}
 				}),

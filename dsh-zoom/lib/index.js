@@ -17,7 +17,7 @@ import { resolveLayout } from "./layout.js";
 import { loadConfig, mergeDeep, normalizeConfig, saveConfig } from "./settings.js";
 
 const name = "zoom";
-const inject = ["commands"];
+const inject = [];
 /** Shown in the panel and /api/settings; bump alongside package.json. */
 const VERSION = "0.1.0";
 
@@ -68,62 +68,6 @@ function createState(ctx) {
 			ctx.logger.info(`[dsh-zoom] ${message}`);
 		}
 	};
-}
-
-/** Describe one shortcut for a command's text output. */
-function describeShortcut(shortcut) {
-	const parts = [];
-	if (shortcut.ctrl) parts.push("Ctrl");
-	if (shortcut.shift) parts.push("Shift");
-	if (shortcut.alt) parts.push("Alt");
-	parts.push(shortcut.key === "" ? shortcut.code : shortcut.key);
-	return parts.join("+");
-}
-
-/**
- * Wrap a command handler so a failure (most often a service this profile does
- * not mount) becomes an error result instead of an exception.
- */
-function command(fn) {
-	return async (invocation) => {
-		try {
-			return await fn(invocation);
-		} catch (error) {
-			return { kind: "error", text: `dsh-zoom: ${String(error?.message ?? error)}` };
-		}
-	};
-}
-
-/**
- * Register `/zoom`. Guarded: command names are first-come, first-served, so a
- * clash with another plugin must degrade to a warning — an exception here would
- * take the whole plugin tree (i.e. dsh itself) down during `apply`.
- */
-function registerCommands(ctx, state) {
-	try {
-		ctx.commands.register({
-			name: "zoom",
-			description: "Show the current page zoom level and shortcuts",
-			handler: command(async () => {
-				const config = await state.config();
-				return {
-					kind: "success",
-					text: [
-						`page zoom ${Math.round(config.level * 100)}% (step ${Math.round(config.step * 100)}%, range ${Math.round(config.min * 100)}–${Math.round(config.max * 100)}%)`,
-						// The browser half caps this at what the window can render: zooming the
-						// whole app shrinks its layout viewport, and past a point the harness's own
-						// bottom block would be pushed out of reach.
-						"above that the window height caps it, so the harness stays reachable",
-						`zoom in: ${describeShortcut(config.in)}   zoom out: ${describeShortcut(config.out)}`,
-						`settings: ${state.layout().configPath}`
-					].join("\n")
-				};
-			})
-		});
-	} catch (error) {
-		const reason = String(error?.message ?? error);
-		ctx.logger.warn(`[dsh-zoom] command /zoom not registered: ${reason}`);
-	}
 }
 
 /**
@@ -179,11 +123,10 @@ function mount(ready, state) {
 
 /**
  * Plugin entry point.
- * @param ctx - plugin context (declares `commands`).
+ * @param ctx - plugin context.
  */
 function apply(ctx) {
 	const state = createState(ctx);
-	registerCommands(ctx, state);
 	ctx.inject(["webServer", "configEditor"], (ready) => {
 		mount(ready, state);
 	});

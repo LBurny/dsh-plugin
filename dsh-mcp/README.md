@@ -38,7 +38,6 @@ hot-reloads the patch layer.
 - **Delete** a server row.
 - **Import** from other agent tool configs found under `$HOME` (Claude-style `.mcp.json`,
   Codex-style TOML, …); servers whose transport this plugin cannot express are shown greyed out.
-- **`/mcp`** prints the same list as text, without the browser.
 
 ## Routes
 

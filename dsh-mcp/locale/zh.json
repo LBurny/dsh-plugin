@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "MCP 服务管理",
-    "description": "在 dsh 本体里管理 MCP 服务：增删改、启停、从其它 agent 工具配置导入，直接编辑当前 profile 的 cordis.patch.yml（保留注释与 !!js 标签）。自带面板与 /mcp 命令。"
+    "description": "在 dsh 本体里管理 MCP 服务：增删改、启停、从其它 agent 工具配置导入，直接编辑当前 profile 的 cordis.patch.yml（保留注释与 !!js 标签）。自带面板。"
   }
 }

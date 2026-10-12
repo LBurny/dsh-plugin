@@ -26,6 +26,8 @@ const read = (path) => readFileSync(join(root, path), "utf8");
 const PANELS = ["dsh-skills", "dsh-mcp", "dsh-doctor", "dsh-zoom", "dsh-notify", "dsh-remote"];
 /** The hub's browser half goes through dsh's client modules, so it injects nothing itself. */
 const HUB = "dsh-features";
+/** The only two packages that still register a command: the diagnostics report and /init. */
+const COMMANDS = ["dsh-doctor", "dsh-init"];
 
 /** Every `dsh-*` package at the root, in name order. */
 const PACKAGES = readdirSync(root, { withFileTypes: true })
@@ -172,9 +174,7 @@ for (const pkg of PACKAGES) {
 
 	// The command, against the runtime's own rules for a definition.
 	const command = registered.commands[0];
-	if (pkg === HUB) {
-		check(registered.commands.length === 0, `${pkg}: registers no command (it is the hub page)`, String(registered.commands.length));
-	} else {
+	if (COMMANDS.includes(pkg)) {
 		check(registered.commands.length === 1, `${pkg}: registers exactly one command`, String(registered.commands.length));
 		check(typeof command?.name === "string" && /^[a-z][a-z0-9_-]*$/u.test(command.name), `${pkg}: the command name is legal`, String(command?.name));
 		check(typeof command?.description === "string" && command.description.length > 0, `${pkg}: the command has a description`, String(command?.description));
@@ -182,6 +182,8 @@ for (const pkg of PACKAGES) {
 		const clash = seenCommands.get(command?.name);
 		check(clash === undefined, `${pkg}: the command name ${String(command?.name)} is not taken by ${String(clash)}`, "");
 		if (clash === undefined) seenCommands.set(command?.name, pkg);
+	} else {
+		check(registered.commands.length === 0, `${pkg}: registers no command`, String(registered.commands.length));
 	}
 
 	if (route !== undefined) {

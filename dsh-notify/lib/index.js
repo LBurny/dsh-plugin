@@ -27,7 +27,7 @@ import { SILENT, SYSTEM_DEFAULT, listSounds, readSound } from "./sounds.js";
 import { loadConfig, mergeDeep, normalizeConfig, saveConfig } from "./settings.js";
 
 const name = "notify";
-const inject = ["commands"];
+const inject = [];
 /** Shown in the panel and /api/settings; bump alongside package.json. */
 const VERSION = "0.1.0";
 
@@ -85,57 +85,6 @@ function createState(ctx) {
 			ctx.logger.info(`[dsh-notify] ${message}`);
 		}
 	};
-}
-
-/**
- * Wrap a command handler so a failure (most often a service this profile does
- * not mount) becomes an error result instead of an exception.
- */
-function command(fn) {
-	return async (invocation) => {
-		try {
-			return await fn(invocation);
-		} catch (error) {
-			return { kind: "error", text: `dsh-notify: ${String(error?.message ?? error)}` };
-		}
-	};
-}
-
-/** One line per reminder kind, for the command's text output. */
-function renderRules(config) {
-	return Object.entries(config)
-		.filter(([, value]) => typeof value === "object" && value !== null && typeof value.enabled === "boolean")
-		.map(([kind, rule]) => `${rule.enabled ? "[x]" : "[ ]"} ${kind}${rule.timing === "always" ? " (always)" : " (background only)"}`)
-		.join("\n");
-}
-
-/**
- * Register `/notify`. Guarded: command names are first-come, first-served, so a
- * clash with another plugin must degrade to a warning — an exception here would
- * take the whole plugin tree (i.e. dsh itself) down during `apply`.
- */
-function registerCommands(ctx, state) {
-	try {
-		ctx.commands.register({
-			name: "notify",
-			description: "Show the reminder rules and whether a stream is connected",
-			handler: command(async () => {
-				const config = await state.config();
-				return {
-					kind: "success",
-					text: [
-						`${state.bus.size()} stream(s) connected, ${state.bus.recent().length} recent reminder(s)`,
-						renderRules(config),
-						`sound=${config.sound} volume=${String(config.volume)} toast=${String(config.toast)} browser=${String(config.browser)}`,
-						`settings: ${state.layout().configPath}`
-					].join("\n")
-				};
-			})
-		});
-	} catch (error) {
-		const reason = String(error?.message ?? error);
-		ctx.logger.warn(`[dsh-notify] command /notify not registered: ${reason}`);
-	}
 }
 
 /**
@@ -348,11 +297,10 @@ function mount(ready, state) {
 
 /**
  * Plugin entry point.
- * @param ctx - plugin context (declares `commands`).
+ * @param ctx - plugin context.
  */
 function apply(ctx) {
 	const state = createState(ctx);
-	registerCommands(ctx, state);
 	ctx.inject(["webServer", "configEditor"], (ready) => {
 		mount(ready, state);
 		mountEventBridge(ready, state);

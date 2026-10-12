@@ -60,11 +60,30 @@
 		conflictSkip: ["Skip", "跳过"],
 		conflictOverwrite: ["Overwrite", "覆盖"],
 		import: ["Import", "导入"],
+		imported: ["Imported", "已导入"],
+		skipped: ["skipped", "跳过"],
 		notAvailable: ["not found", "未找到"],
 		alreadyInstalled: ["⚠ already installed", "⚠ 已安装"],
 		unsupported: ["unsupported transport", "不支持的传输方式"]
 	};
 	const T = (key) => STRINGS[key][ZH ? 1 : 0];
+	/**
+	 * The examples an empty field shows. They are the same in both languages (a command
+	 * line, a URL, a path, the word for the field itself), so they are not in the dictionary
+	 * above; two of them do depend on the machine. Windows starts a `.cmd` shim such as npx
+	 * only through `cmd` (`spawn` of the bare name is ENOENT there, measured), and the path
+	 * separator follows.
+	 */
+	const WINDOWS = /win/iu.test(navigator.platform ?? "");
+	const EXAMPLE = {
+		name: "name",
+		command: WINDOWS ? "cmd /c npx" : "npx",
+		args: "-y\n@name/mcp@latest",
+		env: "HTTPS_PROXY=http://127.0.0.1:7890",
+		cwd: WINDOWS ? "C:/path/to/server" : "/path/to/server",
+		url: "https://example.com/mcp",
+		headers: "Authorization=Bearer <token>"
+	};
 
 	// --------------------------------------------------------------- helpers
 
@@ -253,17 +272,17 @@
 		// Keep advanced keys the form does not own (timeouts, reconnect) by starting
 		// from the existing config and only overwriting the fields below.
 		const current = server?.config ?? {};
-		const name = el("input", { value: current.serverName ?? "" });
+		const name = el("input", { value: current.serverName ?? "", placeholder: EXAMPLE.name });
 		const transport = el("select", {},
 			el("option", { value: "stdio", text: "stdio" }),
 			el("option", { value: "streamable-http", text: "streamable-http" }));
 		transport.value = current.transport === "streamable-http" ? "streamable-http" : "stdio";
-		const command = el("input", { value: current.command ?? "" });
-		const args = el("textarea", { rows: 3, text: (current.args ?? []).join("\n") });
-		const env = el("textarea", { rows: 3, text: pairsToText(current.env) });
-		const cwd = el("input", { value: current.cwd ?? "" });
-		const url = el("input", { value: current.url ?? "" });
-		const headers = el("textarea", { rows: 3, text: pairsToText(current.headers) });
+		const command = el("input", { value: current.command ?? "", placeholder: EXAMPLE.command });
+		const args = el("textarea", { rows: 3, text: (current.args ?? []).join("\n"), placeholder: EXAMPLE.args });
+		const env = el("textarea", { rows: 3, text: pairsToText(current.env), placeholder: EXAMPLE.env });
+		const cwd = el("input", { value: current.cwd ?? "", placeholder: EXAMPLE.cwd });
+		const url = el("input", { value: current.url ?? "", placeholder: EXAMPLE.url });
+		const headers = el("textarea", { rows: 3, text: pairsToText(current.headers), placeholder: EXAMPLE.headers });
 		const stdioFields = el("div", {},
 			el("div", { class: "field" }, el("label", { text: T("command") }), command),
 			el("div", { class: "field" }, el("label", { text: T("args") }), args),
@@ -299,13 +318,16 @@
 							url: url.value,
 							headers: parsePairs(headers.value)
 						};
-						const result = await postJson(`${API}/mcp`, { action: "upsert", server: payload, currentId: server?.id });
-						if (result.ok !== true) {
-							toast(T("failed"), result.error);
-							return;
+						try {
+							const result = await postJson(`${API}/mcp`, { action: "upsert", server: payload, currentId: server?.id });
+							if (result.ok !== true) throw new Error(result.error ?? "the host refused the change");
+							toast(T("title"), `${result.id}：${T("savedReload")}`);
+							close();
+						} catch (error) {
+							// A host that is restarting refuses the connection instead of answering;
+							// without this the save button appears to do nothing at all.
+							toast(T("failed"), String(error?.message ?? error));
 						}
-						toast(T("title"), `${result.id}：${T("savedReload")}`);
-						close();
 					}
 				}),
 				el("button", { text: T("cancel"), onclick: close }))));
@@ -354,7 +376,7 @@
 							toast(T("failed"), result.error);
 							return;
 						}
-						toast(T("import"), `${result.imported.length} → ${result.skipped.length}`);
+						toast(T("import"), `${T("imported")} ${result.imported.length} · ${T("skipped")} ${result.skipped.length}`);
 						close();
 					}
 				}),

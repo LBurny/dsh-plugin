@@ -27,7 +27,7 @@ import { createRemoteManager } from "./remote.js";
 import { loadConfig, mergeDeep, normalizeConfig, saveConfig } from "./settings.js";
 
 const name = "remote";
-const inject = ["commands"];
+const inject = [];
 /** Shown in the panel and /api/remote; bump alongside package.json. */
 const VERSION = "0.2.0";
 
@@ -111,64 +111,6 @@ function publicStatus(status) {
 		resumed: status.resumed === true,
 		error: status.error
 	};
-}
-
-/** The multi-line text `/remote` answers with. */
-function renderStatus(state_, status) {
-	const lines = [
-		`remote access: ${status.state}${status.enabled ? "" : " (off)"}`,
-		`mode=${status.mode}${status.proxyPort === undefined ? "" : ` proxy port=${String(status.proxyPort)}`}${status.tunnel === undefined ? "" : ` tunnel=${status.tunnel.state}`}`
-	];
-	if (status.error !== undefined) lines.push(`error: ${status.error}`);
-	if (status.enabled && status.link !== undefined) {
-		// Deliberate: this is the one place the link is printed, and it is the
-		// command the operator asked for. Do not log it anywhere.
-		lines.push("", "link (treat it as a credential, do not share):", status.link);
-	}
-	lines.push(
-		"",
-		`cloudflared: ${state_.remote.cloudflared() ?? "not found"}${state_.cloudflared.status().source === undefined ? "" : ` (${state_.cloudflared.status().source})`}`,
-		// Optional on purpose: the tailnet channel reads its address off the network
-		// interfaces, so a missing CLI costs the MagicDNS name, not the channel.
-		`tailscale: ${state_.remote.tailscale() ?? "the CLI was not found (not required)"}`,
-		`settings: ${state_.layout().configPath}`
-	);
-	return lines.join("\n");
-}
-
-/**
- * Wrap a command handler so a failure (most often a service this profile does
- * not mount) becomes an error result instead of an exception.
- */
-function command(fn) {
-	return async (invocation) => {
-		try {
-			return await fn(invocation);
-		} catch (error) {
-			return { kind: "error", text: `dsh-remote: ${String(error?.message ?? error)}` };
-		}
-	};
-}
-
-/**
- * Register `/remote`. Guarded: command names are first-come, first-served, so a
- * clash with another plugin must degrade to a warning — an exception here would
- * take the whole plugin tree (i.e. dsh itself) down during `apply`.
- */
-function registerCommands(ctx, state) {
-	try {
-		ctx.commands.register({
-			name: "remote",
-			description: "Show phone remote-access state, and the link when it is on",
-			handler: command(async () => {
-				await state.remote.sync();
-				return { kind: "success", text: renderStatus(state, state.remote.snapshot()) };
-			})
-		});
-	} catch (error) {
-		const reason = String(error?.message ?? error);
-		ctx.logger.warn(`[dsh-remote] command /remote not registered: ${reason}`);
-	}
 }
 
 /** Apply a remote-access action coming from the panel. */
@@ -332,11 +274,10 @@ async function resume(state) {
 
 /**
  * Plugin entry point.
- * @param ctx - plugin context (declares `commands`).
+ * @param ctx - plugin context.
  */
 function apply(ctx) {
 	const state = createState(ctx);
-	registerCommands(ctx, state);
 	ctx.inject(["webServer", "configEditor"], (ready) => {
 		mount(ready, state);
 	});

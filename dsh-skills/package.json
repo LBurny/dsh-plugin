@@ -1,7 +1,7 @@
 {
   "name": "dsh-skills",
   "version": "0.1.0",
-  "description": "Manage DeepSeek Harness skills from inside dsh: list, enable/disable, delete, and import from other agent tool roots or a local ZIP archive. Ships a panel and the /skills command. dsh-skills：在 dsh 本体里管理技能——列表、启停、删除，以及从其它 agent 工具目录或本地 ZIP 压缩包导入，自带面板与 /skills 命令。",
+  "description": "Manage DeepSeek Harness skills from inside dsh: list, enable/disable, delete, and import from other agent tool roots or a local ZIP archive. Ships a panel. dsh-skills：在 dsh 本体里管理技能——列表、启停、删除，以及从其它 agent 工具目录或本地 ZIP 压缩包导入，自带面板。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

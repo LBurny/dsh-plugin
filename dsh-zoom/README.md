@@ -57,7 +57,6 @@ package into `$DSH_HOME/profiles/plugins/dsh-zoom/` and add that path.
 - **Adjust** the zoom level with a slider, and the step size used by the shortcuts.
 - **Rebind** either shortcut by pressing a key: click the keycap (or *Record*) and press the
   combination you want. Escape cancels a recording. A recording stays armed until a key arrives.
-- **`/zoom`** prints the current level, the range and both shortcuts.
 - **The level is capped by the window height.** `zoom` on `<html>` divides the layout viewport by the
   factor, so past `window height / ~360px` the harness's own sidebar is taller than its box and its
   bottom block (设置, 意见反馈, 退出登录) is clipped with nothing to scroll: the shell sets

@@ -1,7 +1,7 @@
 {
   "name": "dsh-zoom",
   "version": "0.1.0",
-  "description": "Page zoom for the DeepSeek Harness web UI with rebindable shortcuts (press a key to record one), adjustable level and step. Ships a panel and the /zoom command. dsh-zoom：dsh 网页界面缩放，快捷键可自定义，自带面板与 /zoom 命令。",
+  "description": "Page zoom for the DeepSeek Harness web UI with rebindable shortcuts (press a key to record one), adjustable level and step. Ships a panel. dsh-zoom：dsh 网页界面缩放，快捷键可自定义，自带面板。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
