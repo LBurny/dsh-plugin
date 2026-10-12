@@ -675,15 +675,36 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 				.catch((cause) => fail(res, cause));
 		};
 
-		if (streaming) {
-			const upstreamReq = httpRequest({ host: "127.0.0.1", port, method: req.method, path: req.url, headers }, answer);
+		/**
+		 * Pipe the request body straight through, with no cookie retry: a body this large
+		 * cannot be held twice, so a stale cookie costs this one request instead of the upload.
+		 * @param lead - bytes already read off the request, written ahead of the rest.
+		 * @param dropLength - drop `content-length` (the body outgrew what it declared, so the
+		 *   only honest framing left is chunked: Node refuses a request that writes past the
+		 *   length it announced).
+		 */
+		const streamUp = (lead, dropLength) => {
+			const requestHeaders = { ...headers };
+			if (dropLength) {
+				for (const key of Object.keys(requestHeaders)) {
+					if (key.toLowerCase() === "content-length") delete requestHeaders[key];
+				}
+			}
+			const upstreamReq = httpRequest({ host: "127.0.0.1", port, method: req.method, path: req.url, headers: requestHeaders }, answer);
 			upstreamReq.on("error", (cause) => fail(res, cause));
+			if (lead !== undefined && lead.length > 0) upstreamReq.write(lead);
 			req.pipe(upstreamReq);
+		};
+
+		if (streaming) {
+			streamUp(undefined, false);
 			return;
 		}
 
 		const chunks = [];
 		let size = 0;
+		/** Set once the body outgrew the buffer and went upstream as a stream instead. */
+		let piped = false;
 		/**
 		 * Send an already-buffered body upstream. This is its own function, not another
 		 * call to `forward`, because the retry below runs after the request stream has
@@ -712,13 +733,25 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		};
 
 		req.on("data", (chunk) => {
+			if (piped === true) return;
 			chunks.push(chunk);
 			size += chunk.length;
-			// A declared length smaller than the stream means we cannot trust the buffer.
-			if (size > BUFFER_LIMIT_BYTES) req.destroy();
+			if (size <= BUFFER_LIMIT_BYTES) return;
+			// The buffer is full and the body keeps arriving: the declared length was absent
+			// (chunked) or lied. Destroying the request here, as this used to do, loses the
+			// upload with nothing but a reset at the phone; forward what has arrived and stream
+			// the rest instead, which is what a declared length over the limit already does.
+			piped = true;
+			const lead = Buffer.concat(chunks);
+			chunks.length = 0;
+			streamUp(lead, true);
 		});
 		req.on("error", (cause) => fail(res, cause));
-		req.on("end", () => send(Buffer.concat(chunks), false));
+		req.on("end", () => {
+			// A streamed body has already been answered by `streamUp`; only a buffered one is
+			// sent here (and only here can the stale-cookie retry apply).
+			if (piped !== true) send(Buffer.concat(chunks), false);
+		});
 	}
 
 	/** Report an upstream failure on a response that has not been written yet. */

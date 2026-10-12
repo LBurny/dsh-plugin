@@ -12,9 +12,10 @@ import { createServer, connect } from "node:net";
 import { PassThrough, Readable } from "node:stream";
 import { finished } from "node:stream/promises";
 import { gunzipSync } from "node:zlib";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { writeFileAtomic } from "../lib/atomic.js";
 import { FrameSplitter, bridgeSockets } from "../lib/wsbridge.js";
 import {
 	clientAcceptsGzip,
@@ -28,6 +29,7 @@ import {
 } from "../lib/enhance.js";
 import { contained, contentDisposition, handleProjectRoute, listDir, mimeFor, readProjectFile, resolveWorkspace } from "../lib/project.js";
 import { cloudflaredCandidates, findCloudflared } from "../lib/cloudflared.js";
+import { resolveLayout } from "../lib/layout.js";
 import { normalizeMode } from "../lib/remote.js";
 import { canAdopt, clearSession, loadSession, saveSession } from "../lib/session.js";
 import { normalizeConfig } from "../lib/settings.js";
@@ -220,6 +222,44 @@ check(partialDoc.includes("<!-- dsh-remote-mobile -->") && !partialDoc.includes(
 const drifted = Buffer.from("<html><body>no needles at all</body></html>", "utf8");
 const untouched = rewriteHtmlDocument(drifted, assets).toString("utf8");
 check(!untouched.includes("dsh-remote-mobile") && !untouched.includes("dsh-splash"), "a drifted document passes through without injections");
+
+/* ------------------------------- only a plain GET document is rewritten */
+
+// The rewrite replaces the body wholesale, and `transformedHeaders` drops `content-length`,
+// `etag` and `accept-ranges` along with it. So it may only answer a plain GET navigation: a
+// `HEAD` must have no body at all, and a ranged request must have its slice, not a whole
+// rewritten document. Both used to be rewritten like any other HTML response.
+{
+	const head = fakeRes();
+	const upstreamHead = fakeUpstream(doc, { "content-type": "text/html; charset=utf-8", "content-length": String(doc.length) });
+	await respond({ req: { method: "HEAD", headers: { accept: "text/html" } }, res: head, upstreamRes: upstreamHead, assets });
+	const headBody = (await head.collected()).toString("utf8");
+	check(
+		head.status === 200 && !headBody.includes("<!-- dsh-remote-mobile -->"),
+		"a HEAD document request is passed through, never answered with a rewritten body",
+		`status=${String(head.status)}`
+	);
+}
+{
+	const ranged = fakeRes();
+	const upstreamRanged = fakeUpstream(doc, {
+		"content-type": "text/html; charset=utf-8",
+		"content-length": String(doc.length),
+		"content-range": "bytes 0-9/100"
+	});
+	await respond({
+		req: { method: "GET", headers: { accept: "text/html", range: "bytes=0-9" } },
+		res: ranged,
+		upstreamRes: upstreamRanged,
+		assets
+	});
+	const rangedBody = (await ranged.collected()).toString("utf8");
+	check(
+		!rangedBody.includes("<!-- dsh-remote-mobile -->") && ranged.headers["content-range"] === "bytes 0-9/100",
+		"a ranged document request is passed through with its range headers intact",
+		String(ranged.headers["content-range"])
+	);
+}
 
 /* ----------------------------------------------------------------- respond */
 
@@ -991,6 +1031,217 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 		"both the plugin load and the panel's retry click go through it",
 		String((index.match(/void provisionCloudflared\(state\);/gu) ?? []).length)
 	);
+	await rm(dir, { recursive: true, force: true });
+}
+
+/* ------------------------------------------- the plugin's own atomic write */
+
+// The plugin used to import dsh's `@deepseek-ai/dsh-atomic-write` at module scope, which put
+// a dsh release in charge of whether this package's row activates at all. The contract it
+// needs is small, so it is owned here; what has to keep holding is the contract, not the
+// implementation: whole content, the caller's mode, and no temp sibling left behind.
+{
+	const dir = await mkdtemp(join(tmpdir(), "dsh-remote-atomic-"));
+	const nested = join(dir, "nested");
+	const file = join(nested, "dsh-remote.json");
+	await writeFileAtomic(file, "first\n", { mode: 384 });
+	const first = await readFile(file, "utf8");
+	await writeFileAtomic(file, "second\n", { mode: 384 });
+	const second = await readFile(file, "utf8");
+	const mode = (await stat(file)).mode & 0o777;
+	const leftovers = (await readdir(nested)).filter((entry) => entry !== "dsh-remote.json");
+	check(
+		first === "first\n" && second === "second\n",
+		"the atomic write lands whole (creating its directory) and replaces the previous content",
+		`${JSON.stringify(first)} then ${JSON.stringify(second)}`
+	);
+	// NTFS does not carry the owner/group/other bits, so `mode` is only observable on POSIX;
+	// Windows reports what `writeFile` with a mode reports for any fresh file.
+	check(
+		process.platform === "win32" ? mode !== 0o777 : mode === 0o600,
+		"the replacement carries the caller's permission bits",
+		mode.toString(8)
+	);
+	check(leftovers.length === 0, "no temp sibling survives a successful write", leftovers.join(","));
+	// A replacement that cannot land must not leave a half-written sibling for the next read.
+	const asDirectory = join(dir, "occupied");
+	await mkdir(asDirectory);
+	let threw = false;
+	try {
+		await writeFileAtomic(asDirectory, "x", { mode: 384 });
+	} catch {
+		threw = true;
+	}
+	const afterFailure = (await readdir(dir)).filter((entry) => entry.endsWith(".tmp"));
+	check(threw && afterFailure.length === 0, "a failed replacement removes its temp file and rethrows", afterFailure.join(","));
+	await rm(dir, { recursive: true, force: true });
+}
+
+/* ------------------------------------------- the DSH home it derives */
+
+// Every path the plugin writes hangs off one derivation: `<home>/profiles/<name>/cordis.patch.yml`
+// three `dirname`s up. If a dsh release moves that document, the plugin would write its settings,
+// its session record and the tunnel log beside some unrelated directory, so the shape is checked
+// and the DSH_HOME dsh was launched with takes over when it no longer holds.
+{
+	const home = join(tmpdir(), "layout-home");
+	const shaped = resolveLayout({ documentPath: join(home, "profiles", "desktop", "cordis.patch.yml") }, {});
+	check(
+		shaped.dshHome === home && shaped.profileName === "desktop" && shaped.workspaceStorePath === join(home, "storages", "workspace.json"),
+		"a patch document under <home>/profiles/<name>/ yields that home",
+		shaped.dshHome
+	);
+	const moved = resolveLayout({ documentPath: join(home, "profiles", "desktop", "config", "cordis.patch.yml") }, { DSH_HOME: home });
+	check(
+		moved.dshHome === home && moved.sessionPath === join(home, "dsh-remote-session.json"),
+		"a moved patch document falls back to the DSH_HOME dsh was launched with",
+		moved.dshHome
+	);
+	const withoutEnv = resolveLayout({ documentPath: join(home, "profiles", "desktop", "config", "cordis.patch.yml") }, {});
+	check(withoutEnv.dshHome === join(home, "profiles"), "with no DSH_HOME to fall back on, the derivation stays exactly as it was", withoutEnv.dshHome);
+	let refused = false;
+	try {
+		resolveLayout({}, {});
+	} catch {
+		refused = true;
+	}
+	check(refused, "a config editor without a document path is refused rather than deriving '.'", "");
+}
+
+/* ------------------------------------------- the row id, claimed twice */
+
+// Row ids are first-come, first-served, and a collision costs one of the two rows its mount in
+// silence (one `N entries did not activate` line, no clue which). The only place that knows is
+// dsh's own table, so it is asked, late enough that later rows are in it.
+{
+	const { warnOnRowIdCollision } = await import("../lib/index.js");
+	const logged = [];
+	const collided = {
+		get: (service) =>
+			service === "loader"
+				? { entries: () => [{ id: "remote", options: { name: "dsh-remote" } }, { id: "remote", options: { name: "someone-else" } }] }
+				: undefined
+	};
+	warnOnRowIdCollision(collided, { log: (message) => logged.push(message) }, 0);
+	const alone = { get: () => ({ entries: () => [{ id: "remote", options: { name: "dsh-remote" } }] }) };
+	warnOnRowIdCollision(alone, { log: (message) => logged.push(message) }, 0);
+	const broken = {
+		get: () => ({
+			entries: () => {
+				throw new Error("no table");
+			}
+		})
+	};
+	warnOnRowIdCollision(broken, { log: (message) => logged.push(message) }, 0);
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	check(
+		logged.length === 1 && logged[0].includes("claimed 2 times") && logged[0].includes("someone-else"),
+		"a row id claimed twice is reported with the other claimer's name",
+		logged.join(" | ")
+	);
+	check(
+		logged.every((message) => !message.includes("no table")),
+		"a single row, and a loader that cannot answer, stay silent instead of throwing",
+		""
+	);
+}
+
+/* ------------------------- a body over the buffer limit is streamed, not destroyed */
+{
+	// The buffered path exists so a stale cookie can be replayed (see above). A body that
+	// outgrows the buffer while it is still arriving — no content-length at all (chunked), or a
+	// length that lied — used to be answered with `req.destroy()`, which loses the upload and
+	// shows the phone nothing but a reset. It now switches to the streaming path and drops the
+	// length header it can no longer honour, so the upstream side sees a framed chunked request.
+	const { createRemoteManager } = await import("../lib/remote.js");
+	const { createServer: createHttp, request: httpRequest } = await import("node:http");
+	const { createHash } = await import("node:crypto");
+	let received = 0;
+	let sawLengthHeader = "absent";
+	const receivedDigest = createHash("sha256");
+	const stubDsh = createHttp((req, res) => {
+		if (String(req.url).startsWith("/?token=")) {
+			res.writeHead(303, { "set-cookie": "dsh-auth=stub; Path=/; HttpOnly" });
+			res.end();
+			return;
+		}
+		sawLengthHeader = String(req.headers["content-length"] ?? req.headers["transfer-encoding"] ?? "absent");
+		req.on("data", (chunk) => {
+			received += chunk.length;
+			receivedDigest.update(chunk);
+		});
+		req.on("end", () => {
+			res.writeHead(200, { "content-type": "text/plain" });
+			res.end(`got ${received}`);
+		});
+	});
+	await new Promise((resolve) => stubDsh.listen(0, "127.0.0.1", resolve));
+	const dir = await mkdtemp(join(tmpdir(), "dsh-remote-overflow-"));
+	let settings = { enabled: false, mode: "lan", port: 0, token: "overflow-token", cloudflaredPath: "", cloudflaredProxy: "" };
+	const manager = createRemoteManager({
+		ctx: {
+			get: (service) =>
+				({
+					webServer: { port: stubDsh.address().port },
+					connection: { authenticatedUrl: (base) => `${base}/?token=launch-token` }
+				})[service],
+			logger: { info: () => {}, warn: () => {} }
+		},
+		layout: () => ({
+			dshHome: dir,
+			configPath: join(dir, "dsh-remote.json"),
+			sessionPath: join(dir, "dsh-remote-session.json"),
+			tunnelLogPath: join(dir, "dsh-remote-tunnel.log"),
+			workspaceStorePath: join(dir, "workspaces.json")
+		}),
+		config: async () => settings,
+		save: async (patch) => {
+			settings = { ...settings, ...patch };
+			return settings;
+		},
+		log: () => {},
+		findBinary: () => undefined
+	});
+	const up = await manager.enable("lan");
+	// Chunked on purpose: a declared length over the limit takes the streaming path directly, and
+	// what this check is about is the body that arrives with no usable length at all.
+	const body = Buffer.alloc(5 * 1024 * 1024);
+	for (let i = 0; i < body.length; i++) body[i] = i % 251;
+	const answer = await new Promise((resolve) => {
+		let settled = false;
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			resolve(value);
+		};
+		const request = httpRequest(
+			{
+				host: "127.0.0.1",
+				port: up.proxyPort,
+				method: "POST",
+				path: "/api/some-route",
+				headers: { cookie: "__dsh_remote=overflow-token", "transfer-encoding": "chunked" }
+			},
+			(response) => {
+				const chunks = [];
+				response.on("data", (chunk) => chunks.push(chunk));
+				response.on("end", () => finish({ status: response.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
+			}
+		);
+		request.on("error", (cause) => finish({ status: 0, body: String(cause?.message ?? cause) }));
+		request.end(body);
+		setTimeout(() => {
+			request.destroy();
+			finish({ status: 0, body: "no response" });
+		}, 8000);
+	});
+	check(
+		answer.status === 200 && received === body.length && receivedDigest.digest("hex") === createHash("sha256").update(body).digest("hex"),
+		"a chunked body over the buffer limit is streamed whole and intact instead of destroying the request",
+		`status=${String(answer.status)} received=${received}/${body.length} upstream-framing=${sawLengthHeader}`
+	);
+	await manager.disable();
+	await new Promise((resolve) => stubDsh.close(resolve));
 	await rm(dir, { recursive: true, force: true });
 }
 

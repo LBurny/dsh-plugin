@@ -33,9 +33,12 @@ cd dsh-remote && node tests/cloudflared.test.mjs && node tests/proxy.test.mjs   
 ```
 
 Set `NODE=/f/DSHDesktop/runtime/windows-x64/node.exe` for that last one. `node tools/visual/shot.mjs`
-screenshots the real UI instead of inferring it, and `node tools/hotreload/hotreload.mjs up` mirrors
-this tree into the installed app; each tool has its own `tools/*/README.md`, and those three READMEs
-are worth reading before touching a stylesheet, a browser half, or the app.
+screenshots the real UI instead of inferring it, `node tools/hotreload/hotreload.mjs up` mirrors
+this tree into the installed app, and `node tools/anchors/anchors.mjs` asks an installed dsh build
+whether the anchors the phone layer hangs off are all still there (exit 1 when one moved, so a dsh
+upgrade can be gated on it). Each tool has its own `tools/*/README.md`, and those READMEs are worth
+reading before touching a stylesheet, a browser half, the app, or anything that depends on dsh's
+own DOM.
 
 ## Environment (the official app is the target; measured, not assumed)
 

@@ -52,9 +52,6 @@
   "dependencies": {
     "qrcode": "^1.5.4"
   },
-  "peerDependencies": {
-    "@deepseek-ai/dsh-atomic-write": "^0.2.0-rc.1"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/LBurny/dsh-plugin.git",

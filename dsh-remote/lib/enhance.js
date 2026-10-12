@@ -236,8 +236,12 @@ export async function respond({ req, res, upstreamRes, assets, log = () => {} })
 		upstreamRes.pipe(res);
 	};
 
-	// HTML document: buffer within the limit and inject the mobile adaptation.
-	if (assets !== undefined && success && !encoded && isHtmlDocument(contentType) && wantsHtmlDocument(req.headers)) {
+	// HTML document: buffer within the limit and inject the mobile adaptation. `GET` only,
+	// and never a ranged request: the rewrite answers with a whole new body, which a `HEAD`
+	// must not have at all and a range must not have in place of the slice that was asked
+	// for. (`transformedHeaders` drops `content-length`/`etag`/`accept-ranges` with the
+	// rewritten body, so answering one of those with a rewrite would contradict the request.)
+	if (assets !== undefined && success && method === "GET" && req.headers.range === undefined && !encoded && isHtmlDocument(contentType) && wantsHtmlDocument(req.headers)) {
 		const buffered = await bufferUpTo(upstreamRes);
 		if (buffered.overflow === true) return passthroughBuffered(buffered.chunks);
 		const body = rewriteHtmlDocument(buffered.body, assets);

@@ -8,7 +8,7 @@
  * @module dsh-remote/lib/settings
  */
 import { readFile } from "node:fs/promises";
-import { writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
+import { writeFileAtomic } from "./atomic.js";
 
 /** Fresh-install settings. Remote access is off: see `enabled`. */
 export function defaultConfig() {

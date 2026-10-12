@@ -273,6 +273,34 @@ async function resume(state) {
 }
 
 /**
+ * Warn when this plugin's row id is claimed more than once.
+ *
+ * Row ids are first-come, first-served across the whole plugin tree, and a collision costs
+ * one of the rows its mount without failing the boot: dsh prints a single
+ * `N entries did not activate` and carries on, so the reader finds the panel gone with
+ * nothing pointing at this package. dsh's own table is the only place that knows, so ask it
+ * — late enough that the rows mounted after this one are in it. Advisory only: the check
+ * never throws, because a diagnostic must not be the reason a row fails.
+ * @param ctx - plugin context.
+ * @param state - plugin state (for `log`).
+ * @param delay - how long to let the remaining rows mount first; injectable for tests.
+ */
+export function warnOnRowIdCollision(ctx, state, delay = 2000) {
+	setTimeout(() => {
+		try {
+			const entries = ctx.get("loader")?.entries?.();
+			if (!Array.isArray(entries)) return;
+			const same = entries.filter((entry) => entry?.id === name);
+			if (same.length <= 1) return;
+			const owners = same.map((entry) => String(entry?.options?.name ?? "?")).join(", ");
+			state.log(`row id "${name}" is claimed ${same.length} times (${owners}); dsh keeps the first, so this plugin may never mount`);
+		} catch {
+			/* advisory: never the reason a row fails */
+		}
+	}, delay);
+}
+
+/**
  * Plugin entry point.
  * @param ctx - plugin context.
  */
@@ -287,6 +315,7 @@ function apply(ctx) {
 	ctx.inject(["connection", "webServer"], () => {
 		void resume(state).catch((error) => state.log(`remote resume error: ${String(error?.message ?? error)}`));
 	});
+	warnOnRowIdCollision(ctx, state);
 }
 
 export { apply, inject, name };

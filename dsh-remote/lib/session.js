@@ -14,7 +14,7 @@
  * @module dsh-remote/lib/session
  */
 import { readFileSync, rmSync } from "node:fs";
-import { writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
+import { writeFileAtomic } from "./atomic.js";
 
 /**
  * Read the session record.
