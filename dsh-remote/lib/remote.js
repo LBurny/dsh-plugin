@@ -667,6 +667,17 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		const { port } = upstream();
 		const streaming = Number(req.headers["content-length"] ?? "0") > BUFFER_LIMIT_BYTES || String(req.url ?? "").includes(STREAM_PATH_HINT);
 		const headers = upstreamHeaders(req);
+		/** The upstream request carrying this body, once one exists. */
+		let upstreamReq;
+		// One listener attached before any path starts the body flowing: a phone on a flaky
+		// link that resets mid-upload makes the request stream emit `error`, and the streaming
+		// path below otherwise has no listener at all. The listener also destroys the upstream
+		// request: `pipe` does not do that, and without it dsh is left holding an upload whose
+		// body never arrives, one hung request per reset.
+		req.on("error", (cause) => {
+			upstreamReq?.destroy();
+			fail(res, cause);
+		});
 
 		/** Hand the upstream response to the enhancement pipeline. */
 		const answer = (upstreamRes) => {
@@ -690,7 +701,7 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 					if (key.toLowerCase() === "content-length") delete requestHeaders[key];
 				}
 			}
-			const upstreamReq = httpRequest({ host: "127.0.0.1", port, method: req.method, path: req.url, headers: requestHeaders }, answer);
+			upstreamReq = httpRequest({ host: "127.0.0.1", port, method: req.method, path: req.url, headers: requestHeaders }, answer);
 			upstreamReq.on("error", (cause) => fail(res, cause));
 			if (lead !== undefined && lead.length > 0) upstreamReq.write(lead);
 			req.pipe(upstreamReq);
@@ -716,7 +727,7 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 		 */
 		const send = (body, retried) => {
 			const requestHeaders = { ...headers, "content-length": String(body.length) };
-			const upstreamReq = httpRequest({ host: "127.0.0.1", port, method: req.method, path: req.url, headers: requestHeaders }, (upstreamRes) => {
+			upstreamReq = httpRequest({ host: "127.0.0.1", port, method: req.method, path: req.url, headers: requestHeaders }, (upstreamRes) => {
 				if (upstreamRes.statusCode === 401 && !retried) {
 					upstreamRes.resume();
 					log("upstream rejected the session cookie; re-exchanging and replaying once");
@@ -746,7 +757,6 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 			chunks.length = 0;
 			streamUp(lead, true);
 		});
-		req.on("error", (cause) => fail(res, cause));
 		req.on("end", () => {
 			// A streamed body has already been answered by `streamUp`; only a buffered one is
 			// sent here (and only here can the stale-cookie retry apply).

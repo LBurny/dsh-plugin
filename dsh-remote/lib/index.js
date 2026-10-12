@@ -288,9 +288,12 @@ async function resume(state) {
 export function warnOnRowIdCollision(ctx, state, delay = 2000) {
 	setTimeout(() => {
 		try {
+			// entries() is a generator (the loader service extends EntryTree, whose
+			// `* entries()` yields), so accept any iterable: an Array.isArray guard here
+			// reads the real loader as "no table" and this warning never fires.
 			const entries = ctx.get("loader")?.entries?.();
-			if (!Array.isArray(entries)) return;
-			const same = entries.filter((entry) => entry?.id === name);
+			if (entries === null || entries === undefined || typeof entries[Symbol.iterator] !== "function") return;
+			const same = [...entries].filter((entry) => entry?.id === name);
 			if (same.length <= 1) return;
 			const owners = same.map((entry) => String(entry?.options?.name ?? "?")).join(", ");
 			state.log(`row id "${name}" is claimed ${same.length} times (${owners}); dsh keeps the first, so this plugin may never mount`);

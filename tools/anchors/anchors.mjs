@@ -25,7 +25,7 @@
  * Read-only: it never writes to the target and never starts anything.
  */
 import { readFileSync, statSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -256,6 +256,8 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 
 /** Walk a directory, following symlinked directories (lstat reports the link, not the target). */
 async function* walkDirectory(root) {
+	// A junction that points back into its own tree would otherwise loop the walk forever.
+	const seen = new Set();
 	const stack = [root];
 	while (stack.length > 0) {
 		const dir = stack.pop();
@@ -279,8 +281,16 @@ async function* walkDirectory(root) {
 					continue;
 				}
 			}
-			if (isDir) stack.push(full);
-			else if (isFile && TEXT_FILE.test(entry.name)) yield full;
+			if (isDir) {
+				try {
+					const real = await realpath(full);
+					if (seen.has(real)) continue;
+					seen.add(real);
+				} catch {
+					continue;
+				}
+				stack.push(full);
+			} else if (isFile && TEXT_FILE.test(entry.name)) yield full;
 		}
 	}
 }

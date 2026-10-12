@@ -617,11 +617,15 @@
         watched = nav
         observer?.disconnect()
         observer = null
-        try {
-          observer = new ResizeObserver(queue)
-          observer.observe(nav)
-        } catch {
-          /* 没有 ResizeObserver 就只跟着文档变动量，zoom/resize 时要等下一次 DOM 变动 */
+        // 面板不在时 nav 是 null：别造一个观察空气的观察器
+        if (nav !== null) {
+          try {
+            observer = new ResizeObserver(queue)
+            observer.observe(nav)
+          } catch {
+            observer = null
+            /* 没有 ResizeObserver 就只跟着文档变动量，zoom/resize 时要等下一次 DOM 变动 */
+          }
         }
       }
       let need = 0

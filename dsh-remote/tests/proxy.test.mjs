@@ -18,6 +18,7 @@ import { dirname, join } from "node:path";
 import { writeFileAtomic } from "../lib/atomic.js";
 import { FrameSplitter, bridgeSockets } from "../lib/wsbridge.js";
 import {
+	bufferUpTo,
 	clientAcceptsGzip,
 	gzipEligibleType,
 	isEventStream,
@@ -25,7 +26,8 @@ import {
 	pipeSseWithKeepalive,
 	respond,
 	rewriteHtmlDocument,
-	wantsHtmlDocument
+	wantsHtmlDocument,
+	REWRITE_BUFFER_LIMIT
 } from "../lib/enhance.js";
 import { contained, contentDisposition, handleProjectRoute, listDir, mimeFor, readProjectFile, resolveWorkspace } from "../lib/project.js";
 import { cloudflaredCandidates, findCloudflared } from "../lib/cloudflared.js";
@@ -1112,18 +1114,32 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 
 // Row ids are first-come, first-served, and a collision costs one of the two rows its mount in
 // silence (one `N entries did not activate` line, no clue which). The only place that knows is
-// dsh's own table, so it is asked, late enough that later rows are in it.
+// dsh's own table, so it is asked, late enough that later rows are in it. The stubs below must
+// YIELD: the real loader's entries() is a generator (Loader extends EntryTree, `* entries()`),
+// and a stub that returns an array passes against a guard that reads the real loader as "no
+// table" — which is exactly how this warning used to be dead code in production.
 {
 	const { warnOnRowIdCollision } = await import("../lib/index.js");
 	const logged = [];
 	const collided = {
 		get: (service) =>
 			service === "loader"
-				? { entries: () => [{ id: "remote", options: { name: "dsh-remote" } }, { id: "remote", options: { name: "someone-else" } }] }
+				? {
+						*entries() {
+							yield { id: "remote", options: { name: "dsh-remote" } };
+							yield { id: "remote", options: { name: "someone-else" } };
+						}
+					}
 				: undefined
 	};
 	warnOnRowIdCollision(collided, { log: (message) => logged.push(message) }, 0);
-	const alone = { get: () => ({ entries: () => [{ id: "remote", options: { name: "dsh-remote" } }] }) };
+	const alone = {
+		get: () => ({
+			*entries() {
+				yield { id: "remote", options: { name: "dsh-remote" } };
+			}
+		})
+	};
 	warnOnRowIdCollision(alone, { log: (message) => logged.push(message) }, 0);
 	const broken = {
 		get: () => ({
@@ -1133,6 +1149,8 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 		})
 	};
 	warnOnRowIdCollision(broken, { log: (message) => logged.push(message) }, 0);
+	// A loader that answers with a non-iterable (a dsh that changed the shape) stays silent too.
+	warnOnRowIdCollision({ get: () => ({ entries: () => 42 }) }, { log: (message) => logged.push(message) }, 0);
 	await new Promise((resolve) => setTimeout(resolve, 30));
 	check(
 		logged.length === 1 && logged[0].includes("claimed 2 times") && logged[0].includes("someone-else"),
@@ -1141,7 +1159,7 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	);
 	check(
 		logged.every((message) => !message.includes("no table")),
-		"a single row, and a loader that cannot answer, stay silent instead of throwing",
+		"a single row, a throwing loader and a non-iterable answer all stay silent instead of throwing",
 		""
 	);
 }
@@ -1243,6 +1261,157 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	await manager.disable();
 	await new Promise((resolve) => stubDsh.close(resolve));
 	await rm(dir, { recursive: true, force: true });
+}
+
+/* ----------------- a reset mid-upload does not leave dsh holding a hung request */
+{
+	// The streaming path pipes the body straight through, and `pipe` never tears the upstream
+	// request down when the client goes away. Without the proxy doing it, dsh is left holding
+	// an upload whose body never arrives — one hung request per reset, and this Node version
+	// swallows the request's `error` event rather than crashing, so nothing ever reports it.
+	const { createRemoteManager } = await import("../lib/remote.js");
+	const { createServer: createHttp, request: httpRequest } = await import("node:http");
+	let upstreamClosed = false;
+	const stubDsh = createHttp((req, res) => {
+		if (String(req.url).startsWith("/?token=")) {
+			res.writeHead(303, { "set-cookie": "dsh-auth=stub; Path=/; HttpOnly" });
+			res.end();
+			return;
+		}
+		if (req.url === "/alive") {
+			res.writeHead(200, { "content-type": "text/plain" });
+			res.end("alive");
+			return;
+		}
+		// The upload endpoint: consumes whatever arrives and never answers on its own.
+		req.on("close", () => {
+			upstreamClosed = true;
+			res.destroy();
+		});
+		req.resume();
+	});
+	await new Promise((resolve) => stubDsh.listen(0, "127.0.0.1", resolve));
+	const dir = await mkdtemp(join(tmpdir(), "dsh-remote-reset-"));
+	let settings = { enabled: false, mode: "lan", port: 0, token: "reset-token", cloudflaredPath: "", cloudflaredProxy: "" };
+	const manager = createRemoteManager({
+		ctx: {
+			get: (service) =>
+				({
+					webServer: { port: stubDsh.address().port },
+					connection: { authenticatedUrl: (base) => `${base}/?token=launch-token` }
+				})[service],
+			logger: { info: () => {}, warn: () => {} }
+		},
+		layout: () => ({
+			dshHome: dir,
+			configPath: join(dir, "dsh-remote.json"),
+			sessionPath: join(dir, "dsh-remote-session.json"),
+			tunnelLogPath: join(dir, "dsh-remote-tunnel.log"),
+			workspaceStorePath: join(dir, "workspaces.json")
+		}),
+		config: async () => settings,
+		save: async (patch) => {
+			settings = { ...settings, ...patch };
+			return settings;
+		},
+		log: () => {},
+		findBinary: () => undefined
+	});
+	const up = await manager.enable("lan");
+	const crashes = [];
+	const onCrash = (error) => crashes.push(error);
+	process.on("uncaughtException", onCrash);
+	try {
+		const request = httpRequest(
+			{
+				host: "127.0.0.1",
+				port: up.proxyPort,
+				method: "POST",
+				path: "/api/upload",
+				// A declared length over the buffer limit takes the streaming path directly.
+				headers: { cookie: "__dsh_remote=reset-token", "content-length": String(6 * 1024 * 1024) }
+			},
+			() => {}
+		);
+		request.on("error", () => {});
+		request.write(Buffer.alloc(1024));
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		// The phone going away mid-upload.
+		request.destroy();
+		const tornDown = await waitFor(() => upstreamClosed, 2000);
+		check(tornDown, "a client reset mid-upload tears the upstream request down instead of leaving it hung", `upstreamClosed=${String(upstreamClosed)}`);
+	} finally {
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		process.removeListener("uncaughtException", onCrash);
+	}
+	check(
+		crashes.length === 0,
+		"and the reset never reaches the harness as an uncaught exception",
+		crashes.map((error) => String(error?.code ?? error)).join(",")
+	);
+	const alive = await new Promise((resolve) => {
+		const request = httpRequest({ host: "127.0.0.1", port: up.proxyPort, method: "GET", path: "/alive", headers: { cookie: "__dsh_remote=reset-token" } }, (response) => {
+			const chunks = [];
+			response.on("data", (chunk) => chunks.push(chunk));
+			response.on("end", () => resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString("utf8") }));
+		});
+		request.on("error", () => resolve({ status: 0, body: "" }));
+		request.end();
+	});
+	check(alive.status === 200 && alive.body === "alive", "the proxy keeps answering afterwards", `status=${String(alive.status)}`);
+	await manager.disable();
+	await new Promise((resolve) => stubDsh.close(resolve));
+	await rm(dir, { recursive: true, force: true });
+}
+
+/* ----------------------- a document over the buffer limit passes through whole */
+{
+	// bufferUpTo's overflow answer hands the rest of the stream to the caller's pipe. The old
+	// shape kept consuming and discarding past the limit and resolved on `end`, so the prefix
+	// was written and the pipe attached to an already-ended stream: a truncated body whose
+	// response never finished.
+	const src = new PassThrough();
+	const pending = bufferUpTo(src, 8);
+	src.write("aaaa");
+	await new Promise((resolve) => setImmediate(resolve));
+	src.write("bbbb");
+	await new Promise((resolve) => setImmediate(resolve));
+	src.write("cccc");
+	await new Promise((resolve) => setImmediate(resolve));
+	const overflowed = await pending;
+	src.write("dddd");
+	src.end();
+	const tail = [];
+	src.on("data", (chunk) => tail.push(chunk));
+	src.resume();
+	await finished(src);
+	check(
+		overflowed.overflow === true && Buffer.concat(overflowed.chunks).toString("utf8") === "aaaabbbbcccc",
+		"the buffered overflow keeps the prefix and the chunk that crossed the limit",
+		Buffer.concat(overflowed.chunks).toString("utf8")
+	);
+	check(Buffer.concat(tail).toString("utf8") === "dddd", "the remainder is still in the stream for the caller's pipe", Buffer.concat(tail).toString("utf8"));
+
+	// End to end through respond(): the four parts are buffered, buffered, the crossing chunk,
+	// and the piped remainder — and the response must END (the bug hung it until the timeout).
+	const parts = [Buffer.alloc(8 * 1024 * 1024, 0x61), Buffer.alloc(8 * 1024 * 1024, 0x62), Buffer.from("cccccccc"), Buffer.from("dddddddd")];
+	const whole = Buffer.concat(parts);
+	const res = fakeRes();
+	const upstream = Readable.from(parts);
+	upstream.headers = { "content-type": "text/html; charset=utf-8", "content-length": String(whole.length) };
+	upstream.statusCode = 200;
+	await respond({ req: { method: "GET", headers: { accept: "text/html" } }, res, upstreamRes: upstream, assets });
+	let body;
+	try {
+		body = await Promise.race([res.collected(), new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), 4000))]);
+	} catch {
+		body = undefined;
+	}
+	check(
+		body !== undefined && body.equals(whole),
+		"an HTML document over the rewrite limit passes through whole, and the response ends",
+		body === undefined ? "response never ended" : `${String(body.length)} bytes, limit ${String(REWRITE_BUFFER_LIMIT)}`
+	);
 }
 
 /* -------------------------------------------------------------- reporting */

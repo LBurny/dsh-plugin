@@ -128,24 +128,47 @@ export function rewriteHtmlDocument(body, assets) {
 /**
  * Buffer an upstream response up to the transform limit.
  * @returns `{ body }` when complete, or `{ overflow: true, chunks }` when the
- *   body exceeded the limit — the caller then passes the chunks through.
+ *   body exceeded the limit — the caller then writes the chunks and pipes the
+ *   rest. On overflow the stream is paused with the remainder unread: a flowing
+ *   stream would keep firing `data` here, and every chunk this handler accepted
+ *   past the limit would be a hole in the caller's passthrough.
  */
 export function bufferUpTo(upstreamRes, limit = REWRITE_BUFFER_LIMIT) {
 	return new Promise((resolve, reject) => {
 		const chunks = [];
 		let size = 0;
-		let overflow = false;
-		upstreamRes.on("data", (chunk) => {
-			if (overflow) return;
+		let settled = false;
+		/** After overflow the caller's pipe owns the stream; these listeners must not. */
+		const detach = () => {
+			upstreamRes.removeListener("data", onData);
+			upstreamRes.removeListener("end", onEnd);
+			upstreamRes.removeListener("error", onError);
+		};
+		const onData = (chunk) => {
 			size += chunk.length;
-			if (size > limit) {
-				overflow = true;
+			if (size <= limit) {
+				chunks.push(chunk);
 				return;
 			}
 			chunks.push(chunk);
-		});
-		upstreamRes.on("end", () => resolve(overflow ? { overflow: true, chunks } : { body: Buffer.concat(chunks) }));
-		upstreamRes.on("error", reject);
+			upstreamRes.pause();
+			detach();
+			settled = true;
+			resolve({ overflow: true, chunks });
+		};
+		const onEnd = () => {
+			if (settled) return;
+			settled = true;
+			resolve({ body: Buffer.concat(chunks) });
+		};
+		const onError = (cause) => {
+			if (settled) return;
+			settled = true;
+			reject(cause);
+		};
+		upstreamRes.on("data", onData);
+		upstreamRes.on("end", onEnd);
+		upstreamRes.on("error", onError);
 	});
 }
 
@@ -229,10 +252,15 @@ export async function respond({ req, res, upstreamRes, assets, log = () => {} })
 	const success = status >= 200 && status < 300;
 	const contentLength = Number(headers["content-length"] ?? Number.NaN);
 
-	/** Pass the buffered overflow through without a transform. */
+	/** Pass the buffered prefix through, then pipe the paused remainder. */
 	const passthroughBuffered = (chunks) => {
 		res.writeHead(status, passthroughHeaders(headers));
 		for (const chunk of chunks) res.write(chunk);
+		// `pipe()` does not end the destination on a source error; same truncated-response
+		// rule as the plain passthrough branch below.
+		upstreamRes.on("error", () => {
+			if (res.writableEnded !== true) res.end();
+		});
 		upstreamRes.pipe(res);
 	};
 
