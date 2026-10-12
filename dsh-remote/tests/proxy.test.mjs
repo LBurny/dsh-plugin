@@ -611,6 +611,17 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 		"the full-screen sheet is sized by percentage, never by vh/vw (zoom would overflow it)",
 		sheet.replace(/\s+/gu, " ").slice(0, 90)
 	);
+	// In the narrow layout dsh writes each panel host as one viewport wide, inline. `vw` is
+	// resolved in device pixels and is not divided by the zoom either, so at 1.14 the host was
+	// 390 layout px inside a 342 layout px viewport: 14% too wide, and the pane strip scrolled
+	// it about 48px past the left edge (measured at 390x844: 20 elements wider than the
+	// viewport and the box at l=-54.6 / w=444.6, against 0 and l=0 / w=390 once folded back).
+	const pane = block(css, '[style*="width: 100vw"] {');
+	check(
+		/width:\s*calc\(100vw \* var\(--dsh-zoom-inverse, 1\)\)\s*!important/u.test(pane),
+		"the pane host's inline 100vw is folded back into layout pixels, so a zoomed page stops hanging off the left edge",
+		pane.replace(/\s+/gu, " ").slice(0, 90)
+	);
 }
 
 /* ------------------------------------------- the manager's own tunnel step */
