@@ -65,11 +65,16 @@ package into `$DSH_HOME/profiles/plugins/dsh-zoom/` and add that path.
 - **dsh's own popups stay put.** They are portaled to `<body>` and positioned from
   `getBoundingClientRect()`, which the zoom has already multiplied, so the factor used to land on their
   inline `top`/`left` a second time: at 110% the account menu fell below the avatar with its last row off
-  the window. The stylesheet cancels the factor on those surfaces and re-applies it to their contents,
-  which puts their coordinates back in the viewport space dsh's arithmetic actually assumes, so both the
-  placement and the viewport clamp come out right. The card's own frame, its padding and the min/max
-  width bounds, stays in viewport px, so a wide menu at a high zoom wraps a little tighter than a native
-  page zoom would render it.
+  the window, and at 114% the context-usage popover drew 68px past the right edge and 83px past the
+  bottom, which cut its legend rows in half. The stylesheet cancels the factor on those surfaces and
+  re-applies it to their contents, which puts their coordinates back in the viewport space dsh's
+  arithmetic actually assumes, so both the placement and the viewport clamp come out right. Menus carry
+  `data-menu-material`; every other surface is one the browser half marks by its own inline placement
+  (the context meter, the stat dialogs, the schedule pickers, the install-registry fieldset), so a popup
+  dsh adds later is covered without a new selector, while full-screen overlays and unanchored toasts,
+  positioned by CSS, keep the factor. The surface's own frame, its padding and the min/max width bounds,
+  stays in viewport px, so a wide menu at a high zoom wraps a little tighter than a native page zoom
+  would render it.
 
 Shortcut matching prefers `event.code` and falls back to `event.key`, so synthesized and
 remote-desktop key events still work.

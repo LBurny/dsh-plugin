@@ -9,6 +9,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import vm from "node:vm";
 import { resolveLayout } from "../lib/layout.js";
 import { defaultConfig, loadConfig, mergeDeep, normalizeConfig, saveConfig } from "../lib/settings.js";
 
@@ -63,6 +64,34 @@ const layout = resolveLayout({ documentPath: join("H:", "home", "profiles", "web
 check(layout.dshHome === join("H:", "home"), "the DSH home is two levels above the patch document", layout.dshHome);
 check(layout.profileName === "web", "the profile name comes from the directory segment");
 check(layout.configPath === join("H:", "home", "dsh-zoom.json"), "settings live next to the DSH home", layout.configPath);
+
+/* -------------------------------------------------- marked zoom surfaces */
+
+// The browser half marks every body child that declares its own inline placement, and
+// the stylesheet cancels the page factor on exactly that mark. The two live in one
+// string and one file each: rename it on either side and the mark silently stops
+// mattering, which puts the bug back — a panel mounted under <body> then draws its
+// viewport-space `left`/`top` at `left * zoom` a second time, off the window.
+const here = (name) => new URL(`../lib/${name}`, import.meta.url);
+const clientJs = await readFile(here("client.js"), "utf8");
+const clientCss = await readFile(here("client.css"), "utf8");
+const attribute = /const SURFACE_ATTRIBUTE = "([^"]+)"/.exec(clientJs)?.[1];
+check(attribute !== undefined, "the browser half declares the surface mark", String(attribute));
+check(clientCss.includes(`body > [${attribute}] {`), "the stylesheet cancels the factor on the marked surface");
+check(clientCss.includes(`body > [${attribute}] > *`), "the stylesheet gives the factor back to a marked surface's contents");
+check(/boot\(\)[\s\S]*?watchSurfaces\(\);/.test(clientJs), "the mark is applied at boot, not only when the panel is opened");
+
+// The predicate is the whole rule, so it is exercised rather than just grepped: it has
+// to read React's own serialization of a placement and nothing that merely looks like
+// one. `padding-left` and a custom property are the two near misses that would take a
+// surface away from the factor it needs (a modal or a toast, both positioned by CSS).
+const predicate = /const PLACEMENT = (\/.*?\/);/.exec(clientJs)?.[1];
+const placement = predicate === undefined ? null : vm.runInNewContext(predicate);
+check(placement?.test("left: 1024.11px; top: 720.406px;") === true, "an inline placement is a surface");
+check(placement?.test("visibility: hidden; left: 0; top: 0") === true, "the measure pass is a surface too");
+check(placement?.test("padding-left: 12px; border-top: 1px solid") === false, "a padding or border is not a placement");
+check(placement?.test("--dsh-toast-hold: 2000ms;") === false, "a custom property alone is not a placement");
+check(placement?.test("") === false, "an empty style is not a placement");
 
 /* ------------------------------------------------------------ reporting */
 

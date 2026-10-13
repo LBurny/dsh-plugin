@@ -474,26 +474,39 @@
 }
 
 /*
- * dsh's portaled menus under page zoom.
+ * dsh's portaled surfaces under page zoom.
  *
- * `zoom` on <html> multiplies every coordinate dsh reads, and the Menu primitive
- * reads them in viewport px: it writes `anchor.top - list.offsetHeight - 4` (or
- * `anchor.bottom + 4`) into the portaled surface's inline `top`. That surface is
- * a child of <body>, so the factor lands on the written value a second time.
+ * `zoom` on <html> multiplies every coordinate dsh reads, and dsh's anchored
+ * placement primitive reads them in viewport px: for a menu it writes
+ * `anchor.top - list.offsetHeight - 4` (or `anchor.bottom + 4`) into the portaled
+ * surface's inline `top`. That surface is a child of <body>, so the factor lands
+ * on the written value a second time.
  * At 110% the account menu — 设置, 意见反馈, 退出登录 — lands about 80px below the
  * avatar with its last row off the window; further in it leaves the window
  * altogether. The clamp cannot catch it either, being that same viewport-space
  * number against `window.innerHeight` minus a layout-px height.
  *
+ * Menus carry `data-menu-material`, which is what the first pair below matches.
+ * The rest of the family is mounted the same way and carries no mark at all — the
+ * context meter, the three stat dialogs, the schedule pickers, the
+ * install-registry fieldset — so the browser half marks any body child that
+ * declares its own inline `left`/`top` and the second pair matches that. Measured
+ * on dsh 0.2.0-rc.2 at 1400x900 / 114%: the context panel drew 68px past the right
+ * edge and 83px past the bottom, the two stat dialogs 83px past the bottom, which
+ * is the popover a reader reports as cut off. Full-screen overlays (modals, the
+ * image lightbox) and unanchored toasts declare neither property: CSS positions
+ * them, the factor already accounts for that, and cancelling it there would shrink
+ * them off the window.
+ *
  * Cancelling the factor on the surface puts the inline coordinates back in
  * viewport px, the space dsh's arithmetic is actually in (`rect`,
  * `offsetHeight` and `innerHeight` then agree), so both the placement and the
- * clamp come out right. The contents take the factor back, so a menu still reads
- * at the page's scale.
+ * clamp come out right. The contents take the factor back, so a surface still
+ * reads at the page's scale.
  *
- * What stays unscaled is the card's own frame: the padding and the min/max width
- * bounds from dsh's Menu.module.css are viewport px here, so a wide menu at a
- * high zoom wraps a little tighter than a native page zoom would render it.
+ * What stays unscaled is the surface's own frame: the padding and the min/max
+ * width bounds from dsh's own module CSS are viewport px here, so a wide menu at
+ * a high zoom wraps a little tighter than a native page zoom would render it.
  *
  * `--dsh-zoom` is a convention shared with the dsh-desktop-kit package: both may
  * be installed, and they have to agree, since two sheets declaring `zoom` on the
@@ -504,5 +517,13 @@ body > [data-menu-material] {
 }
 
 body > [data-menu-material] > * {
+	zoom: var(--dsh-zoom, 1);
+}
+
+body > [data-dsh-zoom-surface] {
+	zoom: var(--dsh-zoom-inverse, 1);
+}
+
+body > [data-dsh-zoom-surface] > * {
 	zoom: var(--dsh-zoom, 1);
 }

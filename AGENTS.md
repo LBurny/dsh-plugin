@@ -162,6 +162,15 @@ with no build step, so `lib/` is both source and published artifact and `main` p
   samples it: forcing an oversized zoom makes the sidebar column's `scrollHeight` report what the stack
   needs in layout px. Restore the sampling zoom in the same task, and re-measure on resize and when the
   sidebar mounts (the cap is read before it exists).
+- dsh portals every popup it anchors into `<body>` and writes the placement as an inline `left`/`top`
+  read from viewport-space rects, so the page factor lands on those numbers a second time and the panel
+  draws at `left * zoom`, off the window. Menus carry `data-menu-material` and are matched by name; the
+  rest (the context meter, the stat dialogs, the schedule pickers, the install-registry fieldset) carry
+  nothing, so `dsh-zoom/lib/client.js` marks any body child that declares its own inline placement and
+  the stylesheet cancels the factor on that mark. The family grows with every dsh release, so do not
+  replace the mark with a selector list, and keep the two halves of the string in step (the package suite
+  reads both files and fails when one is renamed). Measured at 1400x900 / 114%: the context popover drew
+  68px past the right edge and 83px past the bottom before the rule, `clipped` after it.
 - Anything the reader arranges belongs on the host, not in browser storage. The hub's feature order lived
   in `localStorage`, which is per-origin, so a drag on the desktop never reached the phone (the shell
   opens dsh at `127.0.0.1:<port>`, the phone reaches it through the proxy at the tunnel's origin). It is

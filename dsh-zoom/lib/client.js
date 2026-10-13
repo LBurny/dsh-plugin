@@ -276,6 +276,63 @@
 		return next;
 	}
 
+	/**
+	 * The mark the stylesheet cancels the factor on, for every surface dsh anchors
+	 * in viewport px and mounts straight into `<body>`.
+	 *
+	 * dsh writes a panel's placement as an inline `left`/`top` while reading its
+	 * anchor with `getBoundingClientRect` (viewport px) and its own size with
+	 * `offsetHeight` (layout px). Mounted under <body>, the page factor lands on
+	 * those written numbers a second time: a 1400x900 window at 114% draws the
+	 * 264x142 context panel 68px past the right edge and 83px past the bottom, and
+	 * the reader reports the popover as cut off. dsh's menus carry
+	 * `data-menu-material` and the stylesheet handles them by name; the panels beside
+	 * them carry nothing, so they are found by the placement itself — which is also
+	 * why this is a script and not a selector list: the family keeps growing (0.2.0
+	 * added the context meter beside three stat dialogs, the schedule pickers and the
+	 * install-registry fieldset are older). Full-screen overlays (modals, the image
+	 * lightbox) and the toasts that were given no anchor declare neither property:
+	 * CSS positions them, and the factor already accounts for that.
+	 */
+	const SURFACE_ATTRIBUTE = "data-dsh-zoom-surface";
+	/** A declaration that *starts* with `left`/`top` — as React serializes an inline
+	 * placement — never one that merely contains them (`padding-left`, `border-top`). */
+	const PLACEMENT = /(?:^|;)\s*(?:left|top)\s*:/;
+
+	/** Watchers per marked surface, so a re-placement is read again without holding
+	 * a removed surface alive: a WeakMap entry dies with its key. */
+	const surfaceObservers = new WeakMap();
+
+	/** Mark one body child by whether it declares its own viewport placement. */
+	function tagSurface(node) {
+		if (node?.nodeType !== 1) return;
+		const style = node.getAttribute("style");
+		node.toggleAttribute(SURFACE_ATTRIBUTE, style !== null && PLACEMENT.test(style));
+	}
+
+	/**
+	 * Keep the mark current. A panel is appended to <body> and placed in a layout
+	 * effect after that, and an anchored toast is given its anchor later still, so
+	 * both the insertion and the later style write are watched. Either way the mark
+	 * lands in the microtask after the mutation, before the frame paints.
+	 */
+	function watchSurfaces() {
+		const watch = (node) => {
+			if (node?.nodeType !== 1 || surfaceObservers.has(node)) return;
+			tagSurface(node);
+			if (typeof MutationObserver === "undefined") return;
+			const observer = new MutationObserver(() => tagSurface(node));
+			observer.observe(node, { attributes: true, attributeFilter: ["style"] });
+			surfaceObservers.set(node, observer);
+		};
+		for (const child of document.body.children) watch(child);
+		if (typeof MutationObserver === "undefined") return;
+		const appended = new MutationObserver((records) => {
+			for (const record of records) for (const node of record.addedNodes) watch(node);
+		});
+		appended.observe(document.body, { childList: true });
+	}
+
 	// A shorter window lowers the ceiling. Re-apply through the clamp so resizing
 	// after zooming in cannot strand the harness's bottom block out of reach.
 	window.addEventListener("resize", () => {
@@ -629,6 +686,10 @@
 	}
 
 	async function boot() {
+		// Marked before anything else: the mark is what the factor is cancelled on, and
+		// a surface dsh mounts later is marked as it arrives. At 100% the rules are a
+		// no-op, so the work is only worth skipping when the host half is missing.
+		watchSurfaces();
 		if (!(await reachable())) return;
 		try {
 			await prepare();
