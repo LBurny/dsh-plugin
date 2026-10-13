@@ -1414,6 +1414,185 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 	);
 }
 
+/* ------------------- the gate refuses a hostile token instead of throwing */
+{
+	// `timingSafeEqual` throws when the two buffers differ in length, and a string-length guard
+	// is not the same test: one multibyte character is one JS character and three bytes, so a
+	// token with the right character count passed the guard and then threw out of the gate. On
+	// the HTTP path that surfaced as a 502; on the WebSocket upgrade path the listener had
+	// nothing to catch it, and an uncaught exception is a process exit for dsh.
+	const { createRemoteManager } = await import("../lib/remote.js");
+	const { createServer: createHttp, request: httpRequest } = await import("node:http");
+	const { connect: netConnect } = await import("node:net");
+	const stubDsh = createHttp((req, res) => {
+		res.writeHead(303, { "set-cookie": "dsh-auth=stub; Path=/; HttpOnly" });
+		res.end();
+	});
+	await new Promise((resolve) => stubDsh.listen(0, "127.0.0.1", resolve));
+	const dir = await mkdtemp(join(tmpdir(), "dsh-remote-gate-"));
+	const token = "gate-token";
+	let settings = { enabled: false, mode: "lan", port: 0, token, cloudflaredPath: "", cloudflaredProxy: "" };
+	const manager = createRemoteManager({
+		ctx: {
+			get: (name) =>
+				({
+					webServer: { port: stubDsh.address().port },
+					connection: { authenticatedUrl: (base) => `${base}/?token=launch-token` }
+				})[name],
+			logger: { info: () => {}, warn: () => {} }
+		},
+		layout: () => ({
+			dshHome: dir,
+			configPath: join(dir, "dsh-remote.json"),
+			sessionPath: join(dir, "dsh-remote-session.json"),
+			tunnelLogPath: join(dir, "dsh-remote-tunnel.log"),
+			workspaceStorePath: join(dir, "workspaces.json")
+		}),
+		config: async () => settings,
+		save: async (patch) => {
+			settings = { ...settings, ...patch };
+			return settings;
+		},
+		log: () => {},
+		findBinary: () => undefined
+	});
+	const up = await manager.enable("lan");
+	const port = up.proxyPort;
+	const hostile = encodeURIComponent("汉".repeat(token.length));
+	check(hostile.length > token.length, "the hostile token has the same character count, not the same bytes", `${String(hostile.length)} query characters`);
+
+	const escaped = [];
+	const onEscaped = (error) => escaped.push(error);
+	process.on("uncaughtException", onEscaped);
+	try {
+		// The HTTP path answers with the gate's own 403; a throw here would have been a 502.
+		const status = await new Promise((resolve, reject) => {
+			const request = httpRequest({ host: "127.0.0.1", port, method: "GET", path: `/?token=${hostile}` }, (response) => {
+				response.resume();
+				response.on("end", () => resolve(response.statusCode));
+			});
+			request.on("error", reject);
+			request.end();
+		});
+		check(status === 403, "a multibyte token of the same character count is refused by the gate", `status ${String(status)}`);
+
+		// And the upgrade path drops the socket instead of letting the comparison escape.
+		const ended = await new Promise((resolve) => {
+			const socket = netConnect(port, "127.0.0.1", () => {
+				socket.write(
+					`GET /?token=${hostile} HTTP/1.1\r\nHost: 127.0.0.1:${String(port)}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`
+				);
+			});
+			socket.on("close", () => resolve("closed"));
+			socket.on("error", () => resolve("error"));
+			setTimeout(() => {
+				socket.destroy();
+				resolve("still open");
+			}, 1500);
+		});
+		check(ended === "closed", "an upgrade carrying that token is dropped, not forwarded", ended);
+	} finally {
+		process.off("uncaughtException", onEscaped);
+	}
+	check(escaped.length === 0, "the gate answers instead of throwing out of the upgrade listener", escaped.map((error) => String(error?.code ?? error)).join(",") || "nothing escaped");
+	await manager.disable();
+	stubDsh.close();
+	await rm(dir, { recursive: true, force: true });
+}
+
+/* ----------------- a recorded pid is killed only when it is still cloudflared */
+{
+	// The pid comes from a previous run of dsh, so it can have been recycled by the time this
+	// boots: measured against the real manager, a record left by a dead tunnel named a
+	// bystander process and the kill took it down. The identity probe is injectable here for
+	// the same reason `findBinary` is: the suite must not need a cloudflared binary to ask both
+	// questions.
+	const { createRemoteManager } = await import("../lib/remote.js");
+	const { createServer: createHttp } = await import("node:http");
+	const { createServer: createNetServer } = await import("node:net");
+	const { spawn } = await import("node:child_process");
+	const stubDsh = createHttp((req, res) => {
+		res.writeHead(303, { "set-cookie": "dsh-auth=stub; Path=/; HttpOnly" });
+		res.end();
+	});
+	await new Promise((resolve) => stubDsh.listen(0, "127.0.0.1", resolve));
+
+	/** A free port, so the record's target can match the port the proxy actually binds. */
+	const grabPort = async () => {
+		const probe = createNetServer();
+		await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+		const { port } = probe.address();
+		await new Promise((resolve) => probe.close(resolve));
+		return port;
+	};
+
+	/** Record a live bystander as the previous tunnel's pid, then boot tunnel mode. */
+	const survives = async (isCloudflared) => {
+		const dir = await mkdtemp(join(tmpdir(), "dsh-remote-stale-"));
+		const exe = join(dir, "cloudflared.exe");
+		await writeFile(exe, "", "utf8");
+		const port = await grabPort();
+		const victim = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], { stdio: "ignore" });
+		let alive = true;
+		victim.on("exit", () => {
+			alive = false;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await saveSession(join(dir, "dsh-remote-session.json"), {
+			tunnelUrl: "http://127.0.0.1:1",
+			tunnelPid: victim.pid,
+			cloudflaredExe: exe,
+			target: `http://127.0.0.1:${String(port)}`
+		});
+		let settings = { enabled: false, mode: "tunnel", port, token: "stale-token", cloudflaredPath: "", cloudflaredProxy: "" };
+		const manager = createRemoteManager({
+			ctx: {
+				get: (name) =>
+					({
+						webServer: { port: stubDsh.address().port },
+						connection: { authenticatedUrl: (base) => `${base}/?token=launch-token` }
+					})[name],
+				logger: { info: () => {}, warn: () => {} }
+			},
+			layout: () => ({
+				dshHome: dir,
+				configPath: join(dir, "dsh-remote.json"),
+				sessionPath: join(dir, "dsh-remote-session.json"),
+				tunnelLogPath: join(dir, "dsh-remote-tunnel.log"),
+				workspaceStorePath: join(dir, "workspaces.json")
+			}),
+			config: async () => settings,
+			save: async (patch) => {
+				settings = { ...settings, ...patch };
+				return settings;
+			},
+			log: () => {},
+			findBinary: () => exe,
+			isCloudflared
+		});
+		const snapshot = await manager.enable("tunnel");
+		// The record has to have been considered for adoption, or the kill path is never reached.
+		const attempted = snapshot.proxyPort === port;
+		await new Promise((resolve) => setTimeout(resolve, 2000));
+		await manager.disable();
+		try {
+			process.kill(victim.pid, "SIGKILL");
+		} catch {
+			/* already dead, which is what the second case asserts */
+		}
+		await rm(dir, { recursive: true, force: true });
+		return { alive, attempted };
+	};
+
+	const bystander = await survives(async () => false);
+	check(bystander.attempted, "the recorded tunnel is considered for adoption before it is killed", "");
+	check(bystander.alive, "a recorded pid that is not cloudflared is left running", "");
+
+	const real = await survives(async () => true);
+	check(!real.alive, "a recorded pid that is still cloudflared is killed, as before", "");
+	stubDsh.close();
+}
+
 /* -------------------------------------------------------------- reporting */
 
 const failed = results.filter((result) => !result.ok);

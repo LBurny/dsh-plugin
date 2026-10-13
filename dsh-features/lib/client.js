@@ -855,7 +855,9 @@ window.__ModuleLoader__.load({
 				node.replaceChildren();
 				const note = (text) => {
 					const message = document.createElement("p");
-					message.className = "note";
+					// Hub-namespaced like every other class on this page: the stylesheet rule is
+					// `.hub-note`, so a bare `note` renders this message unstyled.
+					message.className = "hub-note";
 					message.textContent = text;
 					return message;
 				};

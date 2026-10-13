@@ -224,7 +224,7 @@ function descendants(node, found = []) {
  * what it does with them; without it a panel boots the way a shell lacking them does.
  * @returns the booted panel with its sandbox, the DOM stub and the mount point.
  */
-async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sidebarRequired, level, payload: body, timers, notifications } = {}) {
+async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sidebarRequired, level, payload: body, timers, notifications, failSaves } = {}) {
 	const dom = makeDom();
 	dom.sidebarRequired = sidebarRequired;
 	// Window listeners are recorded so a test can fire them the way the browser does.
@@ -264,8 +264,12 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 			disconnect() {}
 		},
 		localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-		fetch: async (url) => {
+		fetch: async (url, init) => {
 			const path = String(url);
+			// A host that is restarting refuses the connection instead of answering. `failSaves`
+			// reproduces that for every write, which is the case a save path has to survive: an
+			// unguarded `void postJson(...)` rejects unhandled and the control looks dead.
+			if (failSaves === true && String(init?.method ?? "GET").toUpperCase() !== "GET") throw new Error("host is restarting");
 			if (path.includes("/dsh-features/api/status")) {
 				if (!hub) throw new Error("no hub");
 				return { ok: true, status: 200, json: async () => ({ ok: true, hub: "dsh-features" }) };
@@ -1077,6 +1081,51 @@ check(
 	"dsh-remote: a compressed release that held no binary says so in its own words",
 	unpackNote.slice(0, 240)
 );
+
+/* -------------------- dsh-zoom: a level save that fails is caught --------- */
+
+// The slider persists the level on its own path (`patchConfig` re-renders, so it is not the
+// one a drag uses), and that path was the only bare `void postJson(...)` left in the panels: a
+// host that is restarting left an unhandled rejection and a level that was silently not saved.
+// The debounce runs for real here, so the wait is longer than its 400ms.
+{
+	const escaped = [];
+	const onEscaped = (error) => escaped.push(error);
+	process.on("unhandledRejection", onEscaped);
+	const booted = await bootPanel("dsh-zoom", { level: 1, failSaves: true });
+	const range = descendants(booted.host).find((node) => node.attrs?.type === "range");
+	check(range !== undefined, "dsh-zoom: the level slider is rendered", JSON.stringify(range?.attrs ?? null));
+	range.value = "1.5";
+	range.listeners.change?.();
+	await new Promise((resolve) => setTimeout(resolve, 800));
+	process.off("unhandledRejection", onEscaped);
+	check(
+		escaped.length === 0,
+		"dsh-zoom: a level save the host refuses is caught, not left to the console",
+		escaped.map((error) => String(error?.message)).join(",") || "nothing escaped"
+	);
+	check(textOf(toastsOf(booted.dom, booted.host) ?? { children: [] }).length > 0, "dsh-zoom: and the panel reports the failed save", "");
+}
+
+/* ------------- dsh-notify: the grant button without the Notification API -- */
+
+// A browser with no Notification API (a phone browser tab, for one) cannot ask for permission
+// at all: the button used to render enabled there and threw a ReferenceError when tapped.
+{
+	const grantOf = (booted) => descendants(booted.host).find((node) => node.tag === "button" && node.textContent === "授权系统通知");
+	const offline = grantOf(await bootPanel("dsh-notify", { payload: notifyPayload }));
+	check(
+		offline !== undefined && offline.attrs.disabled !== undefined,
+		"dsh-notify: with no Notification API the grant button is disabled rather than live",
+		JSON.stringify(offline?.attrs ?? null)
+	);
+	const live = grantOf(await bootPanel("dsh-notify", { payload: notifyPayload, notifications: { permission: "default", played: [], shown: [] } }));
+	check(
+		live !== undefined && live.attrs.disabled === undefined,
+		"dsh-notify: with an unprompted API the button is still enabled, so permission can be asked",
+		JSON.stringify(live?.attrs ?? null)
+	);
+}
 
 /* ----------------------------------------------------------------- report */
 

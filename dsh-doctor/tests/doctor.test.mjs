@@ -6,7 +6,8 @@
  * `@deepseek-ai/dsh-app-boot` for the runtime version):
  *   node test/doctor.test.mjs
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -66,6 +67,43 @@ const homeFiles = await readLogFiles({ shellLogPath: join(dir, "absent.log"), ds
 check(homeFiles.map((file) => file.source).join(",") === "startup,tunnel", "the home's own logs are found", homeFiles.map((file) => file.source).join(","));
 check(homeFiles[0].path.endsWith("startup-2026-10-10T01-00-00-000Z-new.log"), "the newest startup report wins", homeFiles[0].path);
 check(homeFiles[0].lines.join("") === "new report", "the startup report's tail is read", homeFiles[0].lines.join("|"));
+
+// A candidate that cannot be *opened* has to be dropped like a missing one. `open` sits
+// outside the try that guards `stat`, so a file that vanishes between the two calls (log
+// rotation, the tunnel log being rewritten) or one that is locked used to reject the whole
+// read, which answers the diagnostics route with a 500 instead of the files it does have.
+// The race itself is microseconds wide, so this stages the same call path by taking read
+// permission away.
+const lockedPath = join(dir, "locked.log");
+await writeFile(lockedPath, "cannot be read\n", "utf8");
+let unreadable = false;
+if (process.platform === "win32") {
+	try {
+		execFileSync("icacls", [lockedPath, "/deny", `${String(process.env.USERNAME)}:(R)`], { stdio: "ignore" });
+		unreadable = true;
+	} catch {
+		unreadable = false;
+	}
+} else {
+	unreadable = await chmod(lockedPath, 0o000).then(
+		() => true,
+		() => false
+	);
+}
+if (unreadable) {
+	const size = (await stat(lockedPath)).size;
+	const denied = await readLogFiles({ shellLogPath: lockedPath });
+	check(denied.length === 0, "a log that cannot be opened is not a source either", `${String(denied.length)} sources, file still stats at ${String(size)}b`);
+	if (process.platform === "win32") {
+		try {
+			execFileSync("icacls", [lockedPath, "/remove:d", String(process.env.USERNAME)], { stdio: "ignore" });
+		} catch {
+			/* the temp directory goes either way */
+		}
+	}
+} else {
+	console.log("note: this machine will not deny read on a file, skipping the unreadable-log check");
+}
 
 await rm(dir, { recursive: true, force: true });
 

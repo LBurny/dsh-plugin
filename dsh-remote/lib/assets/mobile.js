@@ -85,6 +85,17 @@
       for (const b of tablist.querySelectorAll(`[${TAB_ATTR}][data-active], [${PROJECT_TAB_ATTR}][data-active]`))
         b.removeAttribute('data-active')
     }
+    // 断点监听只保留最新一份：每次 setupInfo 都新建 mq，旧监听不移除就会随头部重挂堆积
+    // （回调闭包着已卸载的节点，是纯泄漏）。
+    let breakpointMq
+    let breakpointHandler
+    const watchBreakpoint = (mq, handler) => {
+      if (breakpointMq && breakpointHandler) breakpointMq.removeEventListener('change', breakpointHandler)
+      breakpointMq = mq
+      breakpointHandler = handler
+      mq.addEventListener('change', handler)
+      handler()
+    }
     // 捕获期：点原生"对话/轨迹"退出增强面板（React 自己的标签切换不受影响）。
     // 每个 tablist 只挂一次（信息/项目两个 setup 都会调）
     const ensureCloseWiring = (tablist, chatRoot) => {
@@ -210,11 +221,20 @@
       // 否则宽屏下标签被 CSS 隐藏、原行也被隐藏，统计就无处可见了。
       const mq = matchMedia('(max-width: 700px)')
       const applyEnhanced = () => {
-        if (mq.matches) document.documentElement.setAttribute(ENHANCED_ATTR, '')
-        else document.documentElement.removeAttribute(ENHANCED_ATTR)
+        if (mq.matches) {
+          document.documentElement.setAttribute(ENHANCED_ATTR, '')
+          return
+        }
+        document.documentElement.removeAttribute(ENHANCED_ATTR)
+        // 信息页只属于窄屏，离开 ≤700px 时它已被 CSS 隐藏，但"打开中"的旗标会留下来：
+        // 降级原生激活态的规则写在媒体查询**外面**（不限宽度的项目页也要用），旗标留着
+        // 就继续压掉对话/轨迹的选中态，宽屏标签条于是一个选中的都没有。收起信息页并回收
+        // 旗标；项目页不限宽度，开着就保留（它盖着内容，那份降级仍然是对的）。
+        chatRoot.removeAttribute(OPEN_ATTR)
+        btn.removeAttribute('data-active')
+        if (!chatRoot.hasAttribute(PROJECT_OPEN_ATTR)) tablist.removeAttribute('data-dshmobile-open')
       }
-      mq.addEventListener('change', applyEnhanced)
-      applyEnhanced()
+      watchBreakpoint(mq, applyEnhanced)
     }
 
     // 项目标签：面板是 iframe 指向代理托管的项目页（同源，页面自读当前会话）。

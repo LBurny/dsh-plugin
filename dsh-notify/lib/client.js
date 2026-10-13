@@ -381,11 +381,14 @@
 		});
 		volume.addEventListener("change", () => void patchConfig({ volume: Number(volume.value) }));
 
+		// A browser without the API (a phone tab, for one) cannot ask for permission at all.
+		// Leaving the button enabled there made it throw a ReferenceError and look live.
 		const permission = typeof Notification === "undefined" ? undefined : Notification.permission;
 		const grant = el("button", {
 			text: T("permission"),
-			disabled: permission === "granted" || permission === "denied",
+			disabled: permission !== "default",
 			onclick: async () => {
+				if (typeof Notification === "undefined") return;
 				await Notification.requestPermission();
 				void render();
 			}
@@ -507,7 +510,7 @@
 			notify: {
 				title: T("title"),
 				icon: "M8 2.5a3.5 3.5 0 00-3.5 3.5v2.7L3 12h10l-1.5-3.3V6A3.5 3.5 0 008 2.5zM6.8 13.5a1.3 1.3 0 002.4 0",
-				order: 50,
+				order: 40,
 				mount: mountInline
 			}
 		});

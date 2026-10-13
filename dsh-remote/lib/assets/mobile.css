@@ -323,24 +323,17 @@
   }
 
   /*
-   * 模型二级菜单越界：菜单 absolute right:0 相对 45px 药丸定位，宽 281px 时
-   * 左缘越出屏幕被裁（模型列表 "-V4-Flash" 左半截）。药丸根改静态定位，包含
-   * 块上移到输入卡片（trailing/row 均 static，卡片是第一个 relative 祖先），
-   * right:0 对齐卡片右缘；上游菜单纵向锚 bottom:36px（相对 28px 药丸=贴药丸
-   * 上方），落到卡片上会叠进输入行——显式 bottom:calc(100%+8px) 抬到卡片
-   * 上方弹出。max-width 兜底超长模型名，菜单内部滚动。
+   * 模型二级菜单的位置本层不再参与。上游把这枚下拉改成 createPortal 到 <body> 的浮层，
+   * 打开后由 place() 用触发器的 rect 与 window 尺寸算出内联 left/top，于是原先那组规则
+   * 全部落空，删掉而不是留着误导下一个人：
+   * - `[data-slot="conversation.input.model"] [class*="_menu"]` 的祖先链已不成立（菜单不在
+   *   槽位子树里），里面的 left/right/bottom/max-width 谁都匹配不到；
+   * - 触发器上的 position:static 当初只是为了让输入卡片成为 absolute 菜单的包含块，上游
+   *   触发器的定位子树里没有依赖它的 absolute 元素（同包只有 _searchRow 是 relative，且在
+   *   菜单内部），删掉即回到上游自己的 position:relative；
+   * - 内联样式优先级高于样式表，真要改位置只能 !important 去抢上游的算法，不值当。
+   * 手机端因此用上游自己的定位。
    */
-  [data-slot="conversation.input.model"] > [class*="_root"] {
-    position: static;
-  }
-  [data-slot="conversation.input.model"] [class*="_menu"] {
-    left: auto;
-    right: 0;
-    top: auto;
-    bottom: calc(100% + 8px);
-    max-width: calc(100vw - 24px);
-    overflow-y: auto;
-  }
 
   /*
    * 消息页脚统计（_timeEnd：时间 · 用时 · 首 token · tok/s）：单行 nowrap

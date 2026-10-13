@@ -7,7 +7,7 @@
  *   node test/skills.test.mjs
  */
 import { deflateRawSync } from "node:zlib";
-import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { crc32, discoverZipSkills, extractZipPrefix, listEntries, normalizeEntryName, readEntry, ZipError } from "../lib/zip.js";
@@ -332,6 +332,39 @@ if (loopArmed) {
 	const survived = await readFile(join(importStore.skillsDir, "loopy", "SKILL.md"), "utf8").catch(() => "");
 	check(overwriteThrew && survived.includes("the original"), "a failed overwrite leaves the skill that was already installed", survived.replace(/\s+/gu, " ").trim());
 }
+
+// The same requirement from the other side: the installed copy is moved into the staging
+// directory *before* the loop has seen everything it has to move, and that staging directory
+// is deleted in `finally`. So a throw out of the loop itself (a name in the way, a copy that
+// cannot be moved) used to take the installed skill with it, which no test covered because
+// the failing cases above all break inside `populate`.
+await mkdir(importStore.skillsDisabledDir, { recursive: true });
+await writeFile(join(importStore.skillsDisabledDir, "alpha"), "not a skill\n", "utf8");
+let strayThrew = false;
+try {
+	await importSkills(importStore, "codex", ["alpha"], "overwrite", importSources(homeDir));
+} catch {
+	strayThrew = true;
+}
+const keptOnStray = await readFile(join(importStore.skillsDir, "alpha", "SKILL.md"), "utf8").catch(() => "");
+check(
+	strayThrew && keptOnStray.includes("From the farm"),
+	"a name in the way fails the import without costing the copy already installed",
+	keptOnStray.replace(/\s+/gu, " ").trim() || "(the installed copy is gone)"
+);
+await rm(join(importStore.skillsDisabledDir, "alpha"), { force: true });
+
+// A root-level skill's prefix is empty, which matches every entry in the archive. The other
+// skills discovered in it are not its files: without excluding them, importing the root
+// skill wrote `alpha/SKILL.md` (and the rest of the sibling) inside the root skill.
+const mixedZip = buildZip([
+	{ name: "SKILL.md", data: Buffer.from("---\nname: rootly\ndescription: the root skill\n---\n", "utf8"), method: 0 },
+	{ name: "alpha/SKILL.md", data: Buffer.from("---\nname: alpha\ndescription: a sibling\n---\n", "utf8"), method: 0 }
+]);
+const mixed = await importZipSkills(importStore, mixedZip, "mixed.zip", ["rootly"], "skip");
+const rootlyFiles = await readdir(join(importStore.skillsDir, "rootly")).catch(() => []);
+check(mixed.imported.join(",") === "rootly", "a root-level skill imports out of a mixed archive", JSON.stringify(mixed.errors));
+check(!rootlyFiles.includes("alpha"), "the sibling skill's files stay out of the root skill", rootlyFiles.join(","));
 
 // The ZIP path replaces the same way: a name that cannot be installed must not cost the
 // copy already in place.

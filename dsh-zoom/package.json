@@ -21,7 +21,7 @@
     "ui": {
       "feature": {
         "key": "zoom",
-        "order": 40,
+        "order": 50,
         "title": {
           "zh": "页面缩放",
           "en": "Zoom"

@@ -553,7 +553,7 @@
 			remote: {
 				title: T("title"),
 				icon: "M5.5 2h5a1 1 0 011 1v10a1 1 0 01-1 1h-5a1 1 0 01-1-1V3a1 1 0 011-1zM7.2 12.3h1.6",
-				order: 60,
+				order: 30,
 				mount: mountInline
 			}
 		});

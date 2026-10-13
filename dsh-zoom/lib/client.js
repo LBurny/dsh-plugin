@@ -302,8 +302,21 @@
 		setTimeout(() => observer.disconnect(), 60_000);
 	}
 
+	/**
+	 * Persist the resting level. The slider fires `input` at pointer speed, so only the
+	 * settled value is worth a request, and it does not go through `patchConfig` (which
+	 * re-renders). The failure still has to be caught: a host that is restarting refuses the
+	 * connection, and without this the rejection escaped to the console while the setting
+	 * was silently lost.
+	 */
 	const persistLevel = debounce(() => {
-		void postJson(`${API}/settings`, { level: config.level });
+		void postJson(`${API}/settings`, { level: config.level })
+			.then((result) => {
+				if (result?.ok !== true) throw new Error(result?.error ?? "settings save failed");
+			})
+			.catch((error) => {
+				toast(T("failed"), String(error?.message ?? error));
+			});
 	}, 400);
 
 	/** Match a keyboard event against a stored shortcut descriptor. */
@@ -585,7 +598,7 @@
 			zoom: {
 				title: T("title"),
 				icon: "M7 3a4 4 0 100 8 4 4 0 000-8zM9.9 9.9L14 14",
-				order: 40,
+				order: 50,
 				mount: mountInline
 			}
 		});

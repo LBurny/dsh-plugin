@@ -83,7 +83,7 @@ window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
   doctor: {
     title: "诊断",                      // 侧栏标签（功能自己已本地化）
     icon: "M2 8.5h3l1.5-4 2.5 7 ...",   // 可选：16×16 描边 SVG path
-    order: 30,                          // 默认顺序（读者的拖拽顺序优先）
+    order: 60,                          // 默认顺序（读者的拖拽顺序优先）
     mount(host) { /* 渲染进 host */ }     // 每次进入都调用；必须可重挂
   }
 });
@@ -93,7 +93,7 @@ window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
 
 ```json
 "dsh": { "ui": { "feature": {
-  "key": "doctor", "order": 30,
+  "key": "doctor", "order": 60,
   "title": { "zh": "诊断", "en": "Doctor" },
   "summary": { "zh": "运行状态与日志尾部", "en": "Status and log tail" }
 } } }

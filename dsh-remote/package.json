@@ -21,7 +21,7 @@
     "ui": {
       "feature": {
         "key": "remote",
-        "order": 60,
+        "order": 30,
         "title": {
           "zh": "手机远程访问",
           "en": "Remote"

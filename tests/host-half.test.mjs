@@ -12,7 +12,7 @@
  * Run from the repository root:
  *   node tests/host-half.test.mjs
  */
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -118,7 +118,7 @@ async function mountHostHalf(pkg) {
 	} catch (error) {
 		failure = error;
 	}
-	return { registered, failure, logged, rm: () => rmSync(home, { recursive: true, force: true }) };
+	return { registered, failure, logged, home, rm: () => rmSync(home, { recursive: true, force: true }) };
 }
 
 /** A response recorder: what a route handler wrote. */
@@ -255,6 +255,48 @@ for (const pkg of PACKAGES) {
 				(forged.status === 400 || forged.status === 500) && forged.body.includes("expected a JSON body"),
 				`${pkg}: a non-JSON POST never reaches the action`,
 				`status ${String(forged.status)} body ${forged.body.slice(0, 70)}`
+			);
+		}
+
+		// The reader's feature order is one file every origin shares, so a malformed POST must
+		// never reach the writer: `normalizeOrder` answers `[]` for anything that is not a keys
+		// array, and the save would then wipe the arrangement while answering `ok`.
+		if (pkg === HUB) {
+			const orderPath = join(mounted.home, "dsh-features.json");
+			writeFileSync(orderPath, '{"navOrder":["skills","mcp"]}', "utf8");
+			const postOrder = async (body) => {
+				const res = recorder();
+				await route.handler(
+					{
+						url: "/dsh-features/api/order",
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						async *[Symbol.asyncIterator]() {
+							yield Buffer.from(body);
+						}
+					},
+					res
+				);
+				return res;
+			};
+			for (const body of ["{}", "[1,2]", '{"keys":"b"}', "null"]) {
+				const refused = await postOrder(body);
+				check(
+					refused.status === 400,
+					`${pkg}: an order POST without a keys array is refused (${body})`,
+					`status ${String(refused.status)} body ${refused.body.slice(0, 60)}`
+				);
+			}
+			check(
+				readFileSync(orderPath, "utf8") === '{"navOrder":["skills","mcp"]}',
+				`${pkg}: a refused order POST leaves the saved order alone`,
+				readFileSync(orderPath, "utf8")
+			);
+			const saved = await postOrder('{"keys":["mcp","skills"]}');
+			check(
+				saved.status === 200 && readFileSync(orderPath, "utf8").includes('"mcp"'),
+				`${pkg}: a real keys array still saves the order`,
+				`status ${String(saved.status)} file ${readFileSync(orderPath, "utf8")}`
 			);
 		}
 

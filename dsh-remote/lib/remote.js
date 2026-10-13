@@ -30,15 +30,16 @@
  *
  * @module dsh-remote/lib/remote
  */
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, readlink } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { connect as netConnect } from "node:net";
 import { networkInterfaces } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { findCloudflared } from "./cloudflared.js";
 import { respond as respondEnhanced } from "./enhance.js";
 import { handleProjectRoute, PROJECT_API_PREFIX, PROJECT_PREFIX } from "./project.js";
@@ -106,10 +107,21 @@ export function generateToken() {
 	return randomBytes(32).toString("hex");
 }
 
-/** Constant-time token comparison. */
+/**
+ * Constant-time token comparison.
+ *
+ * Both sides are converted to bytes first and the *byte* lengths compared, because
+ * `timingSafeEqual` throws on a mismatch instead of answering false. A string-length
+ * guard is not the same test: one multibyte character is one JS character and three
+ * bytes, so a 64-character multibyte token used to pass the guard and then throw
+ * `ERR_CRYPTO_TIMING_SAFE_EQUAL_LENGTH` out of the gate.
+ */
 function tokenEquals(actual, expected) {
-	if (typeof actual !== "string" || typeof expected !== "string" || actual.length !== expected.length || actual.length === 0) return false;
-	return timingSafeEqual(Buffer.from(actual, "utf8"), Buffer.from(expected, "utf8"));
+	if (typeof actual !== "string" || typeof expected !== "string" || actual.length === 0) return false;
+	const presented = Buffer.from(actual, "utf8");
+	const stored = Buffer.from(expected, "utf8");
+	if (presented.length !== stored.length) return false;
+	return timingSafeEqual(presented, stored);
 }
 
 /**
@@ -179,7 +191,7 @@ export function parseTunnelUrl(text) {
  * @param options - binary path, local target, log sink, log file path and a logger.
  * @returns start/adopt/stop handle plus a status snapshot.
  */
-function createTunnel({ exe, target, logPath, onSession, log }) {
+function createTunnel({ exe, target, logPath, onSession, log, isCloudflared = looksLikeCloudflared }) {
 	let child;
 	let url = "";
 	let adoptedPid;
@@ -370,7 +382,8 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
 		clearTimers();
 		if (revoke) {
 			stopChild();
-			killStale(adoptedPid);
+			// Best effort and asynchronous: the pid has to be proven to be cloudflared first.
+			void killStale(adoptedPid, isCloudflared);
 		} else {
 			// Leaving the child alive means dropping our handle to it, not killing it.
 			child = undefined;
@@ -415,10 +428,19 @@ function createTunnel({ exe, target, logPath, onSession, log }) {
  * Kill a process this run does not own, best effort. Used on a recorded tunnel that
  * turned out to be unusable, so a long-lived machine does not collect cloudflared
  * processes that nobody will ever adopt, and on an adopted tunnel the reader turns off.
+ *
+ * The pid alone is not enough to kill on: it is recycled, so a record written by a
+ * previous boot can name an unrelated process by the time this runs (measured: the
+ * recorded pid of a dead tunnel belonged to a bystander, and the kill took it down).
+ * The process has to still be cloudflared, and never this process.
+ *
  * @param pid - the recorded pid.
+ * @param isCloudflared - the identity probe (injectable, so the rules above are testable
+ *   without a cloudflared binary on the machine).
  */
-function killStale(pid) {
-	if (!Number.isInteger(pid) || pid <= 0) return;
+async function killStale(pid, isCloudflared = looksLikeCloudflared) {
+	if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return;
+	if (!(await isCloudflared(pid))) return;
 	try {
 		if (process.platform === "win32") {
 			const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
@@ -431,6 +453,34 @@ function killStale(pid) {
 		}
 	} catch {
 		/* already gone */
+	}
+}
+
+/** The runner `execFile` promises, kept at module scope so the probe stays cheap. */
+const runFile = promisify(execFile);
+
+/**
+ * Whether the process at `pid` is still a cloudflared. A probe that cannot answer (the
+ * process is gone, or it is not ours to inspect) answers false, so nothing is killed on
+ * a guess.
+ * @param pid - the pid from the session record.
+ */
+async function looksLikeCloudflared(pid) {
+	try {
+		if (process.platform === "win32") {
+			// "cloudflared.exe","1234","Console","1","12,345 K"
+			const { stdout } = await runFile("tasklist", ["/FI", `PID eq ${String(pid)}`, "/FO", "CSV", "/NH"], { windowsHide: true, timeout: 4000 });
+			return /^"cloudflared[^"]*"/iu.test(String(stdout).trim());
+		}
+		try {
+			return /cloudflared/u.test(await readlink(`/proc/${String(pid)}/exe`));
+		} catch {
+			// No /proc (macOS): ask ps instead.
+			const { stdout } = await runFile("ps", ["-p", String(pid), "-o", "comm="], { timeout: 4000 });
+			return /cloudflared/u.test(String(stdout).trim());
+		}
+	} catch {
+		return false;
 	}
 }
 
@@ -462,7 +512,7 @@ async function tunnelAnswers(url, token, timeoutMs = TUNNEL_PROBE_TIMEOUT_MS) {
  *   binary probe. That probe is injectable because it reads the real environment: on a
  *   machine that already has cloudflared the real one would be spawned by a test.
  */
-export function createRemoteManager({ ctx, layout, config, save, log, findBinary = findCloudflared }) {
+export function createRemoteManager({ ctx, layout, config, save, log, findBinary = findCloudflared, isCloudflared = looksLikeCloudflared }) {
 	let server;
 	let tunnel;
 	/** An in-flight tunnel start; a concurrent caller joins it instead of spawning twice. */
@@ -888,6 +938,7 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 			target,
 			logPath: paths.tunnelLogPath,
 			onSession: (state_) => saveSession(paths.sessionPath, state_),
+			isCloudflared,
 			log
 		});
 		// Subscribe before starting or adopting: both notify synchronously, and a listener
@@ -905,8 +956,9 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 			resumed = true;
 		} else {
 			// A recorded tunnel that cannot be adopted is dead weight: kill it so a
-			// long-lived machine does not accumulate cloudflared processes.
-			if (saved !== undefined) killStale(saved.tunnelPid);
+			// long-lived machine does not accumulate cloudflared processes. The probe inside
+			// `killStale` is what keeps a recycled pid from taking an innocent process down.
+			if (saved !== undefined) await killStale(saved.tunnelPid, isCloudflared);
 			clearSession(paths.sessionPath);
 			resumed = false;
 			tunnel.start();
@@ -952,7 +1004,19 @@ export function createRemoteManager({ ctx, layout, config, save, log, findBinary
 			handle(req, res).catch((cause) => fail(res, cause));
 		});
 		listening.on("upgrade", (req, socket, head) => {
-			if (!admitted(req).ok) {
+			// A throw out of an event listener is an uncaught exception, and dsh's own
+			// handler exits the process: anything the gate can throw has to end this socket
+			// instead. `admitted` reads a cookie and a query string, so it is the one place
+			// here where untrusted input is parsed.
+			let verdict;
+			try {
+				verdict = admitted(req);
+			} catch (cause) {
+				log(`remote upgrade refused: ${String(cause?.message ?? cause)}`);
+				socket.destroy();
+				return;
+			}
+			if (!verdict.ok) {
 				socket.destroy();
 				return;
 			}

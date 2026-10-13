@@ -252,9 +252,12 @@ export function discoverZipSkills(buffer, archiveName) {
  * @param buffer - the whole archive.
  * @param prefix - the discovered skill prefix (`""` for a root-level skill).
  * @param destination - target directory, created as needed.
+ * @param siblings - prefixes of the other skills in the same archive. A root-level skill's
+ *   prefix is `""`, which matches every entry, so without this an archive holding both a
+ *   root `SKILL.md` and `alpha/SKILL.md` writes `alpha/` inside the root skill.
  * @returns `{ files, bytes }` written.
  */
-export async function extractZipPrefix(buffer, prefix, destination) {
+export async function extractZipPrefix(buffer, prefix, destination, siblings = []) {
 	const entries = listEntries(buffer);
 	let files = 0;
 	let bytes = 0;
@@ -262,6 +265,7 @@ export async function extractZipPrefix(buffer, prefix, destination) {
 		if (entry.directory) continue;
 		const name = normalizeEntryName(entry.name);
 		if (name === undefined || !name.startsWith(prefix)) continue;
+		if (siblings.some((other) => name.startsWith(other))) continue;
 		const rel = name.slice(prefix.length);
 		if (rel === "") continue;
 		files += 1;

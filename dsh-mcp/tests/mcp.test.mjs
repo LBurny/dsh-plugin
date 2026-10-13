@@ -151,6 +151,49 @@ check(hand?.serverName === "renamed-hand", "the hand-written row still takes the
 await deleteMcpServer(layout3, hand.id);
 check((await listMcpServers(layout3)).length === 0, "a drifted row deletes by the id the listing reports", "");
 
+// --- two rows may not end up sharing an id or a server name ----------------
+// The listing is what the panel addresses a row by, and it takes the first match: a duplicate
+// means a toggle or a delete lands on the wrong server, and two rows expose one tool
+// namespace. A rename onto a name another row already uses is the same clash reached from the
+// other end, and so is adding a server whose name a hand-written row already carries.
+const dir4 = await mkdtemp(join(tmpdir(), "kit-mcp-clash-"));
+const layout4 = { patchPath: join(dir4, "cordis.patch.yml"), profileDir: dir4 };
+await writeFile(layout4.patchPath, "- insert: []\n", "utf8");
+await upsertMcpServer(layout4, { serverName: "alpha", transport: "stdio", command: "npx" });
+await upsertMcpServer(layout4, { serverName: "beta", transport: "stdio", command: "npx" });
+let renameClash = "";
+try {
+	await upsertMcpServer(layout4, { serverName: "beta", transport: "stdio", command: "npx" }, "mcp-alpha");
+} catch (error) {
+	renameClash = String(error.message);
+}
+const afterClash = await listMcpServers(layout4);
+check(renameClash.includes("beta"), "a rename onto a name another row uses is refused", renameClash || "(the rename was allowed)");
+check(
+	afterClash.length === 2 && new Set(afterClash.map((server) => server.id)).size === 2,
+	"the refused rename leaves one id per row",
+	JSON.stringify(afterClash.map((server) => `${server.id}=${server.serverName}`))
+);
+
+const dir5 = await mkdtemp(join(tmpdir(), "kit-mcp-drifted-"));
+const layout5 = { patchPath: join(dir5, "cordis.patch.yml"), profileDir: dir5 };
+await writeFile(
+	layout5.patchPath,
+	["- insert:", "    - id: custom-id", "      name: '@deepseek-ai/dsh-mcp-client'", "      config:", "        serverName: web", "        transport: stdio", "        command: npx", ""].join("\n"),
+	"utf8"
+);
+let addClash = "";
+try {
+	await upsertMcpServer(layout5, { serverName: "web", transport: "stdio", command: "uvx" });
+} catch (error) {
+	addClash = String(error.message);
+}
+check(
+	addClash.includes("web") && (await listMcpServers(layout5)).length === 1,
+	"adding a server whose name a hand-written row already uses is refused",
+	addClash || "(the add was allowed)"
+);
+
 const failed = results.filter((result) => !result.ok);
 for (const result of results) console.log(`${result.ok ? "ok  " : "FAIL"} ${result.label}${result.detail ? ` — ${result.detail}` : ""}`);
 console.log(failed.length === 0 ? "\nMCP TEST PASS" : `\nMCP TEST FAIL (${failed.length})`);

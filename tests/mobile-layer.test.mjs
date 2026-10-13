@@ -68,6 +68,38 @@ function element(tag, className = "", text = "") {
 			inserted.parent = node.parent;
 			return inserted;
 		},
+		/** The conversation path appends, inserts before a sibling, and walks up with `closest`. */
+		appendChild(child) {
+			node.append(child);
+			return child;
+		},
+		insertBefore(child, before) {
+			child.parent = node;
+			const at = before === undefined || before === null ? -1 : node.children.indexOf(before);
+			if (at === -1) node.children.push(child);
+			else node.children.splice(at, 0, child);
+			return child;
+		},
+		closest(selector) {
+			for (let current = node; current !== undefined; current = current.parent) {
+				if (matches(current, selector)) return current;
+			}
+			return null;
+		},
+		/** Click listeners are recorded, so a test can fire the control the way a tap does. */
+		listeners: {},
+		addEventListener(type, handler) {
+			(node.listeners[type] ??= []).push(handler);
+		},
+		removeEventListener(type, handler) {
+			const list = node.listeners[type];
+			if (list === undefined) return;
+			const at = list.indexOf(handler);
+			if (at !== -1) list.splice(at, 1);
+		},
+		fire(type) {
+			for (const handler of node.listeners[type] ?? []) handler({ target: node });
+		},
 		/** The tab-strip fit writes its factor here (`style.setProperty`). */
 		style: {
 			props: {},
@@ -85,13 +117,16 @@ function element(tag, className = "", text = "") {
 	return node;
 }
 
-/** `[class*="_x"]` substring matching, plain `[data-x]` presence, and `*` — all the layer asks. */
+/** `[class*="_x"]` substring matching, `[data-x]` presence, `[k="v"]` equality, a tag name, `*`. */
 function matches(node, part) {
 	if (part === "*") return true;
 	const substring = /\[class\*="([^"]+)"\]/u.exec(part);
 	if (substring !== null) return node.className.includes(substring[1]);
+	const equality = /^\[([a-zA-Z-]+)="([^"]*)"\]$/u.exec(part);
+	if (equality !== null) return node.getAttribute(equality[1]) === equality[2];
 	const present = /^\[([a-zA-Z-]+)\]$/u.exec(part);
-	return present !== null && node.hasAttribute(present[1]);
+	if (present !== null) return node.hasAttribute(present[1]);
+	return node.tag === part;
 }
 const descendants = (node, parts) => {
 	let level = [node];
@@ -134,7 +169,9 @@ function makeSheet({ lang = "zh", withFailure = true } = {}) {
 	const body = element("body", "");
 	body.append(overlay);
 	const document = {
-		documentElement: { lang, hasAttribute: () => false, setAttribute() {} },
+		// A real element, not an attribute-less stub: the layer writes and removes the enhanced
+		// flag on it, and a stub that cannot remove would abort the whole tab branch silently.
+		documentElement: Object.assign(element("html", ""), { lang }),
 		body,
 		querySelector: (selector) => querySelector(body, selector),
 		querySelectorAll: (selector) => querySelectorAll(body, selector),
@@ -147,13 +184,30 @@ function makeSheet({ lang = "zh", withFailure = true } = {}) {
 }
 
 /** Run the layer's real source against a stub sheet. */
-function run(sheet) {
+function run(sheet, { narrow = false } = {}) {
+	// The layer follows the phone breakpoint, so the stub has to be flippable the way a
+	// rotation is; `set` notifies the listeners the layer registered.
+	const mq = {
+		matches: narrow,
+		handlers: [],
+		addEventListener(type, handler) {
+			if (type === "change") mq.handlers.push(handler);
+		},
+		removeEventListener(type, handler) {
+			const at = mq.handlers.indexOf(handler);
+			if (at !== -1) mq.handlers.splice(at, 1);
+		},
+		set(value) {
+			mq.matches = value;
+			for (const handler of [...mq.handlers]) handler();
+		}
+	};
 	const sandbox = {
 		document: sheet.document,
 		location: { href: "http://phone.test:29274/", pathname: "/", search: "", hash: "" },
 		// The layer's other modules touch the viewport and the media query; the sandbox has
 		// to answer them, or the script dies before the settings branch is ever reached.
-		matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+		matchMedia: () => mq,
 		visualViewport: { addEventListener() {}, removeEventListener() {}, offsetTop: 0 },
 		scrollTo() {},
 		innerHeight: 844,
@@ -181,6 +235,7 @@ function run(sheet) {
 		setTimeout,
 		clearTimeout
 	};
+	sandbox.mq = mq;
 	vm.createContext(sandbox);
 	vm.runInContext(source, sandbox, { filename: "mobile.js" });
 	return sandbox;
@@ -213,7 +268,7 @@ function makeTabbedSheet({ lang = "zh", cells = [88, 62, 88, 100], navWidth = 39
 	const body = element("body", "");
 	body.append(overlay);
 	const document = {
-		documentElement: { lang, hasAttribute: () => false, setAttribute() {} },
+		documentElement: Object.assign(element("html", ""), { lang }),
 		body,
 		querySelector: (selector) => querySelector(body, selector),
 		querySelectorAll: (selector) => querySelectorAll(body, selector),
@@ -223,6 +278,42 @@ function makeTabbedSheet({ lang = "zh", cells = [88, 62, 88, 100], navWidth = 39
 		createElement: (tag) => element(tag, "")
 	};
 	return { body, overlay, panel, nav, list, document };
+}
+
+/**
+ * A conversation view: `chatRoot > header > tablist` with the two native tabs, plus the
+ * composer stats row the info panel clones. Only the shapes the tab branch matches on.
+ */
+function makeConversation() {
+	const chatRoot = element("div", "Ab12_root");
+	const header = element("header", "");
+	const tablist = element("div", "Ab12_tabs");
+	tablist.setAttribute("role", "tablist");
+	const chat = element("button", "Ab12_tab Ab12_tabActive", "对话");
+	chat.setAttribute("role", "tab");
+	const trace = element("button", "Ab12_tab", "轨迹");
+	trace.setAttribute("role", "tab");
+	tablist.append(chat, trace);
+	header.append(tablist);
+	const dock = element("div", "");
+	dock.setAttribute("data-slot", "conversation.composer.dock");
+	const stats = element("div", "");
+	stats.setAttribute("data-composer-stats", "");
+	dock.append(stats);
+	chatRoot.append(header, dock);
+	const body = element("body", "");
+	body.append(chatRoot);
+	const document = {
+		documentElement: Object.assign(element("html", ""), { lang: "zh-CN" }),
+		body,
+		querySelector: (selector) => querySelector(body, selector),
+		querySelectorAll: (selector) => querySelectorAll(body, selector),
+		getElementById: () => undefined,
+		addEventListener() {},
+		removeEventListener() {},
+		createElement: (tag) => element(tag, "")
+	};
+	return { body, chatRoot, header, tablist, chat, trace, stats, document };
 }
 
 
@@ -349,6 +440,59 @@ function makeTabbedSheet({ lang = "zh", cells = [88, 62, 88, 100], navWidth = 39
 			tiny.nav.style.getPropertyValue("--dshmobile-tab-scale") === "",
 		"a layout too narrow to shave leaves the centred wrap in charge",
 		`scale=${tiny.nav.style.getPropertyValue("--dshmobile-tab-scale")}`
+	);
+}
+
+/* ----------------------------------------- the tab strip follows the phone breakpoint */
+
+// 信息 is a narrow-only panel, but the flag that de-emphasises the native active tab (so the
+// panel can own the accent) lives outside the media query, because 项目 is width-unrestricted
+// and needs it at any width. Rotating away with the info panel open used to leave that flag
+// behind: CSS hid the panel while 对话 stayed grey, so the strip showed no selected tab at all
+// until the reader tapped one. Measured on the real page at 844x390 before the fix.
+{
+	const view = makeConversation();
+	const sandbox = run(view, { narrow: true });
+	const infoTab = view.tablist.querySelector("[data-dshmobile-tab]");
+	check(
+		infoTab !== null && view.tablist.querySelector("[data-dshmobile-project-tab]") !== null,
+		"the layer mounts its 项目 and 信息 tabs on the strip",
+		String(view.tablist.children.length)
+	);
+	check(
+		view.tablist.children.length === 4 && view.tablist.children[2].hasAttribute("data-dshmobile-project-tab"),
+		"the order stays 对话/轨迹/项目/信息",
+		view.tablist.children.map((child) => child.textContent).join(",")
+	);
+
+	infoTab.fire("click");
+	check(
+		view.chatRoot.hasAttribute("data-dshmobile-info-open") && view.tablist.hasAttribute("data-dshmobile-open") && infoTab.hasAttribute("data-active"),
+		"opening 信息 marks the panel and the strip",
+		JSON.stringify({ root: view.chatRoot.attrs, strip: view.tablist.attrs })
+	);
+
+	sandbox.mq.set(false);
+	check(
+		!view.chatRoot.hasAttribute("data-dshmobile-info-open") && !view.tablist.hasAttribute("data-dshmobile-open") && !infoTab.hasAttribute("data-active"),
+		"leaving the narrow layout retracts 信息's flag, so the native active tab keeps its highlight",
+		JSON.stringify({ root: view.chatRoot.attrs, strip: view.tablist.attrs })
+	);
+	sandbox.mq.set(true);
+	check(!view.chatRoot.hasAttribute("data-dshmobile-info-open"), "rotating back does not resurrect the panel", JSON.stringify(view.chatRoot.attrs));
+}
+
+{
+	// 项目 works at any width, so its panel and flag have to survive the rotation: the panel
+	// still covers the content, which is exactly when greying the native tab is right.
+	const view = makeConversation();
+	const sandbox = run(view, { narrow: true });
+	view.tablist.querySelector("[data-dshmobile-project-tab]").fire("click");
+	sandbox.mq.set(false);
+	check(
+		view.chatRoot.hasAttribute("data-dshmobile-project-open") && view.tablist.hasAttribute("data-dshmobile-open"),
+		"a 项目 panel open in portrait is kept through the rotation",
+		JSON.stringify({ root: view.chatRoot.attrs, strip: view.tablist.attrs })
 	);
 }
 

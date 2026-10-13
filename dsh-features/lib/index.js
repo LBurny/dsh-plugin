@@ -187,6 +187,10 @@ function mount(ready, state, ctx) {
 				if (configEditor === undefined) return sendJson(res, 400, { ok: false, error: "no config-editor service" });
 				const body = await readJson(req);
 				if (body === undefined) return sendJson(res, 400, { ok: false, error: "expected a JSON body" });
+				// A body without a keys array is refused, not normalized away: `normalizeOrder`
+				// answers `[]` for junk, so anything else used to wipe the reader's arrangement
+				// and answer `ok`.
+				if (!Array.isArray(body?.keys)) return sendJson(res, 400, { ok: false, error: "expected a keys array" });
 				const navOrder = await saveNavOrder(resolveLayout(configEditor).orderPath, body.keys);
 				return sendJson(res, 200, { ok: true, navOrder });
 			}

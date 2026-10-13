@@ -199,37 +199,48 @@ async function installSkill(layout, name, populate) {
 		// Move any old copy, in either root, into the staging area instead of deleting it,
 		// so it can be put back if the swap cannot happen.
 		const displaced = [];
-		for (const root of [layout.skillsDir, layout.skillsDisabledDir]) {
-			const old = join(root, name);
-			let info;
-			try {
-				info = await stat(old);
-			} catch {
-				continue; // nothing at that path, which is the common case
-			}
-			// A stray file where the skill directory belongs is not ours to delete: fail this
-			// one name and leave it be, rather than silently replacing what the reader put
-			// there. (A symlink to a directory is a skill, as everywhere else here.)
-			if (!info.isDirectory()) throw new Error(`a file named "${name}" is in the way`);
-			const holder = join(staging, `.old-${randomBytes(4).toString("hex")}`);
-			await rename(old, holder);
-			displaced.push({ old, holder });
-		}
-		try {
-			await rename(staged, destination);
-		} catch (error) {
-			// The new copy could not be moved into place: put the old one back and report it.
-			for (const { old, holder } of displaced.reverse()) {
+		/**
+		 * Put every moved-aside copy back, draining the list so a second call is a no-op.
+		 * The `finally` below deletes the staging directory those copies were moved into, so
+		 * every failure between the first rename and the swap has to come through here: a
+		 * stray file in the way used to cost the reader the skill it was replacing.
+		 */
+		const restore = async () => {
+			while (displaced.length > 0) {
+				const { old, holder } = displaced.pop();
 				try {
 					await rename(holder, old);
 				} catch {
 					/* best effort; the staging copy still goes below */
 				}
 			}
+		};
+		try {
+			for (const root of [layout.skillsDir, layout.skillsDisabledDir]) {
+				const old = join(root, name);
+				let info;
+				try {
+					info = await stat(old);
+				} catch {
+					continue; // nothing at that path, which is the common case
+				}
+				// A stray file where the skill directory belongs is not ours to delete: fail this
+				// one name and leave it be, rather than silently replacing what the reader put
+				// there. (A symlink to a directory is a skill, as everywhere else here.)
+				if (!info.isDirectory()) throw new Error(`a file named "${name}" is in the way`);
+				const holder = join(staging, `.old-${randomBytes(4).toString("hex")}`);
+				await rename(old, holder);
+				displaced.push({ old, holder });
+			}
+			await rename(staged, destination);
+		} catch (error) {
+			// Whatever failed (a name in the way, a copy that cannot be moved, the swap
+			// itself) the reader keeps what was already installed, and hears why.
+			await restore();
 			throw error;
 		}
 	} finally {
-		// Takes the staging directory and, with it, whatever displaced copy was not restored.
+		// Takes the staging directory and, with it, anything restore could not move back.
 		await rm(staging, { recursive: true, force: true });
 	}
 }
@@ -318,10 +329,13 @@ export async function importZipSkills(layout, buffer, archiveName, names, onConf
 			skipped.push({ name, reason: "already exists" });
 			continue;
 		}
+		// A root-level skill's prefix is empty, so it matches every entry in the archive: the
+		// other skills discovered in it are excluded, or their files land inside this one.
+		const siblings = discovered.filter((item) => item !== entry).map((item) => item.prefix).filter((other) => other !== "");
 		try {
 			// A malformed archive or a full disk must fail this one name, not the whole
 			// import, and must leave whatever is already installed where it is.
-			await installSkill(layout, name, (staged) => extractZipPrefix(buffer, entry.prefix, staged));
+			await installSkill(layout, name, (staged) => extractZipPrefix(buffer, entry.prefix, staged, siblings));
 			imported.push(name);
 		} catch (error) {
 			errors.push({ name, reason: String(error?.message ?? error) });

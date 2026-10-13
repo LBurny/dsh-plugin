@@ -21,7 +21,7 @@
     "ui": {
       "feature": {
         "key": "doctor",
-        "order": 30,
+        "order": 60,
         "title": {
           "zh": "诊断",
           "en": "Doctor"

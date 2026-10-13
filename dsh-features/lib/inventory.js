@@ -3,7 +3,7 @@
  *
  * A feature plugin declares itself in its own package.json:
  *
- *     "dsh": { "ui": { "feature": { "key": "doctor", "order": 30,
+ *     "dsh": { "ui": { "feature": { "key": "doctor", "order": 60,
  *                                  "title": { "zh": "诊断", "en": "Doctor" },
  *                                  "summary": { "zh": "…", "en": "…" } } } }
  *
@@ -27,6 +27,13 @@ import { join } from "node:path";
 
 /** Only entries with this prefix are inspected (scopes are skipped outright). */
 const PACKAGE_PREFIX = "dsh-";
+/**
+ * pnpm stages an install in `<name>_tmp_<pid>_<thread>` and leaves that directory behind
+ * when the install dies. It holds the real package's `package.json`, so it passes every
+ * check below and then wins the per-key dedupe, which is how a leftover reported a stale
+ * order and version for the installed package.
+ */
+const STAGING_SUFFIX = /_tmp_\d+_\d+$/u;
 /** Fallback order for a marker that does not set one. */
 const DEFAULT_ORDER = 100;
 
@@ -107,6 +114,7 @@ export async function readInventory(layout) {
 		for (const entry of await entriesOf(root)) {
 			if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 			if (!entry.name.startsWith(PACKAGE_PREFIX)) continue;
+			if (STAGING_SUFFIX.test(entry.name)) continue;
 			const manifest = await manifestOf(join(root, entry.name));
 			if (manifest === undefined) continue;
 			const packageName = typeof manifest.name === "string" ? manifest.name : entry.name;

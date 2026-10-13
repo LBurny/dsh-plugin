@@ -18,7 +18,7 @@ const results = [];
 const check = (ok, label, detail = "") => results.push({ ok, label, detail });
 
 /** The hub, plus every feature plugin it hosts, in tab order. */
-const PACKAGES = ["dsh-features", "dsh-skills", "dsh-mcp", "dsh-doctor", "dsh-zoom", "dsh-notify", "dsh-remote"];
+const PACKAGES = ["dsh-features", "dsh-skills", "dsh-mcp", "dsh-remote", "dsh-notify", "dsh-zoom", "dsh-doctor"];
 const FEATURES = PACKAGES.slice(1);
 /** The two sidebar entries this hub must sit between (official plugins). */
 const SIDEBAR_ORDER = { plugins: 0, schedules: 10, features: 5 };
@@ -220,6 +220,13 @@ check(loose.length === 0, "dsh-features: no hub selector can reach a mounted pan
 for (const pkg of FEATURES) {
 	const panelSource = read(join(pkg, "lib", "client.js")) + read(join(pkg, "lib", "client.css"));
 	check(!/\bhub-[a-z-]+/u.test(panelSource), `${pkg}: uses no \`hub-\` class (the hub owns that prefix)`, "");
+}
+// The hub builds one node in JS rather than in its stylesheet's markup: the message that says a
+// feature's panel did not load. The selector sweep above reads the stylesheet, so a class that
+// only exists in the script is invisible to it, which is how that message ended up with a class
+// the stylesheet never defined and rendered as a bare paragraph.
+for (const match of client.matchAll(/className = "([a-zA-Z0-9_-]+)"/gu)) {
+	check(client.includes(`.${match[1]} {`), "dsh-features: every class its script sets is styled by its own stylesheet", match[1]);
 }
 // A row is one card, and it must be the same card the hub draws for its own list:
 // same hairline stroke, same radius, same 8px rhythm, inset by the body's own gutter

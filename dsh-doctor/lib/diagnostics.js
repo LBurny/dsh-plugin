@@ -61,7 +61,16 @@ async function readTail(path, maxBytes) {
 	}
 	const start = Math.max(0, info.size - maxBytes);
 	const length = info.size - start;
-	const handle = await open(path, "r");
+	let handle;
+	try {
+		handle = await open(path, "r");
+	} catch {
+		// A log can vanish between the `stat` above and this open (rotation, a tunnel log
+		// being rewritten), or refuse to be opened at all. Every candidate is optional, so
+		// this one is simply not a source: letting it throw takes the whole diagnostics
+		// response down instead.
+		return undefined;
+	}
 	try {
 		const buffer = Buffer.alloc(length);
 		// A file can shrink between the `stat` above and this read (log rotation, a tunnel

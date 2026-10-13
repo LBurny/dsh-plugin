@@ -91,6 +91,15 @@ await writePackage(join(pluginsDir, "dsh-odd"), "dsh-odd", {
 await writePackage(join(pluginsDir, "dsh-stray"), "dsh-stray", {
 	dsh: { ui: { feature: { key: "stray", order: 5, title: { zh: "暂存", en: "Stray" } } } }
 });
+// pnpm stages an install in `<name>_tmp_<pid>_<thread>` and leaves that directory behind
+// when the install dies. It declares the real package name, so it passes the "declared"
+// check and then wins the per-key dedupe (the second root is scanned last): measured on
+// the app's own home, a leftover reported the installed package's order and version as the
+// stale copy's. It must not stand in for the installed copy.
+await writePackage(join(nodeModules, "dsh-doctor_tmp_17604_2"), "dsh-doctor", {
+	version: "0.0.1",
+	dsh: { ui: { feature: { key: "doctor", order: 99, title: { zh: "旧的暂存", en: "Stale" }, summary: { zh: "旧的暂存", en: "Stale" } } } }
+});
 
 // The profile's own manifest is the source of truth for "installed".
 await writeFile(join(profileDir, "package.json"), JSON.stringify({
@@ -117,6 +126,11 @@ check(inventory[0].title.en === "MCP", "a one-language title survives", JSON.str
 check(inventory[2].order === 100, "a non-numeric order falls back to the default", String(inventory[2].order));
 check(inventory[2].title === "Odd", "a plain string title survives", JSON.stringify(inventory[2].title));
 check(inventory[2].summary === undefined, "a title-shaped value with no zh/en is dropped", JSON.stringify(inventory[2].summary));
+check(
+	inventory[1].order === 30 && inventory[1].version === "1.2.3" && inventory[1].title.en === "Doctor",
+	"a leftover pnpm staging directory does not stand in for the installed package",
+	JSON.stringify(inventory[1])
+);
 
 const emptyRoot = await readInventory({ pluginsDir: join(root, "absent"), profileDir: join(root, "absent-profile") });
 check(emptyRoot.length === 0, "missing directories degrade to an empty inventory", JSON.stringify(emptyRoot));

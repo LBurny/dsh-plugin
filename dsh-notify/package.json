@@ -21,7 +21,7 @@
     "ui": {
       "feature": {
         "key": "notify",
-        "order": 50,
+        "order": 40,
         "title": {
           "zh": "任务提醒",
           "en": "Reminders"

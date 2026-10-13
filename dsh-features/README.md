@@ -124,7 +124,7 @@ window.__dshFeatures = Object.assign(window.__dshFeatures ?? {}, {
   doctor: {
     title: "Doctor",                    // nav label (already localized by the feature)
     icon: "M2 8.5h3l1.5-4 2.5 7 ...",   // optional 16×16 stroke SVG path for the nav row
-    order: 30,                          // default nav order (the reader's drag order wins)
+    order: 60,                          // default nav order (the reader's drag order wins)
     mount(host) { /* render into host */ }   // called on every visit; must be re-mountable
   }
 });
@@ -135,7 +135,7 @@ feature whose script failed):
 
 ```json
 "dsh": { "ui": { "feature": {
-  "key": "doctor", "order": 30,
+  "key": "doctor", "order": 60,
   "title": { "zh": "<Chinese label>", "en": "Doctor" },
   "summary": { "zh": "<Chinese summary>", "en": "Status and log tail" }
 } } }

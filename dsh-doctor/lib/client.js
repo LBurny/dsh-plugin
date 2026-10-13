@@ -538,7 +538,7 @@
 			doctor: {
 				title: T("title"),
 				icon: "M2 8.5h3l1.5-4 2.5 7 1.5-3h3.5",
-				order: 30,
+				order: 60,
 				mount: mountInline
 			}
 		});

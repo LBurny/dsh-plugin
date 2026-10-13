@@ -178,7 +178,17 @@ export async function upsertMcpServer(layout, input, currentId) {
 	const config = buildConfig(input);
 	const rowId = currentId ?? `${ROW_ID_PREFIX}${config.serverName}`;
 	return editDocument(layout, (doc) => {
-		const existing = mcpRowNodes(doc).find(({ row }) => row.get("id") === rowId);
+		const rows = mcpRowNodes(doc);
+		const existing = rows.find(({ row }) => row.get("id") === rowId);
+		// Two rows exposing one server name collide in the tool namespace, and the listing
+		// then shows the same id twice while every later action is addressed by id and takes
+		// the first match: the reader would edit or delete the wrong server. A rename onto a
+		// name already in use is the same clash one call later.
+		const targetId = `${ROW_ID_PREFIX}${config.serverName}`;
+		const taken = rows.some(
+			({ row }) => row.get("id") !== rowId && (row.get("id") === targetId || String(configToJs(row).serverName ?? "") === config.serverName)
+		);
+		if (taken) throw new Error(`another MCP row already uses the name "${config.serverName}"`);
 		if (existing === undefined) {
 			const node = doc.createNode({ id: rowId, name: MCP_PLUGIN_NAME, config });
 			const host = firstInsertContainer(doc);
