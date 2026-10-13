@@ -496,6 +496,36 @@ function makeConversation() {
 	);
 }
 
+{
+	// The plugin page's head rules are the one block in mobile.css that was silently dead:
+	// they hung off `html[data-dshmobile-enhanced]`, and mobile.js only sets that marker on the
+	// conversation page (setupInfo, when the 信息 tab mounts). The plugins page is not in a
+	// session, so the marker never appears there and the whole block stopped applying: at 390px
+	// the Add plugin button was squeezed to 85px with `white-space: normal`, its text wrapped to
+	// two lines and bled out of a 32px pill (scrollHeight 36). The narrow media query is the gate
+	// these rules need, exactly like the settings sheet and sidebar-drawer rules beside them.
+	// A CSS-only fix is invisible to the DOM stub above, so this is a source-level assertion.
+	const stylesheet = readFileSync(join(root, "dsh-remote", "lib", "assets", "mobile.css"), "utf8")
+		.replace(/\/\*[\s\S]*?\*\//gu, "");
+	const rules = [...stylesheet.matchAll(/([^{}]+)\{([^{}]*)\}/gu)].map((match) => ({
+		selector: match[1].trim(),
+		body: match[2].replace(/\s+/gu, " ").trim()
+	}));
+	const pluginRules = rules.filter((rule) => rule.selector.includes("data-plugin-panel"));
+	check(pluginRules.length >= 4, "the plugin page head carries its phone rules", `${pluginRules.length} rule(s)`);
+	check(
+		pluginRules.every((rule) => !rule.selector.includes("data-dshmobile-enhanced")),
+		"none of them is gated on data-dshmobile-enhanced, which only the conversation page gets",
+		pluginRules.filter((rule) => rule.selector.includes("data-dshmobile-enhanced")).map((rule) => rule.selector).join(" | ")
+	);
+	const addRules = pluginRules.filter((rule) => rule.selector.includes("_addButton"));
+	check(
+		addRules.length > 0 && addRules.every((rule) => rule.body.includes("white-space: nowrap")),
+		"the Add plugin button is pinned to one line inside its pill",
+		addRules.map((rule) => rule.body).join(" | ")
+	);
+}
+
 /* ------------------------------------------------------------------- reporting */
 
 const failed = results.filter((result) => !result.ok);

@@ -443,25 +443,32 @@
    * ③ 左侧标题组 min-width:0 允许收缩（宽屏原样）；
    * ④ intro 改单行、文案段省略号截断——描述是装饰性文案（完整说明在 ⓘ 的
    *    tooltip 里，可点），截断不损功能，info 图标随单行排布不再孤行。
-   * 锚 [data-plugin-panel]：上游 section 的语义属性（client.js 里逐字可寻，
-   * upstream::PLUGIN_PANEL_HOOK 契约守门），哈希无关、不与其它页面撞名；
-   * 头部行内再限定 header[class*="_pageHead"] 与 [class*="_toolbar"]/
+   * 锚 [data-plugin-panel]：上游 section 的语义属性（dsh-client-ui-plugin-manager
+   * 的 client.js 里逐字可寻，tools/anchors 的表里也有它，上游改名即报缺），哈希无关、
+   * 不与其它页面撞名；头部行内再限定 header[class*="_pageHead"] 与 [class*="_toolbar"]/
    * [class*="_addButton"] 本地名子串（同页 class map 唯一）。
+   *
+   * **别把这组规则挂到 data-dshmobile-enhanced 上**（原版就是这么写的，于是整组失效）：
+   * 那个标记是 mobile.js 在**会话页**挂上"信息"标签时才打的（见 setupInfo），
+   * 插件管理页根本不在会话里，标记不会出现——实测 390px 走侧栏"插件"进这一页，
+   * 标记为 false、按钮 whiteSpace 仍是 normal、被挤到 85px 宽、scrollHeight 36 > height 32，
+   * 文字折成两行溢出药丸（用户报"添加插件这个按钮显示有问题"）。本层其它页面级规则
+   * （设置弹窗、侧栏抽屉、输入区）都不带这个门控，窄屏这一条媒体查询本身就是门。
    */
-  html[data-dshmobile-enhanced] [data-plugin-panel] header[class*="_pageHead"] > div:first-child {
+  [data-plugin-panel] header[class*="_pageHead"] > div:first-child {
     min-width: 0;
   }
-  html[data-dshmobile-enhanced] [data-plugin-panel] header[class*="_pageHead"] [class*="_toolbar"] {
+  [data-plugin-panel] header[class*="_pageHead"] [class*="_toolbar"] {
     flex: none;
   }
-  html[data-dshmobile-enhanced] [data-plugin-panel] header[class*="_pageHead"] [class*="_addButton"] {
+  [data-plugin-panel] header[class*="_pageHead"] [class*="_addButton"] {
     white-space: nowrap;
     flex: none;
   }
-  html[data-dshmobile-enhanced] [data-plugin-panel] header[class*="_pageHead"] [class*="_pageIntro"] {
+  [data-plugin-panel] header[class*="_pageHead"] [class*="_pageIntro"] {
     white-space: nowrap;
   }
-  html[data-dshmobile-enhanced] [data-plugin-panel] header[class*="_pageHead"] [class*="_pageIntro"] > span {
+  [data-plugin-panel] header[class*="_pageHead"] [class*="_pageIntro"] > span {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

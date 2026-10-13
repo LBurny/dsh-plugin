@@ -64,6 +64,24 @@ load. A phone viewport has no text labels on the rail's buttons, so open panels 
 settings sheet's own limits show up: the models tab fails its load with
 *settings are unavailable in this browser* — upstream's transport boundary, not something a stylesheet fixes.
 
+The sandbox's own proxy is the usual target, and its URL carries a token that should not be pasted into a
+command line (it lands in the shell history and in whatever transcript the run is pasted into).
+`shot-proxy.sh` builds that URL from `.sandbox/dsh-remote.json` and execs shot.mjs, so the token never
+appears in the invocation:
+
+```bash
+node tools/sandbox/sandbox.mjs up            # the proxy comes up with it once remote is enabled
+bash tools/visual/shot-proxy.sh --sizes 390x844 \
+  --eval 'document.querySelector("[aria-label=插件]").click()' --ask 'location.href'
+```
+
+Point it at the *app's* proxy instead when the question is about the build the user's phone really runs:
+that port and token live in `<DSH_HOME>/dsh-remote.json`, and the layer is inlined into the HTML, so
+`curl -H "Accept: text/html" "<proxy>/?token=…"` shows what is deployed without a browser. The Accept
+header is load-bearing: the proxy only rewrites documents it recognises as HTML, and curl's default `*/*`
+gets the untouched page (measured 2026-10-13). A proxy holds its assets in memory from the moment the
+plugin loads, so a `mobile.css` edit reaches it only through a restart of the process serving it.
+
 ## Reviewing a panel
 
 `--panel dsh-skills` needs no install: it puts the panel *inside a copy of the 功能管理 page* — the hub's

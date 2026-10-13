@@ -224,6 +224,14 @@ const ANCHORS = [
 		ifMissing: "uploads still stream whenever the browser declares a length, which is the normal case"
 	},
 
+	{
+		needles: ["data-plugin-panel"],
+		severity: "silent",
+		where: "dsh client (the plugins page: the section wrapping its page head)",
+		usedBy: "lib/assets/mobile.css (the phone layout of the page head: the Add plugin button and the intro line)",
+		ifMissing: "on the phone the Add plugin button is squeezed until its text wraps out of the pill, and the intro wraps onto a second line"
+	},
+
 	// --- the response-side rewrite's needles
 	{
 		needles: ["width=device-width, initial-scale=1"],
