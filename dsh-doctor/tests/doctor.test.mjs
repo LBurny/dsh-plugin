@@ -13,6 +13,16 @@ import { join } from "node:path";
 
 import { attachLogger, createRecordStore, redact } from "../lib/capture.js";
 import { collectDiagnostics, createLogRing, readLogFiles } from "../lib/diagnostics.js";
+import {
+	createPatchRuntime,
+	listPatches,
+	loadPatchState,
+	normalizePatchState,
+	PATCH_CATALOG,
+	removePatch,
+	savePatchState,
+	setPatchEnabled
+} from "../lib/patches.js";
 import { collectRows, packageOf, REQUIRED_ROW_IDS, summarizeRows } from "../lib/rows.js";
 
 const results = [];
@@ -244,6 +254,63 @@ const bare = await collectDiagnostics({ webServer: undefined, sessions: undefine
 check(bare.sessions === undefined && bare.port === undefined, "missing services degrade to undefined instead of throwing");
 check(bare.rowsAvailable === false && bare.rows.length === 0, "a missing loader degrades to an empty tree", String(bare.rowsAvailable));
 check(bare.capture === undefined, "a missing capture is reported as undefined, not as a broken one");
+
+/* ------------------------------------------------------------ patches */
+
+// The catalog is the fix itself, so it is pinned here: one patch, and it drops the one
+// variable the desktop app leaks into the harness host. A second entry, or a different
+// variable, has to be a deliberate change to this suite rather than a quiet one.
+check(PATCH_CATALOG.length === 1, "the catalog carries exactly one patch", String(PATCH_CATALOG.length));
+check(PATCH_CATALOG[0].id === "electron-run-as-node" && PATCH_CATALOG[0].variable === "ELECTRON_RUN_AS_NODE", "the patch drops ELECTRON_RUN_AS_NODE", PATCH_CATALOG[0].variable);
+
+// Installing the plugin is the decision to fix the defect: a patch with no entry is on,
+// and only a deliberate `enabled: false` turns it off.
+const fresh = normalizePatchState(undefined);
+check(listPatches(fresh).length === 1 && listPatches(fresh)[0].enabled === true, "a patch with no decision is enabled", JSON.stringify(listPatches(fresh)));
+const off = normalizePatchState({ patches: { "electron-run-as-node": { enabled: false } } });
+check(listPatches(off)[0].enabled === false, "a recorded off survives normalization");
+check(Object.keys(normalizePatchState({ patches: { "electron-run-as-node": { enabled: true } } }).patches).length === 0, "an explicit on is stored as the default, not as an entry");
+check(listPatches(normalizePatchState({ patches: { "electron-run-as-node": { removed: true } } })).length === 0, "a removed patch leaves the list");
+check(Object.keys(normalizePatchState({ patches: { gone: { enabled: false } } }).patches).length === 0, "an entry for an id no longer in the catalog is dropped");
+check(listPatches(normalizePatchState({ patches: [] }))[0].enabled === true, "a malformed file falls back to the defaults", JSON.stringify(normalizePatchState({ patches: [] })));
+check(listPatches(normalizePatchState("nonsense"))[0].enabled === true, "a file that is not an object falls back to the defaults");
+
+const toggledOff = setPatchEnabled(fresh, "electron-run-as-node", false);
+check(listPatches(toggledOff)[0].enabled === false, "toggling off is recorded");
+const toggledBack = setPatchEnabled(toggledOff, "electron-run-as-node", true);
+check(Object.keys(toggledBack.patches).length === 0, "toggling back on clears the record");
+check(listPatches(setPatchEnabled(removePatch(fresh, "electron-run-as-node"), "electron-run-as-node", true)).length === 0, "a removed patch has no switch to press");
+check(Object.keys(setPatchEnabled(fresh, "not-a-patch", false).patches).length === 0, "an unknown id changes nothing");
+
+const patchFile = join(dir, "dsh-doctor.json");
+const saved = await savePatchState(patchFile, off);
+check(saved.patches["electron-run-as-node"].enabled === false, "saving reports the normalized state");
+check(listPatches(await loadPatchState(patchFile))[0].enabled === false, "a decision survives a round trip");
+await writeFile(patchFile, "{ not json", "utf8");
+check(listPatches(await loadPatchState(patchFile))[0].enabled === true, "a corrupt decision file falls back to the defaults");
+check(listPatches(await loadPatchState(join(dir, "absent.json")))[0].enabled === true, "a missing decision file falls back to the defaults");
+
+// The runtime edits an environment. `PATH` rides along to prove nothing else is touched.
+const env = { ELECTRON_RUN_AS_NODE: "1", PATH: "C:\\Windows" };
+const runtime = createPatchRuntime(env);
+check(runtime.present("electron-run-as-node") === true, "a process that carried the variable is reported as affected");
+check(runtime.settle(fresh).join(",") === "electron-run-as-node", "settling applies the patch", runtime.settle(fresh).join(","));
+check(!("ELECTRON_RUN_AS_NODE" in env) && env.PATH === "C:\\Windows", "applying drops the variable and leaves the rest alone", JSON.stringify(env));
+check(runtime.settle(fresh).length === 0, "settling twice changes nothing", "second settle reported a change");
+const restored = runtime.settle(off);
+check(restored.join(",") === "electron-run-as-node", "disabling the patch reverts it", restored.join(","));
+check(env.ELECTRON_RUN_AS_NODE === "1", "reverting puts the value back as this process found it", JSON.stringify(env));
+runtime.settle(fresh);
+check(runtime.settle(removePatch(fresh, "electron-run-as-node")).join(",") === "electron-run-as-node", "removing a patch reverts it too");
+check(env.ELECTRON_RUN_AS_NODE === "1", "a removed patch leaves no trace", JSON.stringify(env));
+
+// A bare CLI harness (and the sandbox) never sets the variable, so the patch has nothing
+// to drop there. The panel says that out loud instead of offering a fix that does nothing.
+const clean = { PATH: "C:\\Windows" };
+const cleanRuntime = createPatchRuntime(clean);
+check(cleanRuntime.present("electron-run-as-node") === false, "an environment that never carried the variable is reported as unaffected");
+check(cleanRuntime.settle(fresh).length === 0, "settling against a clean environment changes nothing");
+check(cleanRuntime.settle(off).length === 0, "reverting a patch that never applied changes nothing");
 
 /* ------------------------------------------------------------ reporting */
 

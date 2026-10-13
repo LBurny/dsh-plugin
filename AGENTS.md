@@ -337,6 +337,16 @@ assume it exists)
   `id`, `options` (the module `name`), `disabled` and `fiber.state`, the numeric `FiberState`
   (`0 pending, 1 loading, 2 active, 3 failed, 4 disposed, 5 unloading`). A disabled row has no fiber, so
   its state cannot be read the same way. This is the half the ready line cannot give.
+- `dsh-doctor` also carries the **patches**: corrections to the dsh process a plugin runs in, each with a
+  switch and a delete control in the panel (诊断 → 环境补丁), the decisions in `<DSH_HOME>/dsh-doctor.json`.
+  The one entry, `electron-run-as-node`, deletes `ELECTRON_RUN_AS_NODE` from `process.env`, because the
+  harness is started as the Electron binary in Node mode (`lib/main.js`'s `desktopNodeEnvironment`, and
+  `dsh.cmd`'s `set "ELECTRON_RUN_AS_NODE=1"`) and `scrubbedParentEnv()` keeps that name, so every Electron
+  editor the open-in-app feature launches starts as plain Node and exits non-zero: 打开 > VS Code answers
+  打开失败，请重试 while the file managers work. Measured, upstream's bug, and the reader must be able to take
+  it back, which is why the switch reverts `process.env` to exactly what the process found. Reading another
+  process's environment to verify it needs a PEB walk, not `wmic`: `ProcessParameters` at PEB `+0x20`, and
+  inside it `Environment` at `+0x80` is a plain pointer, not a `UNICODE_STRING`.
 - The official app's own dsh is inside `app.asar`. When a fix must target the build the phone actually
   runs (hashes and local-name prefixes differ per build), read it without Electron:
   `node tools/visual/asar.mjs <app.asar> --list|--cat|--grep <text>`. `--grep` names the packed file that

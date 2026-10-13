@@ -15,8 +15,19 @@ import { fileURLToPath } from "node:url";
 
 import { attachLogger, createRecordStore, RECORD_BYTES_LIMIT } from "./capture.js";
 import { collectDiagnostics, createLogRing, readLogFiles } from "./diagnostics.js";
-import { guard, sendJson, sendText } from "./http.js";
+import { guard, readJson, sendJson, sendText } from "./http.js";
 import { resolveLayout } from "./layout.js";
+import {
+	createPatchRuntime,
+	listPatches,
+	loadPatchState,
+	normalizePatchState,
+	PATCH_CATALOG,
+	PATCHES_FILENAME,
+	removePatch,
+	savePatchState,
+	setPatchEnabled
+} from "./patches.js";
 
 const name = "doctor";
 const inject = ["commands"];
@@ -44,6 +55,11 @@ function createState(ctx) {
 		ring,
 		/** `{ attached, boot, reason, store }`, filled in by `attachCapture`. */
 		capture: { attached: false, boot: 0, reason: "not attached yet", store },
+		/** The patches this plugin applies to its own process, with what it found there. */
+		patches: createPatchRuntime(),
+		/** The decision file's path and content, filled in by `ensurePatches`. */
+		patchPath: undefined,
+		patchState: normalizePatchState(undefined),
 		layout() {
 			const configEditor = ctx.get("configEditor");
 			if (configEditor === undefined) throw new Error("config-editor service is not available in this profile");
@@ -118,6 +134,64 @@ async function logs(state, since) {
 	return { ok: true, source: "capture", reason: undefined, reset: selection.reset, records: selection.records, files, retention };
 }
 
+/**
+ * Read the patch decisions and make this process match them. Memoized: the injection
+ * below settles them at boot, and the routes call this again to be sure they have the
+ * file, not the defaults.
+ * @param state - plugin state.
+ * @returns the normalized state now in force.
+ */
+async function ensurePatches(state) {
+	if (state.patchPath !== undefined) return state.patchState;
+	const path = join(state.layout().dshHome, PATCHES_FILENAME);
+	state.patchState = await loadPatchState(path);
+	state.patchPath = path;
+	const changed = state.patches.settle(state.patchState);
+	if (changed.length > 0) state.log(`patches settled from ${PATCHES_FILENAME}: ${changed.join(", ")}`);
+	return state.patchState;
+}
+
+/**
+ * The patch payload the panel renders. `applicable` reports what this process found
+ * before the plugin touched it, so the panel can be honest about a patch that cannot
+ * change anything here instead of offering a switch that does nothing.
+ * @param state - plugin state.
+ */
+async function patchPayload(state) {
+	const patchState = await ensurePatches(state);
+	return {
+		configPath: state.patchPath,
+		patches: listPatches(patchState).map((patch) => ({
+			id: patch.id,
+			variable: patch.variable,
+			enabled: patch.enabled,
+			applicable: state.patches.present(patch.id)
+		}))
+	};
+}
+
+/**
+ * Apply a patch action coming from the panel: the decision is written first, then the
+ * environment is settled against it, so a save that fails leaves both sides unchanged.
+ * @param state - plugin state.
+ * @param body - the request body.
+ */
+async function patchAction(state, body) {
+	if (body === undefined) throw new Error("expected a JSON body");
+	if (!PATCH_CATALOG.some((patch) => patch.id === body.id)) throw new Error(`unknown patch: ${JSON.stringify(body.id)}`);
+	const current = await ensurePatches(state);
+	const next = body.action === "toggle"
+		? setPatchEnabled(current, body.id, body.enabled === true)
+		: body.action === "delete"
+			? removePatch(current, body.id)
+			: undefined;
+	if (next === undefined) throw new Error(`unknown patch action: ${JSON.stringify(body.action)}`);
+	state.patchState = await savePatchState(state.patchPath, next);
+	const changed = state.patches.settle(state.patchState);
+	state.log(`patch ${body.id} ${body.action}: ${changed.length === 0 ? "no environment change" : changed.join(", ")}`);
+	return { ok: true, ...(await patchPayload(state)) };
+}
+
 /** One row of the plugin tree, as `/doctor` prints it. */
 function renderRow(row) {
 	const marks = [row.state];
@@ -127,7 +201,7 @@ function renderRow(row) {
 }
 
 /** The multi-line text `/doctor` answers with. */
-function renderStatus(document, log) {
+function renderStatus(document, log, patches) {
 	const lines = [
 		`dsh ${document.version} on node ${document.node}`,
 		`state=${document.state} port=${document.port} pid=${document.pid} uptime=${document.uptimeSeconds}s rss=${document.memoryMb}MB`,
@@ -137,6 +211,8 @@ function renderStatus(document, log) {
 		`rows: ${document.rowsSummary ?? "unavailable"}`,
 		`capture: ${document.capture?.attached === true ? `${String(document.capture.records)} record(s), ${String(document.capture.boot)} from boot` : `unavailable (${String(document.capture?.reason ?? "?")})`}`
 	];
+	// This plugin's own patches, so "is the fix on?" is answerable without the panel.
+	if (patches !== undefined) lines.push(`patches: ${patches.length === 0 ? "none" : patches.map((patch) => `${patch.id}=${patch.enabled ? "on" : "off"}`).join(", ")}`);
 	const noteworthy = (document.rows ?? []).filter((row) => row.state === "failed" || (row.required && row.state !== "active"));
 	if (noteworthy.length > 0) lines.push("rows to look at:", ...noteworthy.slice(0, 12).map(renderRow));
 	if ((document.logFiles ?? []).length > 0) lines.push("log files:", ...document.logFiles.map((file) => `  ${file.source}: ${file.path} (${String(file.lines)} lines)`));
@@ -172,7 +248,15 @@ function registerCommands(ctx, state) {
 			handler: command(async () => {
 				const document = await status(state);
 				const log = await logs(state, undefined);
-				return { kind: "success", text: renderStatus(document, log) };
+				// A profile without a config editor has no DSH home to read decisions from,
+				// so the line is simply left out rather than failing the whole command.
+				let patches;
+				try {
+					patches = listPatches(await ensurePatches(state));
+				} catch {
+					patches = undefined;
+				}
+				return { kind: "success", text: renderStatus(document, log, patches) };
 			})
 		});
 	} catch (error) {
@@ -208,6 +292,12 @@ function mount(ready, state) {
 		if (path === "/api/logs" && method === "GET") {
 			return sendJson(res, 200, await logs(state, url.searchParams.get("since")));
 		}
+		if (path === "/api/patches" && method === "GET") {
+			return sendJson(res, 200, { ok: true, ...(await patchPayload(state)) });
+		}
+		if (path === "/api/patches" && method === "POST") {
+			return sendJson(res, 200, await patchAction(state, await readJson(req)));
+		}
 		return sendJson(res, 404, { ok: false, error: `no dsh-doctor route for ${method} ${path}` });
 	};
 
@@ -237,8 +327,20 @@ function mount(ready, state) {
  */
 function apply(ctx) {
 	const state = createState(ctx);
+	// A patch has to be in force before anything is spawned, and the config editor may not
+	// be mounted yet, so the catalog is applied with its defaults here. The decision file
+	// corrects this a moment later, below.
+	const changed = state.patches.settle(state.patchState);
+	if (changed.length > 0) state.log(`patches applied on load: ${changed.join(", ")}`);
 	attachCapture(ctx, state);
 	registerCommands(ctx, state);
+	// Read the decisions as soon as the home is known, which is earlier than the web
+	// server needs to be: a reader who disabled a patch must not keep the default.
+	ctx.inject(["configEditor"], () => {
+		void ensurePatches(state).catch((error) => {
+			ctx.logger.warn(`[dsh-doctor] patch state unavailable: ${String(error?.message ?? error)}`);
+		});
+	});
 	ctx.inject(["webServer", "configEditor"], (ready) => {
 		mount(ready, state);
 	});

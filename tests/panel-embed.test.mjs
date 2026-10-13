@@ -47,7 +47,16 @@ const PAYLOADS = {
 			{ sn: 1, ts: 1700000000000, name: "loader", type: "info", level: 1, text: "apply plugin dsh-doctor" },
 			{ sn: 2, ts: 1700000001000, name: "doctor", type: "warn", level: 2, text: "panel served" }
 		],
-		source: "capture", reset: true, files: [], retention: { bytes: 4 * 1024 * 1024 }
+		source: "capture", reset: true, retention: { bytes: 4 * 1024 * 1024 },
+		// One on-disk file, the shape the host reports the tunnel log in, so the files
+		// section renders and its open-by-default and section-order pins have something
+		// to assert against.
+		files: [{ source: "tunnel", path: "/tmp/dsh-remote-tunnel.log", lines: ["INF tunnel started", "ERR connection refused"] }],
+		// The patch route's real shape: the panel reads `patches` as a list and `configPath`
+		// as where the decisions are kept, so a thinner payload would render an empty section
+		// and every assertion about it would pass without checking anything.
+		patches: [{ id: "electron-run-as-node", variable: "ELECTRON_RUN_AS_NODE", enabled: true, applicable: true }],
+		configPath: "/tmp/dsh-doctor.json"
 	},
 	"dsh-zoom": {
 		config: {
@@ -361,6 +370,20 @@ const textOf = (node) => {
 
 const REFRESH = new Set(["刷新", "Refresh"]);
 
+/**
+ * Every node in a stub subtree carrying one class. The DOM stub's `querySelectorAll`
+ * matches tag names only, so a panel's own classes have to be walked.
+ */
+const nodesWithClass = (root, name) => {
+	const found = [];
+	const visit = (node) => {
+		if (typeof node.className === "string" && node.className.split(/\s+/u).includes(name)) found.push(node);
+		for (const child of node.children ?? []) visit(child);
+	};
+	visit(root);
+	return found;
+};
+
 for (const pkg of PACKAGES) {
 	/* ------------------------------------------------- with the hub installed */
 
@@ -593,6 +616,91 @@ check(
 	"dsh-doctor: the log view states the retention budget the host reported",
 	textOf(doctorLogs.host).slice(0, 200)
 );
+
+/* ------------- dsh-doctor: the page reads in one order, patches last ------------- */
+
+// The panel is five sections in a fixed order — runtime facts, the plugin tree, the
+// log view, the log files, and only then the environment patches: a fix the plugin
+// applies to the harness is the page's footnote, not its headline. The reader asked
+// for this order after finding the patch card sitting between the facts and the rows.
+const doctorOrder = await bootPanel("dsh-doctor");
+const orderText = textOf(doctorOrder.host);
+const orderAt = ["运行状态", "插件行", "日志", "日志文件", "环境补丁"].map((title) => orderText.indexOf(title));
+check(
+	orderAt.every((at) => at !== -1) && orderAt.every((at, index) => index === 0 || at > orderAt[index - 1]),
+	"dsh-doctor: sections read 运行状态, 插件行, 日志, 日志文件, then 环境补丁 last",
+	orderAt.join(" < ")
+);
+check(
+	nodesWithClass(doctorOrder.host, "facts").length === 1 && nodesWithClass(doctorOrder.host, "fact").length > 0,
+	"dsh-doctor: the runtime facts are one grid, not a bare list",
+	`facts=${String(nodesWithClass(doctorOrder.host, "facts").length)} fact=${String(nodesWithClass(doctorOrder.host, "fact").length)}`
+);
+// The log files are the whole content of their section, so each one renders open:
+// a file the reader opened this page to see must not sit behind a second click.
+const doctorFiles = descendants(doctorOrder.host).filter((node) => node.tag === "details");
+check(
+	doctorFiles.length === 1 && doctorFiles.every((node) => node.hasAttribute("open")),
+	"dsh-doctor: every log file renders open, not folded away",
+	`details=${String(doctorFiles.length)} open=${String(doctorFiles.filter((node) => node.hasAttribute("open")).length)}`
+);
+// The lone action row at the top of the body is gone: the floating panel carries its
+// refresh in the head, beside close, where every other panel keeps it.
+const floatedDoctor = await bootPanel("dsh-doctor", { hub: false, mount: false });
+const doctorRefresh = descendants(floatedDoctor.dom.body).find((node) => node.hasAttribute("data-dsh-refresh"));
+check(
+	doctorRefresh?.parent?.className === "head",
+	"dsh-doctor: the standalone refresh lives in the panel head",
+	doctorRefresh?.parent?.className ?? "(no refresh)"
+);
+
+/* ------------ dsh-doctor: a patch is offered as a control, not as a fact */
+
+// This plugin applies one fix to its own process (it drops the variable the desktop app
+// leaks, which is what makes an Electron editor fail to open). The panel has to render it
+// as something a reader can take back: a switch and a delete control that reach the host.
+const doctorPatch = await bootPanel("dsh-doctor");
+const patchText = textOf(doctorPatch.host);
+check(patchText.includes("环境补丁") && patchText.includes("Electron 变量泄漏"), "dsh-doctor: the patch section names its patch in the page's language", patchText.slice(0, 200));
+check(patchText.includes("/tmp/dsh-doctor.json"), "dsh-doctor: the decisions file is named, so the state is findable by hand", patchText.slice(-200));
+
+const patchSwitch = nodesWithClass(doctorPatch.host, "switch")[0];
+check(patchSwitch !== undefined, "dsh-doctor: the patch carries a switch, so it can be switched off", "");
+await patchSwitch.listeners.click();
+const patchToggle = doctorPatch.requests.find((request) => request.method === "POST" && String(request.body).includes("toggle"));
+check(
+	patchToggle !== undefined && patchToggle.path.includes("/dsh-doctor/api/patches") && JSON.parse(patchToggle.body).enabled === false && JSON.parse(patchToggle.body).id === "electron-run-as-node",
+	"dsh-doctor: the switch posts the decision to the host",
+	String(patchToggle?.body)
+);
+
+const doctorRemove = await bootPanel("dsh-doctor");
+await nodesWithClass(doctorRemove.host, "danger")[0].listeners.click();
+const patchDelete = doctorRemove.requests.find((request) => request.method === "POST" && String(request.body).includes("delete"));
+check(
+	patchDelete !== undefined && JSON.parse(patchDelete.body).action === "delete" && JSON.parse(patchDelete.body).id === "electron-run-as-node",
+	"dsh-doctor: the delete control takes the patch off the list",
+	String(patchDelete?.body)
+);
+
+// A patch that cannot change anything here (a bare CLI harness never sets that variable)
+// says so, instead of presenting a fix that does nothing; and a patch the host knows but
+// this panel has no copy for still lists, under its id, rather than vanishing.
+const doctorInert = await bootPanel("dsh-doctor", {
+	payload: { ...PAYLOADS["dsh-doctor"], patches: [{ id: "electron-run-as-node", variable: "ELECTRON_RUN_AS_NODE", enabled: true, applicable: false }] }
+});
+check(textOf(doctorInert.host).includes("本进程本来就没有这个变量"), "dsh-doctor: an inert patch says it changes nothing here", textOf(doctorInert.host).slice(0, 200));
+const doctorUnknown = await bootPanel("dsh-doctor", {
+	payload: { ...PAYLOADS["dsh-doctor"], patches: [{ id: "some-future-patch", variable: "SOMETHING", enabled: false, applicable: true }] }
+});
+check(textOf(doctorUnknown.host).includes("some-future-patch"), "dsh-doctor: a patch without copy falls back to its id", textOf(doctorUnknown.host).slice(0, 200));
+
+// A host half that predates the patch section answers 404 there. The rest of the panel must
+// render anyway, and with no empty section: this is the state a page holds while the plugin
+// is being updated underneath it.
+const doctorOldHost = await bootPanel("dsh-doctor", { payload: { status: PAYLOADS["dsh-doctor"].status, records: PAYLOADS["dsh-doctor"].records, source: "capture", reset: true, files: [] } });
+const oldHostText = textOf(doctorOldHost.host);
+check(oldHostText.includes("插件行") && !oldHostText.includes("环境补丁"), "dsh-doctor: without the patch route the rest of the panel still renders, with no empty section", oldHostText.slice(0, 160));
 
 /* ------------- dsh-notify: one reminder makes exactly one sound */
 

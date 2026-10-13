@@ -1,7 +1,7 @@
 {
   "name": "dsh-doctor",
   "version": "0.2.0",
-  "description": "Harness diagnostics from inside DeepSeek Harness, aimed at debugging a plugin set: the harness's own log records read in-process (there is no log file to tail on the official desktop app), every row of the plugin tree with its activation state, and whichever log files do exist. Ships a panel and the /doctor command. dsh-doctor：在 dsh 本体里诊断这套插件——进程内抓取全部日志记录、逐个列出插件行的激活状态，外加真实存在的日志文件尾巴，自带面板与 /doctor 命令。",
+  "description": "Harness diagnostics from inside DeepSeek Harness, aimed at debugging a plugin set: the harness's own log records read in-process (there is no log file to tail on the official desktop app), every row of the plugin tree with its activation state, and whichever log files do exist. Also carries the environment patches this suite applies to the running harness, each one switchable or removable from the panel. Ships a panel and the /doctor command. dsh-doctor：在 dsh 本体里诊断这套插件——进程内抓取全部日志记录、逐个列出插件行的激活状态，外加真实存在的日志文件尾巴，以及对运行中 dsh 所作的环境补丁（可随时停用或删除），自带面板与 /doctor 命令。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -27,8 +27,8 @@
           "en": "Doctor"
         },
         "summary": {
-          "zh": "运行状态与日志尾部",
-          "en": "Status and log tail"
+          "zh": "运行状态、日志尾部与环境补丁",
+          "en": "Status, log tail and patches"
         }
       }
     }
@@ -40,15 +40,18 @@
     "diagnostics",
     "doctor",
     "logs",
+    "patch",
     "诊断",
-    "日志"
+    "日志",
+    "补丁"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=22.19"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-app-boot": "^0.2.0-rc.1"
+    "@deepseek-ai/dsh-app-boot": "^0.2.0-rc.1",
+    "@deepseek-ai/dsh-atomic-write": "^0.2.0-rc.1"
   },
   "repository": {
     "type": "git",

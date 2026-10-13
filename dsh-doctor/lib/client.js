@@ -53,6 +53,7 @@
 		failed: ["Failed", "失败"],
 		working: ["Working…", "处理中…"],
 		refresh: ["Refresh", "刷新"],
+		runtime: ["Runtime", "运行状态"],
 		logs: ["Log", "日志"],
 		noLogs: ["No log records captured yet.", "还没有捕获到日志记录。"],
 		port: ["Port", "端口"],
@@ -91,9 +92,35 @@
 		scopeAll: ["All plugins", "全部插件"],
 		filter: ["Filter", "筛选"],
 		copy: ["Copy", "复制"],
-		copied: ["Copied", "已复制"]
+		copied: ["Copied", "已复制"],
+		patches: ["Environment patches", "环境补丁"],
+		patchesSummary: ["fixes for the running harness, switchable at any time", "对运行中的 dsh 所作的修补，随时可停用"],
+		patchesNone: ["Nothing to patch here.", "这里没有需要修补的地方。"],
+		patchesNotApplicable: ["this process never carried that variable, so the patch changes nothing here", "本进程本来就没有这个变量，此处修补不产生变化"],
+		patchesAt: ["Decisions file", "决定文件"],
+		remove: ["Delete", "删除"]
 	};
 	const T = (key) => STRINGS[key][ZH ? 1 : 0];
+
+	/**
+	 * Per-patch copy, keyed by the id the host half sends. Kept out of STRINGS because the
+	 * host owns the catalog: a patch this panel has no text for (a newer host half behind
+	 * a script the page cached) still renders, under its id.
+	 */
+	const PATCH_TEXT = {
+		"electron-run-as-node": {
+			name: ["Electron flag leak", "Electron 变量泄漏"],
+			what: [
+				"The desktop app runs the harness in Electron's Node mode, so ELECTRON_RUN_AS_NODE=1 sits in this very process and every program it starts inherits it. An Electron editor then starts as plain Node, is handed the folder as a script, and dies, which dsh reports as a failed launch. This patch drops that variable for this process; dsh itself passes it explicitly wherever it is genuinely wanted.",
+				"桌面应用以 Electron 的 Node 模式运行 dsh，于是 ELECTRON_RUN_AS_NODE=1 留在本进程里，被它启动的每个程序都会继承。Electron 系编辑器因此会以纯 Node 启动、把文件夹当脚本执行然后失败，dsh 报为打开失败。本补丁只在当前进程里去掉这个变量；dsh 真正需要它时都是显式传入的。"
+			]
+		}
+	};
+
+	/** One patch's text in the page's language, or the fallback. */
+	function patchText(id, field, fallback) {
+		return PATCH_TEXT[id]?.[field]?.[ZH ? 1 : 0] ?? fallback;
+	}
 
 	/** The `dsh-*` packages this panel exists to debug, by row id and by package name. */
 	const OUR_NAMES = ["dsh-features", "dsh-skills", "dsh-mcp", "dsh-doctor", "dsh-zoom", "dsh-notify", "dsh-remote", "dsh-init", "features", "skills", "mcp", "doctor", "zoom", "notify", "remote", "init"];
@@ -121,6 +148,17 @@
 	/** GET JSON. */
 	async function getJson(path) {
 		const response = await fetch(path, { credentials: "same-origin" });
+		return response.json();
+	}
+
+	/** POST JSON. */
+	async function postJson(path, body) {
+		const response = await fetch(path, {
+			method: "POST",
+			credentials: "same-origin",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body)
+		});
 		return response.json();
 	}
 
@@ -175,8 +213,7 @@
 		level: "all",
 		onlyOurs: false,
 		match: "",
-		list: undefined,
-		meta: undefined
+		list: undefined
 	};
 
 	/** In-page toast for local feedback. */
@@ -228,8 +265,17 @@
 		try {
 			const snapshot = assertOk(await getJson(`${API}/diagnostics`));
 			const log = assertOk(await getJson(`${API}/logs`));
+			// A host half that predates the patch section answers 404 here, and no section is
+			// the right answer to that: there is nothing for the reader to switch.
+			const patches = await getJson(`${API}/patches`).catch(() => undefined);
 			readLog(log);
-			body.replaceChildren(renderStatus(snapshot.status), renderLogs());
+			// 运行状态, 插件行, 日志 (with the log files as a section of their own),
+			// and only then the patches: a fix this plugin applies to the harness is
+			// the page's footnote, not its headline.
+			const sections = [...renderStatus(snapshot.status), ...renderLogs()];
+			const patchSection = renderPatches(patches);
+			if (patchSection !== undefined) sections.push(patchSection);
+			body.replaceChildren(...sections);
 		} catch (error) {
 			body.replaceChildren(el("div", { class: "row-sub", text: `${T("failed")}: ${String(error?.message ?? error)}` }));
 		}
@@ -247,29 +293,83 @@
 		logView.lastSn = logView.records.at(-1)?.sn ?? 0;
 	}
 
-	/** The environment facts, as a definition list, plus the plugin tree. */
+	/**
+	 * A section heading, the way dsh's own 插件 page heads its groups (官方 8,
+	 * 已安装 8): the label, with the section's summary muted beside it on the
+	 * same baseline.
+	 */
+	function sectionHead(title, meta) {
+		return el("div", { class: "sect-head" },
+			el("label", { text: title }),
+			meta === undefined || meta === "" ? undefined : el("span", { class: "sect-meta", text: meta, title: meta }));
+	}
+
+	/**
+	 * The runtime facts as one card of label/value cells, then the plugin tree.
+	 * The fact grid sizes itself from the width it gets: three columns in the
+	 * hub page, two in the floating panel, one on the phone, with no breakpoint
+	 * to keep in step.
+	 */
 	function renderStatus(status) {
-		const value = (label, text) => [el("dt", { text: label }), el("dd", { text: text ?? "?" })];
-		return el("div", {},
-			el("div", { class: "actions" },
-				// The hub's own header refreshes an embedded panel, so it hides this one.
-				inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })),
-			el("dl", { class: "grid" },
-				...value("dsh", `${status.version}`),
-				...value("node", status.node),
-				...value(T("port"), String(status.port ?? "?")),
-				...value(T("pid"), String(status.pid)),
-				...value(T("uptime"), `${String(status.uptimeSeconds)} ${T("seconds")}`),
-				...value(T("memory"), `${String(status.memoryMb)} MB`),
-				...value(T("profile"), status.profile),
-				...value(T("sessions"), status.sessions === undefined ? "?" : String(status.sessions)),
-				...value(T("dshHome"), status.dshHome),
-				...value(T("patch"), status.patchPath),
-				...value("platform", `${status.platform} ${status.arch}`),
-				...value(T("capture"), status.capture === undefined || status.capture.attached !== true
-					? `${T("captureOff")}${status.capture?.reason === undefined ? "" : ` (${status.capture.reason})`}`
-					: `${String(status.capture.records)} ${T("records")}${status.capture.bytes > 0 ? ` · ${String(Math.round(status.capture.bytes / 1024))} KB` : ""}`)),
-			renderRows(status));
+		const fact = (label, text) => el("div", { class: "fact" },
+			el("span", { class: "fact-k", text: label }),
+			el("span", { class: "fact-v", text: text ?? "?", title: text ?? "" }));
+		return [
+			el("div", { class: "section" },
+				sectionHead(T("runtime")),
+				el("div", { class: "card" },
+					el("div", { class: "facts" },
+						fact("dsh", String(status.version)),
+						fact("node", status.node),
+						fact("platform", `${status.platform} ${status.arch}`),
+						fact(T("port"), String(status.port ?? "?")),
+						fact(T("pid"), String(status.pid)),
+						fact(T("uptime"), `${String(status.uptimeSeconds)} ${T("seconds")}`),
+						fact(T("memory"), `${String(status.memoryMb)} MB`),
+						fact(T("profile"), status.profile),
+						fact(T("sessions"), status.sessions === undefined ? "?" : String(status.sessions)),
+						fact(T("dshHome"), status.dshHome),
+						fact(T("patch"), status.patchPath),
+						fact(T("capture"), status.capture === undefined || status.capture.attached !== true
+							? `${T("captureOff")}${status.capture?.reason === undefined ? "" : ` (${status.capture.reason})`}`
+							: `${String(status.capture.records)} ${T("records")}${status.capture.bytes > 0 ? ` · ${String(Math.round(status.capture.bytes / 1024))} KB` : ""}`)))),
+			renderRows(status)
+		];
+	}
+
+	/**
+	 * The patch section: one row per patch, each with a switch and a delete control, so a
+	 * fix this plugin applies to its own process can be taken back at any time. It comes
+	 * last on the page: it is a footnote about the harness, not the panel's headline.
+	 * Nothing is rendered when the host half has no patch route or no patches left.
+	 */
+	function renderPatches(payload) {
+		const patches = Array.isArray(payload?.patches) ? payload.patches : [];
+		if (patches.length === 0) return undefined;
+		return el("div", { class: "section" },
+			sectionHead(T("patches"), T("patchesSummary")),
+			...patches.map((patch) => renderPatch(patch)),
+			payload.configPath === undefined ? undefined : el("div", { class: "note", text: `${T("patchesAt")}: ${String(payload.configPath)}` }));
+	}
+
+	/** One patch: what it fixes, a switch, and the control that takes it off the list. */
+	function renderPatch(patch) {
+		const name = patchText(patch.id, "name", patch.id);
+		const what = patchText(patch.id, "what", patch.variable);
+		return row(name, patch.applicable === false ? `${what} (${T("patchesNotApplicable")})` : what, patch.enabled,
+			(enabled) => postJson(`${API}/patches`, { action: "toggle", id: patch.id, enabled }).then(assertOk),
+			[el("button", {
+				class: "danger",
+				text: T("remove"),
+				onclick: async () => {
+					try {
+						await postJson(`${API}/patches`, { action: "delete", id: patch.id }).then(assertOk);
+					} catch (error) {
+						toast(T("failed"), String(error?.message ?? error));
+					}
+					void render();
+				}
+			})]);
 	}
 
 	/** The plugin tree: one line per row, failed and required rows called out. */
@@ -277,7 +377,7 @@
 		const rows = Array.isArray(status.rows) ? status.rows : [];
 		if (status.rowsAvailable !== true) {
 			return el("div", { class: "section" },
-				el("div", { class: "row-sub", text: T("rows") }),
+				sectionHead(T("rows")),
 				el("div", { class: "note", text: status.rowsReason ?? T("rowsOff") }));
 		}
 		// A shipped profile has around two hundred rows, so the ones this panel exists for
@@ -294,7 +394,7 @@
 			T("rowOrder")
 		].filter((part) => part !== "").join(" · ");
 		return el("div", { class: "section" },
-			el("div", { class: "row-sub", text: `${T("rows")} · ${summary}` }),
+			sectionHead(T("rows"), summary),
 			el("div", { class: "table", role: "table" },
 				el("div", { class: "tr head", role: "row" },
 					el("span", { class: "td", text: T("rowId") }),
@@ -394,7 +494,7 @@
 		}
 	}
 
-	/** The log view: where the records came from, the filters, the lines, the files. */
+	/** The log view: where the records came from, the filters, the lines. */
 	function renderLogs() {
 		const source = logView.source === "capture" ? T("sourceCapture") : logView.source === "plugin" ? T("sourcePlugin") : logView.source;
 		// "47 records" invites the question of whether that is all of them or a trimmed tail,
@@ -403,18 +503,19 @@
 		const window_ = logView.retention === undefined
 			? ""
 			: ` · ${T("keptWindow")} ${String(Math.round(logView.retention.bytes / 1024 / 1024))} ${T("mb")} / ${T("showsLast")} ${String(WINDOW_LIMIT)} ${T("records")}`;
-		logView.meta = el("div", { class: "row-sub", text: `${T("logs")} · ${T("logSource")}: ${source}${logView.records.length === 0 ? "" : ` · ${String(logView.records.length)} ${T("records")}`}${window_}${logView.reason === undefined ? "" : ` · ${String(logView.reason)}`}` });
+		const meta = `${T("logSource")}: ${source}${logView.records.length === 0 ? "" : ` · ${String(logView.records.length)} ${T("records")}`}${window_}${logView.reason === undefined ? "" : ` · ${String(logView.reason)}`}`;
 		logView.list = el("div", { class: "loglines" });
-		const files = logView.files.length === 0
-			? undefined
-			: el("div", { class: "section" },
-				el("div", { class: "row-sub", text: T("files") }),
-				...logView.files.map((file) => el("details", {},
-					el("summary", { text: `${file.source} · ${file.path} · ${String((file.lines ?? []).length)}` }),
-					el("pre", { class: "logs", text: (file.lines ?? []).join("\n") }))));
-		const section = el("div", { class: "section" }, logView.meta, renderFilters(), logView.list, files);
+		const section = el("div", { class: "section" }, sectionHead(T("logs"), meta), renderFilters(), logView.list);
 		paintRecords();
-		return section;
+		// The on-disk files are a section of their own, so the heading keeps the same
+		// gap off the log box as every other section, and each file renders open: a
+		// file the reader opened this page to see should not sit behind a second click.
+		if (logView.files.length === 0) return [section];
+		return [section, el("div", { class: "section" },
+			sectionHead(T("files")),
+			...logView.files.map((file) => el("details", { open: true },
+				el("summary", { text: `${file.source} · ${file.path} · ${String((file.lines ?? []).length)}` }),
+				el("pre", { class: "logs", text: (file.lines ?? []).join("\n") }))))];
 	}
 
 	/** Ask for records newer than the newest one held; a reset replaces the window. */
@@ -503,6 +604,9 @@
 		panel = el("div", { class: "panel", hidden: true },
 			el("div", { class: "head" },
 				el("div", { class: "title", text: T("title") }),
+				// The hub's own header refreshes an embedded panel, so this one exists only
+				// in the floating panel (the hub also sweeps the marker to be sure).
+				inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() }),
 				el("button", { text: T("close"), onclick: toggle })),
 			body);
 		root.append(toasts, panel);

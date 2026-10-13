@@ -42,5 +42,12 @@
   ],
   "retention": { "bytes": 4194304 }
  },
+ "/dsh-doctor/api/patches": {
+  "ok": true,
+  "configPath": "C:/Users/<user>/.dsh/dsh-doctor.json",
+  "patches": [
+   { "id": "electron-run-as-node", "variable": "ELECTRON_RUN_AS_NODE", "enabled": true, "applicable": true }
+  ]
+ },
  "default": { "ok": true }
 }

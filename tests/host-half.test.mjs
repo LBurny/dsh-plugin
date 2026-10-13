@@ -237,7 +237,7 @@ for (const pkg of PACKAGES) {
 		// Mutating routes take JSON only. A cross-site form or a text/plain fetch is
 		// CORS-simple, so parsing anything but application/json would let any web page
 		// drive them (the harness's own fence does not cover plugin routes).
-		const actionPath = { "dsh-remote": "/dsh-remote/api/remote", "dsh-features": "/dsh-features/api/update" }[pkg];
+		const actionPath = { "dsh-remote": "/dsh-remote/api/remote", "dsh-features": "/dsh-features/api/update", "dsh-doctor": "/dsh-doctor/api/patches" }[pkg];
 		if (actionPath !== undefined) {
 			const forged = recorder();
 			await route.handler(
@@ -334,6 +334,67 @@ for (const pkg of PACKAGES) {
 }
 
 /* ------------------------------ dsh-notify: the events it turns into reminders */
+
+/* ------------- dsh-doctor: the patch route is a real write, onto one file */
+
+// The patch list is the one place this plugin changes the process it runs in, so the route
+// behind it is driven end to end here: a decision has to land in `<DSH home>/dsh-doctor.json`,
+// a refusal has to leave that file alone, and removing a patch has to stick.
+const doctor = await mountHostHalf("dsh-doctor");
+const doctorRoute = doctor.registered.prefixes[0];
+const patchFile = join(doctor.home, "dsh-doctor.json");
+const postPatches = async (body) => {
+	const res = recorder();
+	await doctorRoute.handler(
+		{
+			url: "/dsh-doctor/api/patches",
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			async *[Symbol.asyncIterator]() {
+				yield Buffer.from(JSON.stringify(body));
+			}
+		},
+		res
+	);
+	let parsed;
+	try {
+		parsed = JSON.parse(res.body);
+	} catch {
+		parsed = undefined;
+	}
+	return { status: res.status, parsed };
+};
+
+const listed = JSON.parse((await call(doctorRoute, "/dsh-doctor/api/patches")).body);
+check(
+	listed.ok === true && listed.patches.length === 1 && listed.patches[0].id === "electron-run-as-node" && listed.patches[0].enabled === true,
+	"dsh-doctor: the patch route lists the catalog, enabled by default",
+	JSON.stringify(listed.patches)
+);
+check(listed.configPath === patchFile, "dsh-doctor: the decisions file sits in the active DSH home", String(listed.configPath));
+check(
+	listed.patches[0].applicable === Object.prototype.hasOwnProperty.call(process.env, "ELECTRON_RUN_AS_NODE"),
+	"dsh-doctor: applicability reports what this process carried, not what the patch intends",
+	String(listed.patches[0].applicable)
+);
+
+const switchedOff = await postPatches({ action: "toggle", id: "electron-run-as-node", enabled: false });
+check(switchedOff.status === 200 && switchedOff.parsed.patches[0].enabled === false, "dsh-doctor: a toggle answers with the new state", `${String(switchedOff.status)} ${JSON.stringify(switchedOff.parsed?.patches)}`);
+check(readFileSync(patchFile, "utf8").includes('"enabled": false'), "dsh-doctor: the decision is written to the file", readFileSync(patchFile, "utf8").trim());
+const switchedOn = await postPatches({ action: "toggle", id: "electron-run-as-node", enabled: true });
+check(switchedOn.parsed.patches[0].enabled === true, "dsh-doctor: switching it back on is recorded too");
+check(!readFileSync(patchFile, "utf8").includes("electron-run-as-node"), "dsh-doctor: the default is the absence of an entry, so the file stays readable by hand", readFileSync(patchFile, "utf8").trim());
+
+const refusedAction = await postPatches({ action: "nonsense", id: "electron-run-as-node" });
+check(refusedAction.status === 500 && String(refusedAction.parsed?.error).includes("unknown patch action"), "dsh-doctor: an unknown patch action is refused", `${String(refusedAction.status)} ${String(refusedAction.parsed?.error)}`);
+check((await postPatches({ action: "toggle", id: "not-a-patch" })).status === 500, "dsh-doctor: an unknown patch id is refused");
+check(!readFileSync(patchFile, "utf8").includes("not-a-patch"), "dsh-doctor: a refused action leaves the file alone", readFileSync(patchFile, "utf8").trim());
+
+const removed = await postPatches({ action: "delete", id: "electron-run-as-node" });
+check(removed.status === 200 && removed.parsed.patches.length === 0, "dsh-doctor: deleting a patch empties the list", JSON.stringify(removed.parsed?.patches));
+check(readFileSync(patchFile, "utf8").includes('"removed": true'), "dsh-doctor: a deletion is recorded as removed", readFileSync(patchFile, "utf8").trim());
+check(JSON.parse((await call(doctorRoute, "/dsh-doctor/api/patches")).body).patches.length === 0, "dsh-doctor: a removed patch stays gone on the next read");
+doctor.rm();
 
 // The host half is the only half that can see an approval or a question, and it learns about
 // them from two dsh waterfalls. Two things decide whether that works at all. A waterfall
