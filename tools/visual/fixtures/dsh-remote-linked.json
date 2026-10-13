@@ -1,0 +1,17 @@
+{
+ "/dsh-remote/api/remote": {
+  "ok": true,
+  "remote": {
+   "state": "up", "enabled": true, "mode": "tunnel",
+   "link": "https://influenced-wells-deck-begin.trycloudflare.com/?token=<token>",
+   "proxyPort": 29274, "resumed": true,
+   "tunnel": { "state": "up", "url": "https://influenced-wells-deck-begin.trycloudflare.com", "error": null },
+   "lanUrls": [], "cloudflaredPath": "", "cloudflaredProxy": "http://127.0.0.1:7890"
+  },
+  "qrAvailable": true,
+  "qrPath": "/dsh-remote/api/qr.svg",
+  "cloudflared": "C:\\Users\\intel\\tunnel\\cloudflared.exe",
+  "cloudflaredSetup": { "state": "ready", "source": "found", "version": "2026.10.0" }
+ },
+ "default": { "ok": true }
+}

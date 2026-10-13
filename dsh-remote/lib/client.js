@@ -62,14 +62,12 @@
 		remoteLink: ["Link (send this to your phone)", "链接（发给手机）"],
 		linkIsCredential: ["Treat the link as a credential: do not share it, and reset it if it leaks.", "把链接当凭证看待：不要外传；怀疑泄露就重置。"],
 		linkKept: ["Link unchanged: the tunnel from the last session is still running, so the phone keeps working.", "链接未变：沿用了上次留下的隧道，手机上那条不用重新扫码。"],
-		qr: ["QR code", "二维码"],
 		qrUnavailable: ["The qrcode package is not installed, so only the link is shown. Install it with:", "未安装 qrcode 包，因此只显示链接。安装命令："],
 		copy: ["Copy", "复制"],
 		copied: ["Copied", "已复制"],
 		cloudflaredMissing: ["Tunnel mode needs the cloudflared binary, and neither app ships one. It was not on PATH, next to the dsh runtime, nor in <dsh home>/../tunnel. Install it (winget install Cloudflare.cloudflared), or paste its path below. LAN mode needs nothing, and Tailscale mode needs only Tailscale.", "隧道模式需要 cloudflared 程序，两个应用都没自带。PATH、dsh 运行时旁、<dsh home>/../tunnel 都没找到。可先安装（winget install Cloudflare.cloudflared），或在下面填上它的路径。局域网模式什么都不需要，Tailscale 模式只需要 Tailscale 本身。"],
 		binary: ["Tunnel binary", "隧道程序"],
 		binaryFound: ["cloudflared found", "已找到 cloudflared"],
-		binaryPath: ["Path to cloudflared", "cloudflared 路径"],
 		binaryPlaceholder: ["C:/path/to/cloudflared.exe", "C:/路径/cloudflared.exe"],
 		binarySave: ["Save path", "保存路径"],
 		binaryClear: ["Search automatically", "自动查找"],
@@ -360,75 +358,40 @@
 		const tunnel = remote.tunnel === undefined ? "" : typeof remote.tunnel === "string" ? remote.tunnel : remote.tunnel.state;
 		const fragment = document.createDocumentFragment();
 		fragment.append(el("div", { class: "note", text: T("remoteHint") }));
-		fragment.append(el("div", { class: "row" },
-			el("div", { class: "row-main" },
-				el("div", { class: "row-name", text: label }),
-				el("div", { class: "row-sub", text: [remote.error, tunnel === "" ? "" : `tunnel: ${tunnel}`, remote.proxyPort === undefined ? "" : `port ${String(remote.proxyPort)}`].filter(Boolean).join(" · ") }))));
 
+		// State section: the state card owns the buttons that act on it, and the
+		// channel select sits with them.
 		const mode = el("select", {},
 			el("option", { value: "tailnet", text: T("modeTailnet"), selected: remote.mode === "tailnet" }),
 			el("option", { value: "lan", text: T("modeLan"), selected: remote.mode === "lan" }),
 			el("option", { value: "tunnel", text: T("modeTunnel"), selected: remote.mode === "tunnel" }));
 		mode.addEventListener("change", () => void act({ action: "mode", mode: mode.value }));
-		fragment.append(el("div", { class: "field" }, el("label", { text: T("remoteMode") }), mode));
+		const stateSection = el("div", { class: "section" },
+			el("div", { class: "row" },
+				el("div", { class: "row-main" },
+					el("div", { class: "row-name", text: label }),
+					el("div", { class: "row-sub", text: [remote.error, tunnel === "" ? "" : `tunnel: ${tunnel}`, remote.proxyPort === undefined ? "" : `port ${String(remote.proxyPort)}`].filter(Boolean).join(" · ") })),
+				el("div", { class: "row-actions" },
+					remote.enabled
+						? el("button", { class: "danger", text: T("resetLink"), title: T("resetLinkHint"), onclick: () => void act({ action: "reset-token" }) })
+						: undefined,
+					remote.enabled
+						? el("button", { text: T("remoteDisable"), onclick: () => void act({ action: "disable" }) })
+						: el("button", { class: "primary", text: T("remoteEnable"), onclick: () => void act({ action: "enable", mode: mode.value }) }))),
+			el("div", { class: "field" }, el("label", { text: T("remoteMode") }), mode));
 
 		// The tailnet is the only channel with a prerequisite on this machine, so it
 		// explains itself: that it stays private, and what to do when the address is
 		// missing or Tailscale is installed but not running.
 		if (remote.mode === "tailnet") {
-			fragment.append(el("div", { class: "note", text: T("tailnetHint") }));
+			stateSection.append(el("div", { class: "note", text: T("tailnetHint") }));
 			const info = remote.tailnet ?? {};
 			const notRunning = typeof info.backendState === "string" && info.backendState !== "Running";
-			if (info.address === undefined) fragment.append(el("div", { class: "note", text: notRunning ? T("tailnetNotRunning") : T("tailnetMissing") }));
-			else if (notRunning) fragment.append(el("div", { class: "note", text: T("tailnetNotRunning") }));
-			else if (info.dnsName === undefined && info.cli === null) fragment.append(el("div", { class: "note", text: T("tailnetCliMissing") }));
+			if (info.address === undefined) stateSection.append(el("div", { class: "note", text: notRunning ? T("tailnetNotRunning") : T("tailnetMissing") }));
+			else if (notRunning) stateSection.append(el("div", { class: "note", text: T("tailnetNotRunning") }));
+			else if (info.dnsName === undefined && info.cli === null) stateSection.append(el("div", { class: "note", text: T("tailnetCliMissing") }));
 		}
-
-		fragment.append(el("div", { class: "actions" },
-			remote.enabled
-				? el("button", { text: T("remoteDisable"), onclick: () => void act({ action: "disable" }) })
-				: el("button", { class: "primary", text: T("remoteEnable"), onclick: () => void act({ action: "enable", mode: mode.value }) }),
-			remote.enabled
-				? el("button", { class: "danger", text: T("resetLink"), title: T("resetLinkHint"), onclick: () => void act({ action: "reset-token" }) })
-				: undefined,
-			// The hub's own header refreshes an embedded panel, so it hides this one.
-			inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() })));
-
-		// The tunnel binary is a prerequisite neither app supplies, and the host half now
-		// installs one itself, so the panel reports where it came from and only falls back
-		// to asking for a path when that install could not run.
-		const source = { found: T("binaryFoundHere"), manual: T("binaryManual"), installed: T("binaryInstalled") }[cloudflaredSetup.source];
-		if (typeof cloudflared === "string") {
-			fragment.append(el("div", { class: "field" }, el("label", { text: T("binary") }),
-				el("div", { class: "row" },
-					el("div", { class: "row-main" },
-						el("div", { class: "row-name", text: T("binaryFound") }),
-						el("div", { class: "row-sub", text: [cloudflared, source, cloudflaredSetup.version].filter(Boolean).join(" · "), title: cloudflared })),
-					el("div", { class: "row-actions" },
-						cloudflaredPath === "" ? undefined : el("button", { text: T("binaryClear"), onclick: () => void act({ action: "cloudflared", path: "" }) })))));
-		} else if (remote.mode !== "tunnel") {
-			// Only the tunnel channel needs a binary, so the others stay quiet about it.
-		} else if (cloudflaredSetup.state === "checking" || cloudflaredSetup.state === "downloading") {
-			fragment.append(el("div", { class: "note", text: cloudflaredSetup.state === "checking"
-				? T("installChecking")
-				: [T("installDownloading"), cloudflaredSetup.version].filter(Boolean).join(" ") }));
-		} else {
-			fragment.append(el("div", { class: "note", text: installErrorText() }));
-			const field = el("input", { type: "text", value: cloudflaredPath ?? "", placeholder: T("binaryPlaceholder") });
-			fragment.append(el("div", { class: "field" }, el("label", { text: T("binaryPath") }), field,
-				el("div", { class: "actions" },
-					el("button", { class: "primary", text: T("installRetry"), onclick: () => void act({ action: "cloudflared-install" }) }),
-					el("button", { text: T("binarySave"), onclick: () => void act({ action: "cloudflared", path: field.value }) }))));
-		}
-
-		// The proxy only matters for reaching Cloudflare's release host, so it sits with
-		// the binary, and only where it can matter.
-		if (remote.mode === "tunnel") {
-			const proxy = el("input", { type: "text", value: remote.cloudflaredProxy ?? "", placeholder: T("proxyPlaceholder") });
-			fragment.append(el("div", { class: "field" }, el("label", { text: T("proxyLabel") }), proxy,
-				el("div", { class: "note", text: T("proxyHint") }),
-				el("div", { class: "actions" }, el("button", { text: T("proxySave"), onclick: () => void act({ action: "cloudflared-proxy", proxy: proxy.value }) }))));
-		}
+		fragment.append(stateSection);
 
 		/** The install failure reason in the reader's language; the codes are the host's. */
 		function installErrorText() {
@@ -442,20 +405,73 @@
 			}[cloudflaredSetup.error] ?? T("cloudflaredMissing");
 		}
 
+		/** The download proxy: the save button sits in the input's own row, and Enter saves. */
+		function proxyField() {
+			const proxy = el("input", { type: "text", value: remote.cloudflaredProxy ?? "", placeholder: T("proxyPlaceholder") });
+			const save = () => void act({ action: "cloudflared-proxy", proxy: proxy.value });
+			proxy.addEventListener("keydown", (event) => { if (event.key === "Enter") save(); });
+			return [
+				el("label", { text: T("proxyLabel") }),
+				el("div", { class: "input-row" }, proxy, el("button", { text: T("proxySave"), onclick: save })),
+				el("div", { class: "note", text: T("proxyHint") })
+			];
+		}
+
+		// Binary section: one card for the tunnel binary, with the download proxy under a
+		// divider in tunnel mode (the proxy only matters for reaching Cloudflare's release
+		// host). The host half installs cloudflared itself, so the panel reports where it
+		// came from and only asks for a path when that install could not run.
+		if (remote.mode === "tunnel" || typeof cloudflared === "string") {
+			const source = { found: T("binaryFoundHere"), manual: T("binaryManual"), installed: T("binaryInstalled") }[cloudflaredSetup.source];
+			const block = el("div", { class: "block" });
+			if (typeof cloudflared === "string") {
+				block.append(el("div", { class: "line" },
+					el("div", { class: "row-main" },
+						el("div", { class: "row-name", text: T("binaryFound") }),
+						el("div", { class: "row-sub", text: [cloudflared, source, cloudflaredSetup.version].filter(Boolean).join(" · "), title: cloudflared })),
+					el("div", { class: "row-actions" },
+						cloudflaredPath === "" ? undefined : el("button", { text: T("binaryClear"), onclick: () => void act({ action: "cloudflared", path: "" }) }))));
+			} else if (cloudflaredSetup.state === "checking" || cloudflaredSetup.state === "downloading") {
+				block.append(el("div", { class: "note", text: cloudflaredSetup.state === "checking"
+					? T("installChecking")
+					: [T("installDownloading"), cloudflaredSetup.version].filter(Boolean).join(" ") }));
+			} else {
+				const field = el("input", { type: "text", value: cloudflaredPath ?? "", placeholder: T("binaryPlaceholder") });
+				block.append(
+					el("div", { class: "note", text: installErrorText() }),
+					el("div", { class: "input-row" },
+						field,
+						el("button", { text: T("binarySave"), onclick: () => void act({ action: "cloudflared", path: field.value }) }),
+						el("button", { class: "primary", text: T("installRetry"), onclick: () => void act({ action: "cloudflared-install" }) })));
+			}
+			// `append` does not flatten arrays, so the proxy's three nodes are spread in.
+			if (remote.mode === "tunnel") block.append(el("hr", { class: "sep" }), ...proxyField());
+			fragment.append(el("div", { class: "section" }, el("label", { text: T("binary") }), block));
+		}
+
 		const link = remote.link ?? remote.lanUrls?.[0];
 		if (link !== undefined) {
-			fragment.append(el("div", { class: "field" }, el("label", { text: T("remoteLink") }), linkRow(link)));
-			// The link is the credential a phone already holds, so a restart that kept it
-			// is worth saying out loud: it is the difference between "carry on" and
-			// "re-scan this".
-			if (remote.resumed === true) fragment.append(el("div", { class: "note", text: T("linkKept") }));
-			fragment.append(el("div", { class: "note", text: T("linkIsCredential") }));
-			fragment.append(el("div", { class: "field" }, el("label", { text: T("qr") }),
+			const linkNotes = [
+				// The link is the credential a phone already holds, so a restart that kept it
+				// is worth saying out loud: it is the difference between "carry on" and
+				// "re-scan this".
+				remote.resumed === true ? el("div", { class: "note", text: T("linkKept") }) : undefined,
+				el("div", { class: "note", text: T("linkIsCredential") }),
+				el("div", { class: "note", text: T("hint") })
+			];
+			fragment.append(el("div", { class: "section" },
+				el("label", { text: T("remoteLink") }),
+				// The two-column share row only earns its keep with a QR to put beside the
+				// link; without one the column reads as a stray note and the link stacks full
+				// width instead.
 				qrAvailable
-					// The QR encodes the link, so it is regenerated per render.
-					? el("img", { src: `${qrPath}?v=${String(Date.now())}`, alt: "remote link QR code", style: "width:200px;height:200px;background:#fff;border-radius:8px;padding:6px" })
-					: el("div", { class: "note", text: `${T("qrUnavailable")} dsh plugin --profile web add dsh-remote` })));
-			fragment.append(el("div", { class: "note", text: T("hint") }));
+					? el("div", { class: "share" },
+						// The QR encodes the link, so it is regenerated per render.
+						el("img", { src: `${qrPath}?v=${String(Date.now())}`, alt: "remote link QR code", style: "width:200px;height:200px;background:#fff;border-radius:8px;padding:6px" }),
+						el("div", { class: "share-main" }, linkRow(link), ...linkNotes))
+					: [linkRow(link),
+						el("div", { class: "note", text: `${T("qrUnavailable")} dsh plugin --profile web add dsh-remote` }),
+						...linkNotes]));
 		}
 		return fragment;
 	}
@@ -515,6 +531,8 @@
 		panel = el("div", { class: "panel", hidden: true },
 			el("div", { class: "head" },
 				el("div", { class: "title", text: T("title") }),
+				// A standalone panel owns its refresh; embedded, the hub head has the only one.
+				inHub ? undefined : el("button", { "data-dsh-refresh": "", text: T("refresh"), onclick: () => void render() }),
 				el("button", { text: T("close"), onclick: toggle })),
 			body);
 		root.append(toasts, panel);

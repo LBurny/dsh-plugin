@@ -432,3 +432,104 @@
 	font-weight: 600;
 	margin-bottom: 2px;
 }
+
+/* --------------------------------------------------------- section layout */
+
+/* The content is up to three sections (state, tunnel binary, share) on one
+   rhythm: the gap between sections is 18px and comes from the sections alone,
+   because a section's last child carries no bottom margin. */
+#dsh-remote-root .section {
+	display: flex;
+	flex-direction: column;
+}
+
+#dsh-remote-root .section + .section {
+	margin-top: 18px;
+}
+
+#dsh-remote-root .section > :last-child {
+	margin-bottom: 0;
+}
+
+/* A section heading, the same size and weight as a .field label. */
+#dsh-remote-root .section > label {
+	display: block;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.5;
+	color: var(--dsh-fg);
+	margin: 0 0 6px;
+}
+
+/* A block is one card holding related things: the binary status line plus, in
+   tunnel mode, the download proxy under a hairline divider. Children carry no
+   margins; the flex gap owns the rhythm inside. */
+#dsh-remote-root .block {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 12px 14px;
+	border: 1px solid var(--dsh-border);
+	border-radius: var(--dsw-radius-md, 12px);
+}
+
+#dsh-remote-root .block > * {
+	margin: 0;
+}
+
+#dsh-remote-root .block > label {
+	display: block;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.5;
+	color: var(--dsh-fg);
+}
+
+/* One horizontal line inside a block: main text left, compact actions right. */
+#dsh-remote-root .line {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+
+#dsh-remote-root .sep {
+	border: 0;
+	border-top: 1px solid var(--dsh-border);
+}
+
+/* An input with its own action: the save button sits in the input's row. */
+#dsh-remote-root .input-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+#dsh-remote-root .input-row input {
+	flex: 1;
+	min-width: 0;
+	width: auto;
+}
+
+#dsh-remote-root .input-row button {
+	flex-shrink: 0;
+}
+
+/* The QR beside the link and its notes; on a narrow column the code wraps
+   above the text. */
+#dsh-remote-root .share {
+	display: flex;
+	align-items: flex-start;
+	gap: 16px;
+	flex-wrap: wrap;
+}
+
+#dsh-remote-root .share-main {
+	flex: 1;
+	min-width: 260px;
+	display: flex;
+	flex-direction: column;
+}
+
+#dsh-remote-root .share-main > :last-child {
+	margin-bottom: 0;
+}

@@ -229,6 +229,8 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 	dom.sidebarRequired = sidebarRequired;
 	// Window listeners are recorded so a test can fire them the way the browser does.
 	const listeners = {};
+	// Every fetch the panel makes, so a test can assert a control actually sent its save.
+	const requests = [];
 	const sandbox = {
 		console,
 		setTimeout: timers === undefined ? setTimeout : (fn, delay) => {
@@ -266,6 +268,7 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 		localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
 		fetch: async (url, init) => {
 			const path = String(url);
+			requests.push({ path, method: String(init?.method ?? "GET").toUpperCase(), body: init?.body });
 			// A host that is restarting refuses the connection instead of answering. `failSaves`
 			// reproduces that for every write, which is the case a save path has to survive: an
 			// unguarded `void postJson(...)` rejects unhandled and the control looks dead.
@@ -340,7 +343,7 @@ async function bootPanel(pkg, { hub = true, mount = true, innerHeight = 900, sid
 		for (const key of keys) await registry[key].mount(host);
 		await new Promise((resolve) => setTimeout(resolve, 30));
 	}
-	return { sandbox, dom, host, keys, listeners, timers };
+	return { sandbox, dom, host, keys, listeners, timers, requests };
 }
 
 /** The buttons of a subtree, by their visible text. */
@@ -1080,6 +1083,62 @@ check(
 	unpackNote.includes("压缩包") || unpackNote.toLowerCase().includes("archive"),
 	"dsh-remote: a compressed release that held no binary says so in its own words",
 	unpackNote.slice(0, 240)
+);
+
+/* --------------------- dsh-remote: the sections stay grouped */
+
+// The layout rule that keeps the page scannable: every action sits with the
+// thing it acts on. The state card owns its own buttons, an input owns its
+// save button, and the QR sits beside the link it encodes; nothing floats
+// between sections.
+const grouped = await bootPanel("dsh-remote", { payload: linkedPayload, timers: [] });
+const stateRow = descendants(grouped.host).find((node) => node.className === "row");
+check(
+	stateRow !== undefined
+		&& descendants(stateRow).some((node) => node.className === "row-actions"
+			&& descendants(node).some((child) => child.tag === "button")),
+	"dsh-remote: the state card carries its own buttons",
+	""
+);
+check(
+	descendants(grouped.host).every((node) => node.className !== "actions"),
+	"dsh-remote: no loose action row floats between sections",
+	""
+);
+const proxyInput = descendants(grouped.host).find((node) => node.tag === "input" && node.attrs?.placeholder === "http://127.0.0.1:7890");
+check(
+	proxyInput?.parent?.className === "input-row"
+		&& proxyInput.parent.children.some((child) => child.tag === "button"),
+	"dsh-remote: the proxy's save button sits in the input's own row",
+	proxyInput?.parent?.className ?? "(no proxy input)"
+);
+const qrImage = descendants(grouped.host).find((node) => node.tag === "img");
+check(
+	qrImage?.parent?.className === "share"
+		&& qrImage.parent.children.some((child) => child.className === "share-main"),
+	"dsh-remote: the QR sits beside the link it encodes",
+	qrImage?.parent?.className ?? "(no QR)"
+);
+const floatedRemote = await bootPanel("dsh-remote", { hub: false, mount: false, payload: linkedPayload, timers: [] });
+const headRefresh = descendants(floatedRemote.dom.body).find((node) => node.hasAttribute("data-dsh-refresh"));
+check(
+	headRefresh?.parent?.className === "head",
+	"dsh-remote: the standalone refresh lives in the panel head",
+	headRefresh?.parent?.className ?? "(no refresh)"
+);
+// The proxy field saves on Enter as well as through its button: the stub input has no
+// live `value` property, so the test types by assigning one, then fires the recorded
+// keydown listener the way the browser would.
+const enterBoot = await bootPanel("dsh-remote", { payload: linkedPayload, timers: [] });
+const enterField = descendants(enterBoot.host).find((node) => node.tag === "input" && node.attrs?.placeholder === "http://127.0.0.1:7890");
+enterField.value = "http://127.0.0.1:9000";
+enterField.listeners?.keydown?.({ key: "Enter" });
+await new Promise((resolve) => setTimeout(resolve, 30));
+const proxySave = enterBoot.requests.find((req) => String(req.body ?? "").includes("cloudflared-proxy"));
+check(
+	proxySave !== undefined && String(proxySave.body).includes("9000"),
+	"dsh-remote: Enter in the proxy field posts the save",
+	String(proxySave?.body ?? "(no save posted)")
 );
 
 /* -------------------- dsh-zoom: a level save that fails is caught --------- */
