@@ -360,10 +360,14 @@
   /*
    * 同上对话框的 footer：原生四控件（新建文件夹 / 显示隐藏文件 / 取消 / 打开）
    * flex-wrap:wrap 在手机上把"打开"挤到第二行，且弹性占位把行撑得参差不齐。
-   * pickerpatch.rs 已把隐藏条目改为默认显示（手机端没有频繁切换的需求），
-   * 开关整个移除，剩三控件一行均分：nowrap、去掉 footerGap、三项 flex 等分、
-   * 按钮 min-width 归零并收紧内边距（原生 72px 最小宽 + 24px 侧距在 390px
-   * 视口必然换行）。
+   * 开关整个移除（隐藏条目改由 mobile.js 点开，见那里），剩三控件排成一行：
+   * nowrap、去掉 footerGap、按内容分配宽度、收紧内边距。
+   *
+   * 三等分试过，会炸：390px 手机继承桌面端的页面 zoom（本机 1.14），footer 实测
+   * 335 设备 px，三个按钮各得 99，而"新建文件夹"（带 + 图标）固有 ~103，标签
+   * 在按钮里折成"新建文件 / 夹"（手机实拍）。改成 flex: 1 1 auto：基准取各自
+   * 固有宽度，余量三家平分，任何 zoom 下都不折。nowrap 是兜底——上游将来把标签
+   * 改长，宁可溢出也不要在按钮里折成两行。
    */
   [role="dialog"]:has([class*="_millerRow"]) [class*="_footerBar"] {
     flex-wrap: nowrap;
@@ -377,10 +381,11 @@
     display: none;
   }
   [role="dialog"]:has([class*="_millerRow"]) [class*="_footerBar"] > * {
-    flex: 1 1 0;
+    flex: 1 1 auto;
     min-width: 0;
     padding-left: 4px;
     padding-right: 4px;
+    white-space: nowrap;
   }
 
   /*

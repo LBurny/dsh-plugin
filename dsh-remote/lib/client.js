@@ -63,6 +63,11 @@
 		linkIsCredential: ["Treat the link as a credential: do not share it, and reset it if it leaks.", "把链接当凭证看待：不要外传；怀疑泄露就重置。"],
 		linkKept: ["Link unchanged: the tunnel from the last session is still running, so the phone keeps working.", "链接未变：沿用了上次留下的隧道，手机上那条不用重新扫码。"],
 		qrUnavailable: ["The qrcode package is not installed, so only the link is shown. Install it with:", "未安装 qrcode 包，因此只显示链接。安装命令："],
+		picker: ["Folder picking", "选文件夹方式"],
+		pickerBrowse: ["In-page folder browser", "页内文件夹浏览器"],
+		pickerPinnedOn: ["dsh shows its own folder browser inside the page, so the phone and any LAN browser can pick a folder too.", "dsh 在页面里显示自带的文件夹浏览器，手机和局域网浏览器也能选文件夹。"],
+		pickerPinnedOff: ["dsh opens the OS folder dialog on this machine's screen, which a phone and any LAN browser can never see or touch.", "dsh 在这台机器的屏幕上打开系统文件夹对话框，手机和局域网浏览器看不到也点不到。"],
+		pickerRestart: ["A change here is composed when dsh starts, so it applies after the next restart.", "这项改动在 dsh 启动时组合，因此下一次重启后生效。"],
 		copy: ["Copy", "复制"],
 		copied: ["Copied", "已复制"],
 		cloudflaredMissing: ["Tunnel mode needs the cloudflared binary, and neither app ships one. It was not on PATH, next to the dsh runtime, nor in <dsh home>/../tunnel. Install it (winget install Cloudflare.cloudflared), or paste its path below. LAN mode needs nothing, and Tailscale mode needs only Tailscale.", "隧道模式需要 cloudflared 程序，两个应用都没自带。PATH、dsh 运行时旁、<dsh home>/../tunnel 都没找到。可先安装（winget install Cloudflare.cloudflared），或在下面填上它的路径。局域网模式什么都不需要，Tailscale 模式只需要 Tailscale 本身。"],
@@ -234,6 +239,8 @@
 	let qrPath;
 	let qrAvailable = false;
 	let cloudflared;
+	/** `{pinned, autoDisabled, missing, error?}`: what the profile patch says about the picker. */
+	let picker;
 	/** What the host half's installer last reported: `{state, source?, version?, error?}`. */
 	let cloudflaredSetup = {};
 	/** When this panel started waiting for a link, or undefined while it is not waiting. */
@@ -318,6 +325,7 @@
 			qrPath = data.qrPath;
 			qrAvailable = data.qrAvailable === true;
 			cloudflared = data.cloudflared;
+			picker = data.picker;
 			cloudflaredPath = data.remote?.cloudflaredPath;
 			// Absent from a host half that predates the installer, so it reads as "no
 			// report" rather than breaking the panel.
@@ -392,6 +400,19 @@
 			else if (info.dnsName === undefined && info.cli === null) stateSection.append(el("div", { class: "note", text: T("tailnetCliMissing") }));
 		}
 		fragment.append(stateSection);
+
+		// Which picker the profile composes. dsh decides this from its own bind host at boot,
+		// and the host half asks for the in-page browser here, because the OS dialog lands on
+		// this machine's screen where a phone can never reach it. Absent from a host half that
+		// predates the pin, so the section simply does not render then.
+		if (picker !== undefined) {
+			const pinned = picker.pinned === true;
+			fragment.append(el("div", { class: "section" },
+				el("label", { text: T("picker") }),
+				row(T("pickerBrowse"), pinned ? T("pickerPinnedOn") : T("pickerPinnedOff"), pinned,
+					(next) => act({ action: "picker-pin", pinned: next })),
+				picker.error === undefined ? el("div", { class: "note", text: T("pickerRestart") }) : el("div", { class: "note", text: `${T("failed")}: ${picker.error}` })));
+		}
 
 		/** The install failure reason in the reader's language; the codes are the host's. */
 		function installErrorText() {
@@ -612,6 +633,64 @@
 		if (await hubInstalled()) return;
 		buildChrome();
 	}
+
+	/**
+	 * The host half pins dsh to its in-page folder browser, and that browser is dsh's own
+	 * client surface, whose copy inside the official app sits in app.asar where a plugin
+	 * cannot patch it (DSHDesktop's `pickerpatch.rs` patches the same three things in its own
+	 * writable runtime copy). So they live here instead, on every page this client half
+	 * reaches, phone and desktop alike:
+	 *
+	 * - The hidden-entries switch is pressed once per dialog open. Upstream resets it to off
+	 *   every time the dialog opens, and the phone hides the switch (mobile.css), which would
+	 *   leave dot-directories (.agents, .git, .venv: common workspace locations) with no way
+	 *   in at all. Only pressed while it reads off, so a reader who turns it back off is not
+	 *   fought, and a re-render that resets it is corrected on the next tick.
+	 * - The drive level's crumb is named by the host, which cannot know the client's language
+	 *   (the string is decided before any client exists), so a Chinese page renames it here.
+	 * - "Open" and "New folder" mean nothing on the drive level itself: `dsh:drives` is not a
+	 *   directory, so picking it would only fail in the workspace controller. Both are
+	 *   disabled while the crumb trail is that one crumb.
+	 *
+	 * Every edit is a property or a text node React re-renders from its own state, so a
+	 * re-render can undo one and the observer puts it back on the next tick.
+	 */
+	function pickerCompanion() {
+		const SENTINEL_NAMES = ["This PC", "此电脑"];
+		const zh = () => (document.documentElement.lang || "").toLowerCase().startsWith("zh");
+		const settle = () => {
+			// Anchored on _millerRow: the browse dialog's own CSS Modules local name (the only
+			// dialog with it), so the settings sheet is never touched.
+			const dialog = document.querySelector('[role="dialog"]:has([class*="_millerRow"])');
+			if (dialog === null) return;
+			const toggle = dialog.querySelector('[class*="_showHiddenToggle"]');
+			if (toggle !== null && !String(toggle.className).includes("_showHiddenToggleActive")) toggle.click();
+			const crumbs = [...dialog.querySelectorAll('button[class*="_crumb"]')].filter(
+				(element) => !String(element.className).includes("_crumbEditZone"));
+			if (zh()) for (const crumb of crumbs) if ((crumb.textContent ?? "").trim() === "This PC") crumb.textContent = "此电脑";
+			const footer = dialog.querySelector('[class*="_footerBar"]');
+			if (footer === null) return;
+			// Native order: [New folder] [hidden switch] [Cancel] [Open].
+			const buttons = [...footer.querySelectorAll("button")];
+			const onDrives = crumbs.length === 1 && SENTINEL_NAMES.includes((crumbs[0].textContent ?? "").trim());
+			if (buttons.length > 0) buttons[0].disabled = onDrives;
+			if (buttons.length > 1) buttons[buttons.length - 1].disabled = onDrives;
+		};
+		try {
+			settle();
+			new MutationObserver(() => {
+				try {
+					settle();
+				} catch {
+					/* a companion that breaks the dialog is worse than one that lags */
+				}
+			}).observe(document.documentElement, { childList: true, subtree: true });
+		} catch {
+			/* 静默: the dialog keeps working without any of this */
+		}
+	}
+
+	pickerCompanion();
 
 	// The injected script lands at the end of <body>; defer only if that is not
 	// true, so the launcher appears with the rest of the UI.

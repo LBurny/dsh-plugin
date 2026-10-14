@@ -320,6 +320,25 @@ assume it exists)
   shows `加载提供商目录失败: settings are unavailable in this browser`, which is exactly what a remote
   transport gets. **Never make a remote page look like loopback to fix that**: the same scope is what stops
   a link-holder from rewriting host settings and API keys. Explain it in the layer; nothing else.
+- **Adding a workspace from the phone is a picker problem, not a proxy problem.** dsh resolves its
+  directory chooser once at boot from its own bind host, and a loopback bind (which tunnel mode is)
+  means the `native` backend, whose chooser is an OS dialog on the PC's screen that a phone can never
+  see or touch. `dsh-remote` therefore pins the `browse` interaction in the profile patch
+  (`lib/picker.js`: disable the row `directory-picker`, insert `directory-picker-browse` +
+  `ui-directory-picker-browse`; the same rows DSHDesktop's `bootstrap/patches/picker.rs` writes), at
+  every load, idempotently and comment-preserving, with the panel showing the state and a switch that
+  takes the ask back. It applies on the next dsh start. Three things then ride on the mounted picker,
+  all of them because the official app's copies of those packages sit in `app.asar` where a plugin
+  cannot patch them: the drive level is a wrap on `ctx.directoryPicker.capability().list` (`dsh:drives`
+  answers with the readable drive roots, a `This PC` crumb goes in front of a drive root's chain, and
+  the client's opening request for no path answers with that level, since the crumb chain cannot climb
+  out of the home subtree once folded); the phone's footer is rebuilt in `mobile.css`; and the
+  client-side companion in `lib/client.js` presses the hidden-entries switch once per dialog open,
+  renames the drive crumb on a zh page, and disables `打开`/`新建文件夹` on the drive level, where
+  `dsh:drives` is not a directory. Measured fact that decides the footer's layout: the phone page
+  inherits the desktop's page zoom (1.14 here), the footer is 335 device px, and an equal three-way
+  split leaves `新建文件夹` 99 px where its content needs about 103, so the label wraps; use
+  `flex: 1 1 auto`.
 
 **Diagnostics and the runtime**
 

@@ -80,8 +80,8 @@ Served by dsh's origin, behind its gate:
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
 | GET | `/dsh-remote/client.js` `/dsh-remote/client.css` | browser half |
-| GET | `/dsh-remote/api/remote` | state, link, LAN addresses, tailnet status, cloudflared path, and the installer's report (`cloudflaredSetup`) |
-| POST | `/dsh-remote/api/remote` | `enable` · `disable` · `mode` (`tailnet` · `lan` · `tunnel`) · `reset-token` · `cloudflared` (a path) · `cloudflared-proxy` (a proxy URL) · `cloudflared-install` (start the install again) |
+| GET | `/dsh-remote/api/remote` | state, link, LAN addresses, tailnet status, cloudflared path, the installer's report (`cloudflaredSetup`), and what the profile patch says about the folder picker (`picker`) |
+| POST | `/dsh-remote/api/remote` | `enable` · `disable` · `mode` (`tailnet` · `lan` · `tunnel`) · `reset-token` · `cloudflared` (a path) · `cloudflared-proxy` (a proxy URL) · `cloudflared-install` (start the install again) · `picker-pin` (`pinned`: ask for the in-page folder browser, or take the ask back) |
 | GET | `/dsh-remote/api/status` | the same state **without** the credential |
 | GET | `/dsh-remote/qr.svg` | QR code for the current link |
 
@@ -128,6 +128,53 @@ and three compensations for upstream behaviour that will not change:
 
 All three match on the exact upstream wording and on `[class*="_…"]` local-name substrings, so an upstream
 rename degrades to "the phone looks like it did before" rather than breaking the page.
+
+## Picking a folder from the phone
+
+Adding a workspace needs a directory chooser, and dsh resolves which one it composes **once, at boot**:
+`@deepseek-ai/dsh-host-directory-picker-auto` reads its own bind host, and a loopback bind means the
+`native` backend, whose chooser is an OS folder dialog on this machine's screen. A phone can neither see
+nor drive that dialog, so 添加工作区 did nothing on the phone (an error until 2026-10-14, a window on the
+PC after that), while the app's own window never notices: it carries `__DSH_DIRECTORY_PICKER__` from the
+app's preload and picks through Electron.
+
+dsh ships the interaction for this case: the `browse` backend and its client surface render a folder
+browser inside the page, so the desktop and the phone share one shape. Nothing selects it for a loopback
+bind, and tunnel mode is exactly that, so this plugin asks for it in the profile patch document, the same
+pin DSHDesktop's Rust bootstrap writes (`bootstrap/patches/picker.rs` in
+`LBurny/deepseek-harness-desktop`): an id-targeted op disabling the row `directory-picker`, plus insert
+rows for `directory-picker-browse` (`@deepseek-ai/dsh-host-directory-picker-browse`) and
+`ui-directory-picker-browse` (`@deepseek-ai/dsh-client-ui-directory-picker-browse`). The plugin writes it
+at every load (`lib/picker.js`), idempotently, keeping every comment and `!!js` tag of that shared file,
+and the panel shows what the file says, with a switch that takes the ask back. The composition is read
+when dsh starts, so a change applies after the next restart.
+
+Three things ride on the mounted picker, because the files a DSHDesktop-style patch would edit sit inside
+the official app's `app.asar`, where a plugin cannot reach them:
+
+- **The drive level.** dsh's browse backend lists one level of one fully qualified path, so a reader who
+  starts in the home directory can walk down but never sideways: another drive has no entry and no crumb.
+  The plugin wraps the capability object the workspace controller resolves per call
+  (`ctx.directoryPicker.capability().list`), answers the sentinel path `dsh:drives` with one row per
+  readable drive root, puts a `This PC` crumb in front of a drive root's chain, and answers the client's
+  opening request (no path at all) with that level: it is what Windows' own chooser does, and the only
+  view from which every drive is one tap away, because the client folds the crumb chain inside the home
+  subtree into a single Home crumb. The backend's own listing is never reimplemented, only amended.
+- **The phone's footer.** The native footer wraps `打开` onto a second line at a phone width, and the
+  hidden-entries switch is not something a phone needs. `mobile.css` hides the switch and lays the
+  remaining three controls out on one row (`flex: 1 1 auto`, so measured content decides the shares: at
+  the phone's inherited page zoom of 1.14 the footer is 335 device px, and an equal split gives
+  `新建文件夹` 99 px where its content needs about 103, which wraps the label).
+- **The client-side companion.** `lib/client.js` presses that hidden switch once per dialog open (upstream
+  resets it to off every time, and dot-directories are common workspace locations), renames the drive
+  level's crumb on a Chinese page (the host names it before any client exists, so it cannot know the
+  language), and disables `打开` and `新建文件夹` on the drive level itself, where `dsh:drives` is not a
+  directory and picking it would only fail in the workspace controller. Each edit is a property or a text
+  node React re-renders from its own state, so a re-render can undo one and the observer puts it back.
+
+Two limits worth knowing: the pin is a profile-patch fact, so uninstalling this plugin leaves it behind
+(take the ask back from the panel first), and inside the home subtree the folded crumb chain means the
+drives are reached by reopening the dialog rather than by a crumb.
 
 ## The link survives a restart
 
@@ -196,6 +243,7 @@ token, so the old link stops working and the panel shows the new one.
 ```bash
 cd "$DSH_HOME/profiles/plugins/dsh-remote"
 node tests/proxy.test.mjs     # frame bridge, HTML/gzip/SSE rewrites, project routes
+node tests/picker.test.mjs    # the profile-patch pin, the drive level, and the capability wrap
 ```
 
 `tests/remote-live.mjs <baseUrl> <proxyPort> <token>` is a live suite; it opens and closes remote

@@ -524,6 +524,30 @@ function makeConversation() {
 		"the Add plugin button is pinned to one line inside its pill",
 		addRules.map((rule) => rule.body).join(" | ")
 	);
+
+	// The folder browser's footer. Hiding the hidden-entries switch is what lets the remaining
+	// three controls share one row, and the shares have to come from measured content: at the
+	// phone's inherited page zoom (1.14 on this machine) the footer is 335 device px, so an equal
+	// three-way split leaves 新建文件夹 99 px while its content needs about 103, and the label wraps
+	// inside the button (phone screenshot). flex: 1 1 auto with nowrap is the fix, pinned here for
+	// the same reason as the pill above: a CSS-only rule is invisible to the DOM stub.
+	const footerRules = rules.filter((rule) => rule.selector.includes("_footerBar"));
+	check(footerRules.length > 0, "the folder browser's footer carries phone rules", `${footerRules.length} rule(s)`);
+	check(
+		footerRules.some((rule) => rule.body.includes("flex-wrap: nowrap")),
+		"the footer keeps its controls on one row",
+		footerRules.map((rule) => rule.body).join(" | ")
+	);
+	const childRule = footerRules.find((rule) => rule.selector.endsWith("> *"));
+	check(
+		childRule !== undefined && childRule.body.includes("flex: 1 1 auto") && childRule.body.includes("white-space: nowrap"),
+		"and each control takes its measured content, so no label wraps inside its button",
+		childRule?.body ?? "no rule for the footer's children"
+	);
+	check(
+		rules.some((rule) => rule.selector.includes("_showHiddenToggle") && rule.body.includes("display: none")),
+		"the hidden-entries switch is not shown on a phone"
+	);
 }
 
 /* ------------------------------------------------------------------- reporting */

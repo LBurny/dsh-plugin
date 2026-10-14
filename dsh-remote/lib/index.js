@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { createCloudflaredInstaller } from "./cloudflared.js";
 import { guard, readJson, sendJson, sendText } from "./http.js";
 import { resolveLayout } from "./layout.js";
+import { createPickerPin } from "./picker.js";
 import { createQrRenderer } from "./qr.js";
 import { createRemoteManager } from "./remote.js";
 import { loadConfig, mergeDeep, normalizeConfig, saveConfig } from "./settings.js";
@@ -97,6 +98,11 @@ function createState(ctx) {
 		log: (message) => state.log(message)
 	});
 	state.qr = createQrRenderer(layout);
+	// The picker a phone can drive: dsh resolves its adaptive chooser from the bind host at
+	// boot and a loopback bind means the OS folder dialog, which a phone can never see or
+	// touch. Asking for dsh's in-page browser instead is a profile-patch decision, so this
+	// owns the ask rather than the interaction.
+	state.picker = createPickerPin({ layout, log: (message) => state.log(message) });
 	return state;
 }
 
@@ -136,6 +142,13 @@ async function handleAction(state, body) {
 		case "reset-token": {
 			const status = await state.remote.resetToken();
 			return { ok: true, remote: status };
+		}
+		case "picker-pin": {
+			// One fact in the profile patch, changed at the reader's request. The loader
+			// composes that document at boot, so there is nothing to reload here: the answer
+			// carries what the file now says and the panel says out loud when that applies.
+			const { state: picker } = await state.picker.ensure(body.pinned !== false);
+			return { ok: true, remote: state.remote.snapshot(), picker };
 		}
 		case "cloudflared": {
 			// The tunnel needs a binary neither app ships; let the panel point at one
@@ -204,8 +217,9 @@ function mount(ready, state) {
 				remote: state.remote.snapshot(),
 				qrAvailable: state.qr.available(),
 				qrPath: QR_PATH,
-				configPath: state.layout().configPath,
-				cloudflared: state.remote.cloudflared() ?? null,
+			configPath: state.layout().configPath,
+			picker: await state.picker.refresh(),
+			cloudflared: state.remote.cloudflared() ?? null,
 				cloudflaredSetup: state.cloudflared.status(),
 				plugin: { name, version: VERSION }
 			});
@@ -309,6 +323,18 @@ export function warnOnRowIdCollision(ctx, state, delay = 2000) {
  */
 function apply(ctx) {
 	const state = createState(ctx);
+	// Ask for the picker a phone can drive as soon as the patch file is addressable. Written
+	// once and re-checked at every load, so a reader who deleted the pin, or a dsh update that
+	// restored the file, gets it back without being asked. Never fatal: a read-only profile
+	// costs the pin, not the plugin.
+	ctx.inject(["configEditor"], () => {
+		void state.picker.ensure(true).catch((error) => state.log(`picker pin unavailable: ${String(error?.message ?? error)}`));
+	});
+	// The drive level rides on the backend dsh's adaptive picker mounts after boot (this
+	// plugin's pin is what makes that the browse backend), so it waits for the service.
+	ctx.inject(["directoryPicker"], (ready) => {
+		ready.effect(() => state.picker.attach(ready.directoryPicker), "dsh-remote picker drive level");
+	});
 	ctx.inject(["webServer", "configEditor"], (ready) => {
 		mount(ready, state);
 	});
