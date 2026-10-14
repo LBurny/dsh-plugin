@@ -17,9 +17,13 @@
  * Dropping the name is what dsh itself does where it matters: `dsh-ptc-runtime-node`
  * filters `ELECTRON_RUN_AS_NODE` out of the environment it builds for its child, and the
  * two places that want Electron in Node mode (the desktop host's package manager, the
- * GitHub Desktop adapter) set it explicitly for that child instead of inheriting it. The
- * variable is only read at process start and nothing in the harness reads it back, so
- * deleting it from `process.env` cannot change how dsh itself runs.
+ * GitHub Desktop adapter) set it explicitly for that child instead of inheriting it.
+ *
+ * One dsh child does depend on inheriting it, and a pick made from a browser that is not
+ * the app's own window is where that shows: the Win32 folder chooser runs in a worker
+ * spawned as this very executable with `env: { ...process.env }`, so the variable this
+ * patch drops is the only thing that starts it as Node (see `./picker-worker.js`, which
+ * lends it back for that one call). Nothing reads the variable back in this process.
  *
  * The decision lives in `<DSH_HOME>/dsh-doctor.json`, so a patch can be switched off or
  * taken off the list from the panel at any time, and that one file is the whole record of
@@ -34,11 +38,14 @@ import { writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
 /** The decision file, inside the active DSH home. Nothing else in this plugin writes it. */
 export const PATCHES_FILENAME = "dsh-doctor.json";
 
+/** The one patch, named so the module that gives its variable back for one spawn shares it. */
+export const RUN_AS_NODE = { id: "electron-run-as-node", variable: "ELECTRON_RUN_AS_NODE" };
+
 /**
  * The catalog, in panel order. `variable` names the environment entry the patch drops;
  * the panel keys that patch's title and description by `id`, in its own language.
  */
-export const PATCH_CATALOG = [{ id: "electron-run-as-node", variable: "ELECTRON_RUN_AS_NODE" }];
+export const PATCH_CATALOG = [RUN_AS_NODE];
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -153,6 +160,22 @@ export function createPatchRuntime(env = process.env, catalog = PATCH_CATALOG) {
 		 */
 		present(id) {
 			return before.get(id)?.present === true;
+		},
+		/**
+		 * Whether this process is right now carrying a patch out, i.e. the variable is gone
+		 * because of this plugin. A process that never carried the variable reports false:
+		 * nothing was taken there, so nothing has to be given back either.
+		 */
+		applied(id) {
+			return before.get(id)?.present === true && settled.get(id) === true;
+		},
+		/**
+		 * The value this process carried for a patch's variable before the patch dropped it.
+		 * Handing the original value back is what keeps a lent variable honest.
+		 */
+		carried(id) {
+			const shot = before.get(id);
+			return shot?.present === true ? shot.value : undefined;
 		},
 		/**
 		 * Make this environment match `state`.

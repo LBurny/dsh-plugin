@@ -23,6 +23,7 @@ import {
 	savePatchState,
 	setPatchEnabled
 } from "../lib/patches.js";
+import { createPickerWorkerNode } from "../lib/picker-worker.js";
 import { collectRows, packageOf, REQUIRED_ROW_IDS, summarizeRows } from "../lib/rows.js";
 
 const results = [];
@@ -311,6 +312,78 @@ const cleanRuntime = createPatchRuntime(clean);
 check(cleanRuntime.present("electron-run-as-node") === false, "an environment that never carried the variable is reported as unaffected");
 check(cleanRuntime.settle(fresh).length === 0, "settling against a clean environment changes nothing");
 check(cleanRuntime.settle(off).length === 0, "reverting a patch that never applied changes nothing");
+
+/* ------------------------------------------- the folder-dialog worker */
+
+// The patch drops ELECTRON_RUN_AS_NODE for the whole process. The Win32 folder chooser that
+// a phone or LAN browser asks for is the one child that needs it: dsh spawns that worker as
+// this same executable with `env: { ...process.env }`, measured on the app at 277ms to exit
+// with no result once the variable is gone (it boots a second copy of the desktop app, loses
+// the single-instance lock and quits), which the pick answers as "win32 folder dialog worker
+// exited before reporting a result". The wrap lends the variable for that call alone.
+const workerEnv = { ELECTRON_RUN_AS_NODE: "1", PATH: "C:\\Windows" };
+const workerPatches = createPatchRuntime(workerEnv);
+workerPatches.settle(fresh);
+check(workerPatches.applied("electron-run-as-node") === true, "the runtime reports a patch it carried out", String(workerPatches.applied("electron-run-as-node")));
+check(workerPatches.carried("electron-run-as-node") === "1", "and remembers the value it took", String(workerPatches.carried("electron-run-as-node")));
+
+let spawned;
+const nativeCapability = { kind: "native", pick: () => { spawned = workerEnv.ELECTRON_RUN_AS_NODE; return Promise.resolve("C:\\picked"); } };
+const picker = { capability: () => nativeCapability };
+const workerNode = createPickerWorkerNode(workerPatches, { env: workerEnv });
+const detach = workerNode.attach(picker);
+check(typeof detach === "function", "the wrap attaches to a mounted picker", typeof detach);
+check(await picker.capability().pick() === "C:\\picked", "the wrapped pick still returns the backend's answer");
+check(spawned === "1", "the dialog worker is spawned with the variable the patch took", String(spawned));
+check(picker.capability() === nativeCapability, "the capability the controller reads is still the backend's own object");
+check(!("ELECTRON_RUN_AS_NODE" in workerEnv) && workerEnv.PATH === "C:\\Windows", "and the environment is patched again the moment the call returns", JSON.stringify(workerEnv));
+
+// The window has to close on the failure path too, or one refused pick would leave the
+// variable in place for every later spawn.
+const failing = { kind: "native", pick: () => { throw new Error("no chooser"); } };
+const failingPicker = { capability: () => failing };
+workerNode.attach(failingPicker);
+let threw = false;
+try {
+	failingPicker.capability().pick();
+} catch {
+	threw = true;
+}
+check(threw, "a pick that fails still throws to its caller");
+check(!("ELECTRON_RUN_AS_NODE" in workerEnv), "and the environment is put back after the failure as well", JSON.stringify(workerEnv));
+
+// A bare CLI harness never carried the variable, so the patch has nothing to drop and the
+// wrap must not put anything into this process's environment.
+const cleanEnv = { PATH: "C:\\Windows" };
+const cleanPatches = createPatchRuntime(cleanEnv);
+cleanPatches.settle(fresh);
+let cleanSpawned;
+const cleanPicker = { capability: () => ({ kind: "native", pick: () => { cleanSpawned = "ELECTRON_RUN_AS_NODE" in cleanEnv; return Promise.resolve(null); } }) };
+createPickerWorkerNode(cleanPatches, { env: cleanEnv }).attach(cleanPicker);
+check(await cleanPicker.capability().pick() === null, "a cancel still resolves as null through the wrap");
+check(cleanSpawned === false && !("ELECTRON_RUN_AS_NODE" in cleanEnv), "a process the patch never applied to lends nothing", JSON.stringify(cleanEnv));
+
+// Switching the patch off puts the variable back and stops the wrap from touching anything.
+workerPatches.settle(off);
+check(workerPatches.applied("electron-run-as-node") === false, "and reports it as no longer in force once the reader switches it off");
+
+// Shapes a patch has to survive: nothing mounted, no pick to wrap, and a sealed capability.
+check(createPickerWorkerNode(workerPatches, { env: workerEnv }).attach(undefined) === undefined, "a profile with no picker is nothing to wrap");
+check(createPickerWorkerNode(workerPatches, { env: workerEnv }).attach({ capability: 5 }) === undefined, "a service with no capability method is nothing to wrap");
+const browsePicker = { capability: () => ({ kind: "browse" }) };
+check(typeof createPickerWorkerNode(workerPatches, { env: workerEnv }).attach(browsePicker) === "function" && browsePicker.capability().pick === undefined, "a browse capability has no pick to wrap");
+const sealed = Object.freeze({ kind: "native", pick: () => "sealed" });
+const sealedPicker = { capability: () => sealed };
+createPickerWorkerNode(workerPatches, { env: workerEnv }).attach(sealedPicker);
+check(sealedPicker.capability().pick() === "sealed", "a sealed capability keeps working, just without the correction");
+
+// Attaching is tied to the service's lifetime, so a reloaded picker does not stay wrapped.
+const reloaded = { capability: () => ({ kind: "native", pick: () => null }) };
+const reloadedOriginal = reloaded.capability;
+const reloadDetach = createPickerWorkerNode(workerPatches, { env: workerEnv }).attach(reloaded);
+check(reloaded.capability !== reloadedOriginal, "attaching takes over the service's capability");
+reloadDetach();
+check(reloaded.capability === reloadedOriginal, "detaching puts the backend's own capability back");
 
 /* ------------------------------------------------------------ reporting */
 

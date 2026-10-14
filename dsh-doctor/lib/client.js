@@ -111,8 +111,8 @@
 		"electron-run-as-node": {
 			name: ["Electron flag leak", "Electron 变量泄漏"],
 			what: [
-				"The desktop app runs the harness in Electron's Node mode, so ELECTRON_RUN_AS_NODE=1 sits in this very process and every program it starts inherits it. An Electron editor then starts as plain Node, is handed the folder as a script, and dies, which dsh reports as a failed launch. This patch drops that variable for this process; dsh itself passes it explicitly wherever it is genuinely wanted.",
-				"桌面应用以 Electron 的 Node 模式运行 dsh，于是 ELECTRON_RUN_AS_NODE=1 留在本进程里，被它启动的每个程序都会继承。Electron 系编辑器因此会以纯 Node 启动、把文件夹当脚本执行然后失败，dsh 报为打开失败。本补丁只在当前进程里去掉这个变量；dsh 真正需要它时都是显式传入的。"
+				"The desktop app runs the harness in Electron's Node mode, so ELECTRON_RUN_AS_NODE=1 sits in this very process and every program it starts inherits it. An Electron editor then starts as plain Node, is handed the folder as a script, and dies, which dsh reports as a failed launch. This patch drops that variable for this process. One child needs it back: the folder chooser a phone or a LAN browser asks for is started as this same executable, so the variable is lent to that one call and taken back as it returns.",
+				"桌面应用以 Electron 的 Node 模式运行 dsh，于是 ELECTRON_RUN_AS_NODE=1 留在本进程里，被它启动的每个程序都会继承。Electron 系编辑器因此会以纯 Node 启动、把文件夹当脚本执行然后失败，dsh 报为打开失败。本补丁只在当前进程里去掉这个变量。有一个子进程需要把它要回来：手机或局域网浏览器请求的文件夹选择器以同一个可执行文件启动，因此只在这一次调用期间把变量交给它，调用返回即收回。"
 			]
 		}
 	};

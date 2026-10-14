@@ -46,8 +46,24 @@ script, and exits non-zero, which dsh reports as `failed to launch <app>` and th
 Dropping the name is what dsh itself does where it matters: `dsh-ptc-runtime-node` filters it out of
 the environment it builds for its child, and the two places that genuinely want Electron in Node mode
 (the desktop host's package manager, the GitHub Desktop adapter) set it explicitly for that child
-instead of inheriting it. The variable is only read at process start and nothing in the harness reads
-it back, so removing it cannot change how dsh itself runs.
+instead of inheriting it.
+
+One dsh child does depend on inheriting it, and this patch has to give it back. The Win32 folder
+chooser behind `dsh-host-directory-picker-native` runs in a worker spawned as `process.execPath`,
+which in the desktop app is the Electron binary itself, with `env: { ...process.env }` and no mention
+of Node mode (`spawnDialogWorker`), so the inherited variable is the only thing that starts that child
+as Node. Without it the child boots a second copy of the desktop app, loses the single-instance lock,
+quits in about 300ms, and the pick answers `win32 folder dialog worker exited before reporting a
+result`, which a phone shows as 无法打开文件夹. Only a browser that is not the app's own window ever
+gets there: that window carries `__DSH_DIRECTORY_PICKER__` from the app's preload and picks through
+Electron instead.
+
+The correction sits on the one seam a plugin can reach, because two consumers want opposite things
+from one process-wide variable and dsh reads its environment when it spawns: `lib/picker-worker.js`
+wraps `ctx.directoryPicker.capability().pick`, which `dsh-api-workspace-controller` resolves again on
+every call, and lends the variable for that call's synchronous prefix, where the worker is spawned,
+taking it back in the same tick. A patch that is switched off, or a process that never carried the
+variable, lends nothing and leaves the environment alone.
 
 Decisions live in `<DSH_HOME>/dsh-doctor.json`:
 
@@ -137,7 +153,10 @@ cd "$DSH_HOME/profiles/plugins/dsh-doctor"
 node tests/doctor.test.mjs
 ```
 
-98 checks: the ring, redaction, the record store and its `since` window, the exporter attachment
+116 checks: the ring, redaction, the record store and its `since` window, the exporter attachment
 (including a logger without one), the log-file tails, the loader-tree walk, the status document with
-and without its services, and the patch catalog end to end (the decisions file, normalization, and an
-environment that has the variable, one that never did, and one where a patch is withdrawn again).
+and without its services, the patch catalog end to end (the decisions file, normalization, and an
+environment that has the variable, one that never did, and one where a patch is withdrawn again), and
+the wrap that lends the variable back to the folder-dialog worker (the environment as it is during the
+spawn and after the call returns, the failure path, a cancel, and the shapes it has to survive:
+nothing mounted, no pick to wrap, a sealed capability, and a detach).
