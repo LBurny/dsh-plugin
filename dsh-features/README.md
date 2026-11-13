@@ -37,6 +37,12 @@ no flag. Restart dsh afterwards — plugins have no HMR.
   below), so embedded panels hide their own refresh (and the hub sweeps away a
   leftover one from an older panel build). Below 620px the gutters tighten for the phone remote view.
   Features stay standalone: the hub calls into them.
+- **dsh's own page metrics.** The head is a 20px/500 title over a 13px intro, the rows are dsh's list
+  rows (48px hairline icon square, 14px/500 name over a 13px caption, 2px apart), and the refresh
+  control is the 32px outlined button carrying its icon and its word, so the page reads as one of the
+  app's own pages beside 插件 and 自动化任务. The horizontal gutter is a single token, `--dsh-gutter`
+  (`clamp(24px, 4vw, 48px)`, dsh's own page inset); a mounted panel's body inherits it, so a feature's
+  cards land on the page's title and controls at every width instead of jumping sideways when it opens.
 - **Updates it can see and apply.** A row whose package came from a source that has moved past the
   commit the profile pinned carries a 可更新 pill, and the head offers one update button for all of
   them. Nothing is installed until that button is clicked.

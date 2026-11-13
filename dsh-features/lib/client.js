@@ -143,6 +143,11 @@ window.__ModuleLoader__.load({
 	--dsh-hover: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
 	--dsh-subtle: var(--dsw-alias-interactive-bg-hover, #f3f4f6);
 	--dsh-accent: #4d6bfe;
+	/* One gutter for the head, the banner and the list, and the same one a mounted
+	   panel's body inherits: dsh's own page inset. Without the token an embedded
+	   panel would fall back to its standalone 22px and every row would jump sideways
+	   when a feature opens. */
+	--dsh-gutter: clamp(24px, 4vw, 48px);
 	display: flex;
 	flex-direction: column;
 	height: 100%;
@@ -172,11 +177,13 @@ window.__ModuleLoader__.load({
 
 /* ---------------------------------------------------------------- the head */
 
+/* The head follows dsh's own plugin page: a 20px/500 title over a 13px intro, with the
+   page's controls top-aligned to the title rather than centred on the pair. */
 #dsh-features-root .hub-head {
 	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 18px 22px 14px;
+	align-items: flex-start;
+	gap: 16px;
+	padding: 28px var(--dsh-gutter) 16px;
 }
 
 #dsh-features-root .hub-titles {
@@ -192,9 +199,9 @@ window.__ModuleLoader__.load({
 }
 
 #dsh-features-root .hub-titles h1 {
-	font-size: 15px;
-	font-weight: 600;
-	line-height: 1.4;
+	font-size: 20px;
+	font-weight: 500;
+	line-height: 28px;
 	margin: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -202,13 +209,11 @@ window.__ModuleLoader__.load({
 }
 
 #dsh-features-root .hub-head p {
-	color: var(--dsh-muted);
-	font-size: 12px;
-	line-height: 1.6;
-	margin: 3px 0 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	color: var(--dsw-alias-label-secondary, var(--dsh-muted));
+	font-size: 13px;
+	line-height: 20px;
+	margin: 4px 0 0;
+	overflow-wrap: anywhere;
 }
 
 #dsh-features-root .hub-pkg {
@@ -220,17 +225,18 @@ window.__ModuleLoader__.load({
 	padding: 1px 6px;
 }
 
-/* Back and refresh are the same quiet square, so they line up on the grid. */
+/* Back and refresh are the page's controls, so they take dsh's own 32px/12px box and
+   its 13px label; a read-only level or a count stays inside that same box. */
 #dsh-features-root .hub-icon-btn {
 	flex: none;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 30px;
-	height: 30px;
+	width: 32px;
+	height: 32px;
 	padding: 0;
 	border: 1px solid var(--dsh-border);
-	border-radius: 8px;
+	border-radius: var(--dsw-radius-md, 12px);
 	background: transparent;
 	color: var(--dsh-muted);
 	cursor: pointer;
@@ -241,7 +247,35 @@ window.__ModuleLoader__.load({
 	color: var(--dsh-fg);
 }
 
+/* The page's one refresh: icon plus its word, the way 刷新 reads on dsh's own pages. */
+#dsh-features-root .hub-refresh {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	height: 32px;
+	padding: 0 12px;
+	border: 1px solid var(--dsh-border);
+	border-radius: var(--dsw-radius-md, 12px);
+	background: transparent;
+	color: var(--dsh-fg);
+	font: inherit;
+	font-size: 13px;
+	line-height: 20px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+#dsh-features-root .hub-refresh svg {
+	color: var(--dsh-muted);
+}
+
+#dsh-features-root .hub-refresh:hover:not(:disabled) {
+	background: var(--dsh-hover);
+}
+
 #dsh-features-root .hub-icon-btn:disabled,
+#dsh-features-root .hub-refresh:disabled,
 #dsh-features-root .hub-update-btn:disabled {
 	opacity: 0.5;
 	cursor: default;
@@ -250,14 +284,16 @@ window.__ModuleLoader__.load({
 /* The one control that writes: only on the page while a source is behind. */
 #dsh-features-root .hub-update-btn {
 	flex: none;
-	height: 30px;
+	height: 32px;
 	padding: 0 12px;
 	border: 1px solid var(--dsh-accent);
-	border-radius: 8px;
+	border-radius: var(--dsw-radius-md, 12px);
 	background: transparent;
 	color: var(--dsh-accent);
 	font: inherit;
-	font-size: 12px;
+	font-size: 13px;
+	line-height: 20px;
+	white-space: nowrap;
 	cursor: pointer;
 }
 
@@ -267,7 +303,7 @@ window.__ModuleLoader__.load({
 
 /* One line about the last check or update: quiet by default, loud when it failed. */
 #dsh-features-root .hub-banner {
-	margin: 0 22px 10px;
+	margin: 0 var(--dsh-gutter) 10px;
 	padding: 9px 12px;
 	border: 1px solid var(--dsh-border);
 	border-radius: 10px;
@@ -302,7 +338,7 @@ window.__ModuleLoader__.load({
 }
 
 #dsh-features-root .hub-stage[data-view="list"] {
-	padding: 2px 22px 28px;
+	padding: 2px var(--dsh-gutter) 28px;
 }
 
 /* An embedded panel brings its own padding, so the detail view adds none. */
@@ -313,16 +349,20 @@ window.__ModuleLoader__.load({
 #dsh-features-root .hub-rows {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: 2px;
 }
 
+/* A row is dsh's own list row, not a card: no fill, no stroke, a 48px outlined icon
+   tile, so the page reads as the same list as 插件 and 自动化任务 beside it. The
+   hover band is flush with the gutter because the tile lines up with the page title
+   above it (dsh bleeds its own row by -8px for the same reason). */
 #dsh-features-root .hub-row {
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: 14px;
 	width: 100%;
-	padding: 12px 14px;
-	border: 1px solid var(--dsh-border);
+	padding: 8px 0;
+	border: 0;
 	border-radius: 12px;
 	background: transparent;
 	color: inherit;
@@ -337,7 +377,7 @@ window.__ModuleLoader__.load({
 }
 
 #dsh-features-root .hub-row[data-drop="true"] {
-	border-color: var(--dsh-accent);
+	background: var(--dsh-hover);
 	box-shadow: 0 0 0 1px var(--dsh-accent);
 }
 
@@ -346,11 +386,11 @@ window.__ModuleLoader__.load({
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 34px;
-	height: 34px;
-	border-radius: 9px;
-	background: var(--dsh-subtle);
-	color: var(--dsh-fg);
+	width: 48px;
+	height: 48px;
+	border: 0.5px solid var(--dsw-alias-border-l3, var(--dsh-border));
+	border-radius: var(--dsw-radius-lg, 16px);
+	color: var(--dsw-alias-label-secondary, var(--dsh-muted));
 }
 
 #dsh-features-root .hub-row .hub-text {
@@ -358,21 +398,22 @@ window.__ModuleLoader__.load({
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 3px;
+	gap: 2px;
 }
 
 #dsh-features-root .hub-row-name {
-	font-weight: 600;
-	line-height: 1.4;
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 20px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
 #dsh-features-root .hub-row-note {
-	color: var(--dsh-muted);
-	font-size: 12px;
-	line-height: 1.6;
+	color: var(--dsw-alias-label-tertiary, var(--dsh-muted));
+	font-size: 13px;
+	line-height: 18px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -435,18 +476,23 @@ window.__ModuleLoader__.load({
 	display: none !important;
 }
 
-/* Narrow screens (the phone remote view) tighten the gutters. */
+/* Narrow screens (the phone remote view) tighten the gutters. One token, so a mounted
+   panel tightens with the page instead of keeping the desktop inset. */
 @media (max-width: 620px) {
+	#dsh-features-root {
+		--dsh-gutter: 14px;
+	}
+
 	#dsh-features-root .hub-head {
-		padding: 14px 14px 10px;
+		padding: 14px var(--dsh-gutter) 10px;
 	}
 
 	#dsh-features-root .hub-stage[data-view="list"] {
-		padding: 2px 14px 20px;
+		padding: 2px var(--dsh-gutter) 20px;
 	}
 
 	#dsh-features-root .hub-banner {
-		margin: 0 14px 8px;
+		margin: 0 var(--dsh-gutter) 8px;
 	}
 }
 `;
@@ -579,7 +625,7 @@ window.__ModuleLoader__.load({
 
 		/** The one refresh control the page owns. */
 		function refreshGlyph() {
-			return glyph("M13 8a5 5 0 11-1.6-3.7M13 2.6V5.4h-2.8", 15);
+			return glyph("M13 8a5 5 0 11-1.6-3.7M13 2.6V5.4h-2.8", 16);
 		}
 
 		/* ----------------------------------------------------------- the refresh */
@@ -939,7 +985,7 @@ window.__ModuleLoader__.load({
 					onClick: () => setActive(feature.key),
 					...dragHandlers(feature.key)
 				},
-					React.createElement("span", { className: "hub-tile" }, featureGlyph(feature.icon, 17)),
+					React.createElement("span", { className: "hub-tile" }, featureGlyph(feature.icon, 20)),
 					React.createElement("span", { className: "hub-text" },
 						React.createElement("span", { className: "hub-line" },
 							React.createElement("span", { className: "hub-row-name" }, feature.title ?? feature.key),
@@ -982,7 +1028,7 @@ window.__ModuleLoader__.load({
 						onClick: () => updates.apply([...updates.behind])
 					}, `${t("update")} (${updates.behind.size})`),
 					React.createElement("button", {
-						className: "hub-icon-btn",
+						className: "hub-refresh",
 						type: "button",
 						title: t("refreshHint"),
 						"aria-label": t("refresh"),
@@ -992,7 +1038,7 @@ window.__ModuleLoader__.load({
 							reload();
 							updates.check();
 						}
-					}, refreshGlyph())),
+					}, refreshGlyph(), React.createElement("span", null, t("refresh")))),
 				updates.notice === undefined ? null : React.createElement("div", {
 					className: "hub-banner",
 					"data-kind": updates.notice.kind

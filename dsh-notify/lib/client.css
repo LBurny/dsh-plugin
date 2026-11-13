@@ -258,16 +258,16 @@
 }
 
 #dsh-notify-root .body {
-	padding: 4px 22px 24px;
+	padding: 4px var(--dsh-gutter, 22px) 24px;
 	overflow: auto;
 	flex: 1;
 }
 
-/* A row is one card, the same one the 功能管理 hub uses for its own list: hairline
-   l2 stroke, 12px radius, 12/14 padding and an 8px rhythm. Cards are inset by the
-   body's 22px gutter, which lines their edges up with the page head's title and its
-   refresh control, and a long description can no longer run an entry into the next
-   one. */
+/* A row is one card: hairline l2 stroke, 12px radius, 12/14 padding and an 8px
+   rhythm. Its inset is the body's gutter: the hub's own page token when a panel is
+   mounted there, so the cards line up with that page's title and refresh control, and
+   a 22px fallback when the same panel stands alone. A long description can no longer
+   run an entry into the next one. */
 #dsh-notify-root .row {
 	display: flex;
 	align-items: center;

@@ -228,31 +228,47 @@ for (const pkg of FEATURES) {
 for (const match of client.matchAll(/className = "([a-zA-Z0-9_-]+)"/gu)) {
 	check(client.includes(`.${match[1]} {`), "dsh-features: every class its script sets is styled by its own stylesheet", match[1]);
 }
-// A row is one card, and it must be the same card the hub draws for its own list:
-// same hairline stroke, same radius, same 8px rhythm, inset by the body's own gutter
-// rather than bleeding past it. One panel drifting from that reads as an untidy list
-// beside every other page in the hub.
+// The hub's list is dsh's own list, not a card grid: same 48px outlined icon square,
+// the same 14px/500 title over a 13px caption and the same 2px rhythm as 插件 and
+// 自动化任务, so the page reads as one more page of the app rather than a plugin's own
+// look beside them. A panel's content rows are still cards — they sit inside a detail
+// page — and the pins below keep all of those agreeing with each other.
 const hubRowBlock = client.slice(
 	client.indexOf("#dsh-features-root .hub-row {"),
 	client.indexOf("}", client.indexOf("#dsh-features-root .hub-row {"))
 );
 check(
-	/border: 1px solid var\(--dsh-border\);/u.test(hubRowBlock) && /border-radius: 12px;/u.test(hubRowBlock),
-	"dsh-features: the hub's own rows are 1px stroke cards at a 12px radius",
+	/border: 0;/u.test(hubRowBlock) &&
+		/border-radius: 12px;/u.test(hubRowBlock) &&
+		/\tpadding: 8px 0;/u.test(hubRowBlock) &&
+		/\tgap: 14px;/u.test(hubRowBlock),
+	"dsh-features: the hub's own rows are dsh's flat list rows, not stroke cards",
 	hubRowBlock.replace(/\s+/gu, " ").slice(0, 72)
+);
+const hubTileBlock = client.slice(
+	client.indexOf("#dsh-features-root .hub-tile {"),
+	client.indexOf("}", client.indexOf("#dsh-features-root .hub-tile {"))
+);
+check(
+	/\twidth: 48px;/u.test(hubTileBlock) &&
+		/\theight: 48px;/u.test(hubTileBlock) &&
+		/0\.5px solid var\(--dsw-alias-border-l3/u.test(hubTileBlock) &&
+		/border-radius: var\(--dsw-radius-lg, 16px\);/u.test(hubTileBlock),
+	"dsh-features: a row's icon is dsh's 48px hairline square at the large radius",
+	hubTileBlock.replace(/\s+/gu, " ").slice(0, 96)
 );
 for (const pkg of FEATURES) {
 	const style = read(join(pkg, "lib", "client.css"));
 	const at = style.indexOf(`#${pkg}-root .row {`);
 	const rowBlock = style.slice(at, style.indexOf("}", at));
-	// dsh's own --dsw-radius-md is 12px, so the token's fallback and the hub's
-	// literal are the same radius.
+	// dsh's own --dsw-radius-md is 12px, so the token's fallback and the panels'
+	// literal radius are the same number.
 	check(
 		/border: 1px solid var\(--dsh-border\);/u.test(rowBlock) &&
 			/border-radius: var\(--dsw-radius-md, 12px\);/u.test(rowBlock) &&
 			/\tpadding: 12px 14px;/u.test(rowBlock) &&
 			/\tmargin: 0 0 8px;/u.test(rowBlock),
-		`${pkg}: a row is a card on the hub's own rhythm, not a bare line`,
+		`${pkg}: a settings row is a card on one shared rhythm, not a bare line`,
 		rowBlock.replace(/\s+/gu, " ").slice(0, 96)
 	);
 }
@@ -277,9 +293,19 @@ const horizontalPadding = (source, rule) => {
 const headGutter = horizontalPadding(client, "#dsh-features-root .hub-head {");
 const listGutter = horizontalPadding(client, "#dsh-features-root .hub-stage[data-view=\"list\"] {");
 check(headGutter !== undefined && headGutter === listGutter, "dsh-features: the page head and the list share one gutter", `${headGutter} vs ${listGutter}`);
+// The gutter is dsh's own page inset, declared once, and a mounted panel reads it
+// off the page rather than carrying its own copy: that is what makes an embedded
+// panel's content land on the head's title and refresh control at every width,
+// including the phone's narrowed one.
+check(
+	/--dsh-gutter: clamp\(24px, 4vw, 48px\);/u.test(client),
+	"dsh-features: the page gutter is dsh's own page inset",
+	/(--dsh-gutter:[^;]+;)/u.exec(client)?.[1] ?? "missing"
+);
+check(headGutter === "var(--dsh-gutter)", "dsh-features: the head and the list read the one gutter token", String(headGutter));
 for (const pkg of FEATURES) {
 	const style = read(join(pkg, "lib", "client.css"));
-	check(horizontalPadding(style, `#${pkg}-root .body {`) === headGutter, `${pkg}: an embedded panel's content lands on the hub's gutter`, String(horizontalPadding(style, `#${pkg}-root .body {`)));
+	check(/padding: 4px var\(--dsh-gutter, \d+px\) 24px;/u.test(style), `${pkg}: an embedded panel's body inherits the hub's gutter`, String(horizontalPadding(style, `#${pkg}-root .body {`)));
 }
 
 // The zoom panel shows the live level as a badge next to its buttons. A badge in a
