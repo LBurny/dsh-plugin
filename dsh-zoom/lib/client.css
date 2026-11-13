@@ -527,3 +527,16 @@ body > [data-dsh-zoom-surface] {
 body > [data-dsh-zoom-surface] > * {
 	zoom: var(--dsh-zoom, 1);
 }
+
+/*
+ * Everything else the factor has to be taken off lives in a patch, not here.
+ *
+ * dsh 0.2.2 measures the plugin page's header and pins its parts with numbers that already
+ * carry the zoom, so the toolbar draws 14% too far right (刷新 off a 933px window at 114%,
+ * 添加插件 collapsed to its icon at 1152px). The correction is page-level CSS rather than
+ * anything this panel can do, so it ships as `dsh-doctor`'s `plugin-header-zoom` patch:
+ * switchable and deletable from 诊断 → 环境补丁, which is what a workaround for an upstream
+ * defect should be. It keys on the `html[data-dsh-zoom-active]` mark the browser half sets
+ * while a level other than 100% is in force, so the two packages still only agree on that
+ * one string, and a machine without dsh-zoom is left alone by construction.
+ */

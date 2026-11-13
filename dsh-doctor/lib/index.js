@@ -169,8 +169,12 @@ async function patchPayload(state) {
 		patches: listPatches(patchState).map((patch) => ({
 			id: patch.id,
 			variable: patch.variable,
+			kind: patch.kind,
+			css: patch.css,
 			enabled: patch.enabled,
-			applicable: state.patches.present(patch.id)
+			// A page patch is carried out by the browser half, which is the process every
+			// reader's page runs in: it applies wherever the harness renders.
+			applicable: patch.kind === "page" ? true : state.patches.present(patch.id)
 		}))
 	};
 }

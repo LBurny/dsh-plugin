@@ -75,6 +75,15 @@ package into `$DSH_HOME/profiles/plugins/dsh-zoom/` and add that path.
   positioned by CSS, keep the factor. The surface's own frame, its padding and the min/max width bounds,
   stays in viewport px, so a wide menu at a high zoom wraps a little tighter than a native page zoom
   would render it.
+- **The plugin page's header is measured, not laid out.** Since dsh 0.2.2 that page head takes the title,
+  intro and toolbar apart, measures them with `getBoundingClientRect()` and pins each back as an
+  absolutely placed part (`[data-plugin-header-part]`). The measured numbers are viewport px and the
+  placement reads them as layout px, so the factor lands on them twice: at 114% the toolbar draws 14%
+  further right than it was measured, which walks the 刷新 button out of a 933px window and collapses
+  添加插件 to its icon at 1152px. That correction is CSS and it lives in `dsh-doctor`, as the
+  `plugin-header-zoom` patch, so it can be switched off or deleted (诊断 → 环境补丁) instead of becoming a
+  permanent rule here. What this package owes it is the mark: `zoom` above or below 100% sets
+  `html[data-dsh-zoom-active]`, and the patch keys on that, so a page at 100% is untouched.
 
 Shortcut matching prefers `event.code` and falls back to `event.key`, so synthesized and
 remote-desktop key events still work.

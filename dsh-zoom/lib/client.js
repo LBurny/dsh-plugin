@@ -271,6 +271,11 @@
 		// their contents, or the zoom lands on their inline coordinates a second time.
 		html.style.setProperty("--dsh-zoom", String(next));
 		html.style.setProperty("--dsh-zoom-inverse", String(1 / next));
+		// Whether the page is actually zoomed, for the corrections that are only right
+		// off 100% (the plugin page's measured header). A stylesheet cannot branch on a
+		// custom property's value, and at 100% dsh's own placement is the correct one.
+		if (next === 1) html.removeAttribute("data-dsh-zoom-active");
+		else html.setAttribute("data-dsh-zoom-active", "");
 		config.level = next;
 		if (persist) persistLevel();
 		return next;

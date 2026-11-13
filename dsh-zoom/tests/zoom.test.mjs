@@ -81,6 +81,21 @@ check(clientCss.includes(`body > [${attribute}] {`), "the stylesheet cancels the
 check(clientCss.includes(`body > [${attribute}] > *`), "the stylesheet gives the factor back to a marked surface's contents");
 check(/boot\(\)[\s\S]*?watchSurfaces\(\);/.test(clientJs), "the mark is applied at boot, not only when the panel is opened");
 
+// dsh 0.2.2's self-measuring page header needs the factor taken off its placement too, but
+// that correction is page-level CSS, so it ships as dsh-doctor's `plugin-header-zoom` patch
+// (switchable from 诊断 → 环境补丁) instead of living here. What this package owes that
+// patch is the mark: the page says it is zoomed, the patch keys on it.
+check(
+	/applyLevel[\s\S]{0,1200}?html\.removeAttribute\("data-dsh-zoom-active"\)[\s\S]{0,120}?html\.setAttribute\("data-dsh-zoom-active", ""\)/u.test(
+		clientJs
+	),
+	"the browser half marks the page while it is zoomed, which is the hook a page patch keys on"
+);
+check(
+	!/data-plugin-header-part/u.test(clientCss.replace(/\/\*[\s\S]*?\*\//gu, "")),
+	"the header correction is not carried in this stylesheet: it is the doctor patch's job"
+);
+
 // The predicate is the whole rule, so it is exercised rather than just grepped: it has
 // to read React's own serialization of a placement and nothing that merely looks like
 // one. `padding-left` and a custom property are the two near misses that would take a

@@ -258,38 +258,71 @@ check(bare.capture === undefined, "a missing capture is reported as undefined, n
 
 /* ------------------------------------------------------------ patches */
 
-// The catalog is the fix itself, so it is pinned here: one patch, and it drops the one
-// variable the desktop app leaks into the harness host. A second entry, or a different
-// variable, has to be a deliberate change to this suite rather than a quiet one.
-check(PATCH_CATALOG.length === 1, "the catalog carries exactly one patch", String(PATCH_CATALOG.length));
-check(PATCH_CATALOG[0].id === "electron-run-as-node" && PATCH_CATALOG[0].variable === "ELECTRON_RUN_AS_NODE", "the patch drops ELECTRON_RUN_AS_NODE", PATCH_CATALOG[0].variable);
+// The catalog is the fix itself, so it is pinned here: the variable the desktop app leaks
+// into the harness host, and the page correction the zoom interaction needs. A third entry,
+// a different variable or a different stylesheet has to be a deliberate change to this suite
+// rather than a quiet one.
+check(PATCH_CATALOG.length === 2, "the catalog carries two patches", String(PATCH_CATALOG.length));
+const processPatch = PATCH_CATALOG.find((patch) => patch.kind !== "page");
+const pagePatch = PATCH_CATALOG.find((patch) => patch.kind === "page");
+check(
+	processPatch?.id === "electron-run-as-node" && processPatch.variable === "ELECTRON_RUN_AS_NODE",
+	"one patch drops ELECTRON_RUN_AS_NODE",
+	processPatch?.variable
+);
+check(
+	pagePatch?.id === "plugin-header-zoom" && pagePatch.variable === undefined,
+	"the other is a page patch, with no environment variable to settle",
+	JSON.stringify({ id: pagePatch?.id, variable: pagePatch?.variable })
+);
+check(
+	typeof pagePatch?.css === "string" &&
+		pagePatch.css.includes("html[data-dsh-zoom-active]") &&
+		pagePatch.css.includes('[data-plugin-header-part="toolbar"]') &&
+		pagePatch.css.includes("right: 0 !important"),
+	"the page patch carries the header correction, keyed on the zoom mark",
+	String(pagePatch?.css).slice(0, 120)
+);
+
+const byId = (state, id) => listPatches(state).find((patch) => patch.id === id);
+const envPatch = (state) => byId(state, "electron-run-as-node");
 
 // Installing the plugin is the decision to fix the defect: a patch with no entry is on,
 // and only a deliberate `enabled: false` turns it off.
 const fresh = normalizePatchState(undefined);
-check(listPatches(fresh).length === 1 && listPatches(fresh)[0].enabled === true, "a patch with no decision is enabled", JSON.stringify(listPatches(fresh)));
+check(
+	listPatches(fresh).length === 2 && envPatch(fresh).enabled === true && byId(fresh, "plugin-header-zoom").enabled === true,
+	"a patch with no decision is enabled",
+	JSON.stringify(listPatches(fresh).map((patch) => `${patch.id}:${String(patch.enabled)}`))
+);
 const off = normalizePatchState({ patches: { "electron-run-as-node": { enabled: false } } });
-check(listPatches(off)[0].enabled === false, "a recorded off survives normalization");
+check(envPatch(off).enabled === false, "a recorded off survives normalization");
 check(Object.keys(normalizePatchState({ patches: { "electron-run-as-node": { enabled: true } } }).patches).length === 0, "an explicit on is stored as the default, not as an entry");
-check(listPatches(normalizePatchState({ patches: { "electron-run-as-node": { removed: true } } })).length === 0, "a removed patch leaves the list");
+check(byId(normalizePatchState({ patches: { "electron-run-as-node": { removed: true } } }), "electron-run-as-node") === undefined, "a removed patch leaves the list");
 check(Object.keys(normalizePatchState({ patches: { gone: { enabled: false } } }).patches).length === 0, "an entry for an id no longer in the catalog is dropped");
-check(listPatches(normalizePatchState({ patches: [] }))[0].enabled === true, "a malformed file falls back to the defaults", JSON.stringify(normalizePatchState({ patches: [] })));
-check(listPatches(normalizePatchState("nonsense"))[0].enabled === true, "a file that is not an object falls back to the defaults");
+check(envPatch(normalizePatchState({ patches: [] })).enabled === true, "a malformed file falls back to the defaults", JSON.stringify(normalizePatchState({ patches: [] })));
+check(envPatch(normalizePatchState("nonsense")).enabled === true, "a file that is not an object falls back to the defaults");
 
 const toggledOff = setPatchEnabled(fresh, "electron-run-as-node", false);
-check(listPatches(toggledOff)[0].enabled === false, "toggling off is recorded");
+check(envPatch(toggledOff).enabled === false, "toggling off is recorded");
+const pageOff = setPatchEnabled(fresh, "plugin-header-zoom", false);
+check(
+	byId(pageOff, "plugin-header-zoom").enabled === false && envPatch(pageOff).enabled === true,
+	"a page patch is switched by the same decision shape",
+	JSON.stringify(pageOff.patches)
+);
 const toggledBack = setPatchEnabled(toggledOff, "electron-run-as-node", true);
 check(Object.keys(toggledBack.patches).length === 0, "toggling back on clears the record");
-check(listPatches(setPatchEnabled(removePatch(fresh, "electron-run-as-node"), "electron-run-as-node", true)).length === 0, "a removed patch has no switch to press");
+check(byId(setPatchEnabled(removePatch(fresh, "electron-run-as-node"), "electron-run-as-node", true), "electron-run-as-node") === undefined, "a removed patch has no switch to press");
 check(Object.keys(setPatchEnabled(fresh, "not-a-patch", false).patches).length === 0, "an unknown id changes nothing");
 
 const patchFile = join(dir, "dsh-doctor.json");
 const saved = await savePatchState(patchFile, off);
 check(saved.patches["electron-run-as-node"].enabled === false, "saving reports the normalized state");
-check(listPatches(await loadPatchState(patchFile))[0].enabled === false, "a decision survives a round trip");
+check(envPatch(await loadPatchState(patchFile)).enabled === false, "a decision survives a round trip");
 await writeFile(patchFile, "{ not json", "utf8");
-check(listPatches(await loadPatchState(patchFile))[0].enabled === true, "a corrupt decision file falls back to the defaults");
-check(listPatches(await loadPatchState(join(dir, "absent.json")))[0].enabled === true, "a missing decision file falls back to the defaults");
+check(envPatch(await loadPatchState(patchFile)).enabled === true, "a corrupt decision file falls back to the defaults");
+check(envPatch(await loadPatchState(join(dir, "absent.json"))).enabled === true, "a missing decision file falls back to the defaults");
 
 // The runtime edits an environment. `PATH` rides along to prove nothing else is touched.
 const env = { ELECTRON_RUN_AS_NODE: "1", PATH: "C:\\Windows" };

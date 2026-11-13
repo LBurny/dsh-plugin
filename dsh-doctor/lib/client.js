@@ -114,6 +114,13 @@
 				"The desktop app runs the harness in Electron's Node mode, so ELECTRON_RUN_AS_NODE=1 sits in this very process and every program it starts inherits it. An Electron editor then starts as plain Node, is handed the folder as a script, and dies, which dsh reports as a failed launch. This patch drops that variable for this process. One child needs it back: the folder chooser a phone or a LAN browser asks for is started as this same executable, so the variable is lent to that one call and taken back as it returns.",
 				"桌面应用以 Electron 的 Node 模式运行 dsh，于是 ELECTRON_RUN_AS_NODE=1 留在本进程里，被它启动的每个程序都会继承。Electron 系编辑器因此会以纯 Node 启动、把文件夹当脚本执行然后失败，dsh 报为打开失败。本补丁只在当前进程里去掉这个变量。有一个子进程需要把它要回来：手机或局域网浏览器请求的文件夹选择器以同一个可执行文件启动，因此只在这一次调用期间把变量交给它，调用返回即收回。"
 			]
+		},
+		"plugin-header-zoom": {
+			name: ["Zoom squeezes the plugin page header", "缩放挤掉插件页页头"],
+			what: [
+				"dsh 0.2.2's plugin page head measures its title, intro and toolbar with getBoundingClientRect and pins each back as an absolutely placed part. Those numbers carry the page zoom and the placement applies it again, so at 114% in a narrow window the 刷新 button drifts off the right edge and 添加插件 collapses to its icon. This patch divides that placement back while the page is zoomed and anchors the toolbar to the header's right edge, so every control stays where the page laid it out. It applies in the page, not in the process, and only while dsh-zoom is holding a level other than 100%.",
+				"dsh 0.2.2 的插件页页头会先用 getBoundingClientRect 量出标题、说明与工具栏三块，再把它们绝对定位回去。这些数里已经带着页面缩放，定位时又乘了一次，于是 114% 下窗口一窄，刷新就飘到右边缘外，添加插件塌成只剩图标。本补丁在页面被缩放时把这几个位置换算回去，并把工具栏贴到页头右边缘，控件就都留在页面原本安排的位置上。它作用在页面里而不是进程里，且只在 dsh-zoom 的倍率不是 100% 时生效。"
+			]
 		}
 	};
 
@@ -352,18 +359,48 @@
 			payload.configPath === undefined ? undefined : el("div", { class: "note", text: `${T("patchesAt")}: ${String(payload.configPath)}` }));
 	}
 
+	/**
+	 * The page-level patches: CSS this plugin injects while such a patch is enabled.
+	 *
+	 * A `kind: "page"` patch is the same kind of thing as an environment patch (a workaround
+	 * for a defect in the harness), carried out where the defect shows, in the reader's
+	 * page. Switching it off or deleting it removes the stylesheet with it, and the page is
+	 * re-synced from the answer to the action, so nothing has to be reloaded.
+	 * @param payload - a `/api/patches` payload, or one returned by a patch action.
+	 */
+	function syncPagePatches(payload) {
+		const wanted = new Map(
+			(Array.isArray(payload?.patches) ? payload.patches : [])
+				.filter((patch) => patch.kind === "page" && patch.enabled !== false && typeof patch.css === "string")
+				.map((patch) => [patch.id, patch.css])
+		);
+		for (const node of document.querySelectorAll("style[data-dsh-doctor-patch]")) {
+			if (!wanted.has(node.getAttribute("data-dsh-doctor-patch"))) node.remove();
+		}
+		for (const [id, css] of wanted) {
+			if (document.querySelector(`style[data-dsh-doctor-patch="${id}"]`) !== null) continue;
+			const style = document.createElement("style");
+			style.setAttribute("data-dsh-doctor-patch", id);
+			style.textContent = css;
+			(document.head ?? document.documentElement).append(style);
+		}
+	}
+
 	/** One patch: what it fixes, a switch, and the control that takes it off the list. */
 	function renderPatch(patch) {
 		const name = patchText(patch.id, "name", patch.id);
 		const what = patchText(patch.id, "what", patch.variable);
 		return row(name, patch.applicable === false ? `${what} (${T("patchesNotApplicable")})` : what, patch.enabled,
-			(enabled) => postJson(`${API}/patches`, { action: "toggle", id: patch.id, enabled }).then(assertOk),
+			(enabled) => postJson(`${API}/patches`, { action: "toggle", id: patch.id, enabled }).then((payload) => {
+				syncPagePatches(payload);
+				return assertOk(payload);
+			}),
 			[el("button", {
 				class: "danger",
 				text: T("remove"),
 				onclick: async () => {
 					try {
-						await postJson(`${API}/patches`, { action: "delete", id: patch.id }).then(assertOk);
+						syncPagePatches(await postJson(`${API}/patches`, { action: "delete", id: patch.id }).then(assertOk));
 					} catch (error) {
 						toast(T("failed"), String(error?.message ?? error));
 					}
@@ -686,6 +723,14 @@
 
 	async function boot() {
 		if (!(await reachable())) return;
+		// Page-level patches go on before anything they correct can be drawn: the plugin
+		// page's header is measured as it renders, so a stylesheet arriving when the panel
+		// opens would arrive after the reader had already seen the defect.
+		try {
+			syncPagePatches(await getJson(`${API}/patches`));
+		} catch {
+			/* no patch route, or nothing to apply: the page stays exactly as dsh drew it */
+		}
 		try {
 			await prepare();
 		} catch {

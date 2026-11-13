@@ -366,10 +366,17 @@ const postPatches = async (body) => {
 };
 
 const listed = JSON.parse((await call(doctorRoute, "/dsh-doctor/api/patches")).body);
+const pagePatch = listed.patches.find((patch) => patch.kind === "page");
 check(
-	listed.ok === true && listed.patches.length === 1 && listed.patches[0].id === "electron-run-as-node" && listed.patches[0].enabled === true,
+	listed.ok === true &&
+		listed.patches.length === 2 &&
+		listed.patches[0].id === "electron-run-as-node" &&
+		listed.patches[0].enabled === true &&
+		pagePatch?.id === "plugin-header-zoom" &&
+		pagePatch.enabled === true &&
+		pagePatch.applicable === true,
 	"dsh-doctor: the patch route lists the catalog, enabled by default",
-	JSON.stringify(listed.patches)
+	JSON.stringify(listed.patches.map((patch) => patch.id))
 );
 check(listed.configPath === patchFile, "dsh-doctor: the decisions file sits in the active DSH home", String(listed.configPath));
 check(
@@ -391,9 +398,9 @@ check((await postPatches({ action: "toggle", id: "not-a-patch" })).status === 50
 check(!readFileSync(patchFile, "utf8").includes("not-a-patch"), "dsh-doctor: a refused action leaves the file alone", readFileSync(patchFile, "utf8").trim());
 
 const removed = await postPatches({ action: "delete", id: "electron-run-as-node" });
-check(removed.status === 200 && removed.parsed.patches.length === 0, "dsh-doctor: deleting a patch empties the list", JSON.stringify(removed.parsed?.patches));
+check(removed.status === 200 && !removed.parsed.patches.some((patch) => patch.id === "electron-run-as-node"), "dsh-doctor: deleting a patch takes it off the list", JSON.stringify(removed.parsed?.patches?.map((patch) => patch.id)));
 check(readFileSync(patchFile, "utf8").includes('"removed": true'), "dsh-doctor: a deletion is recorded as removed", readFileSync(patchFile, "utf8").trim());
-check(JSON.parse((await call(doctorRoute, "/dsh-doctor/api/patches")).body).patches.length === 0, "dsh-doctor: a removed patch stays gone on the next read");
+check(!JSON.parse((await call(doctorRoute, "/dsh-doctor/api/patches")).body).patches.some((patch) => patch.id === "electron-run-as-node"), "dsh-doctor: a removed patch stays gone on the next read");
 doctor.rm();
 
 // The host half is the only half that can see an approval or a question, and it learns about

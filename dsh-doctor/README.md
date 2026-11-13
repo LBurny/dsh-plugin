@@ -31,8 +31,9 @@ to tail at all: the child dsh's stdout goes to the Electron process and its stde
 
 ## Patches
 
-A patch is a correction to the process this plugin runs in, for a defect a plugin cannot fix by
-writing a file. There is one.
+A patch is a correction to the harness this plugin runs inside, for a defect a plugin cannot fix by
+writing a file. There are two, and they are carried out in the two places such a defect can live: the
+process, and the reader's page.
 
 **`electron-run-as-node`** drops `ELECTRON_RUN_AS_NODE` from the harness's own environment. The
 official desktop app starts its harness host as the Electron executable in Node mode (`lib/main.js`'s
@@ -64,6 +65,15 @@ wraps `ctx.directoryPicker.capability().pick`, which `dsh-api-workspace-controll
 every call, and lends the variable for that call's synchronous prefix, where the worker is spawned,
 taking it back in the same tick. A patch that is switched off, or a process that never carried the
 variable, lends nothing and leaves the environment alone.
+
+**`plugin-header-zoom`** is the other kind. dsh 0.2.2's plugin page head takes its title, intro and
+toolbar apart, measures them with `getBoundingClientRect()` and pins each back as an absolutely placed
+part (`[data-plugin-header-part]`). Those numbers carry the page zoom and the placement applies it
+again, so with the page at 114% the toolbar draws 14% too far right: the 刷新 button leaves a 933px
+window, and at 1152px 添加插件 collapses to its icon. Nothing in the process can correct that, so the
+patch is CSS: the browser half injects it on load while the patch is enabled, and removes it the moment
+it is switched off or deleted. It keys on `html[data-dsh-zoom-active]`, the mark `dsh-zoom` sets while a
+level other than 100% is in force, so a page at 100% and a machine without `dsh-zoom` are untouched.
 
 Decisions live in `<DSH_HOME>/dsh-doctor.json`:
 
@@ -130,7 +140,7 @@ Restart dsh afterwards — plugins have no HMR.
 | GET | `/dsh-doctor/client.js` `/dsh-doctor/client.css` | browser half |
 | GET | `/dsh-doctor/api/diagnostics` | the status document, the plugin rows and the log-file list |
 | GET | `/dsh-doctor/api/logs` | `{ source, records, files, reset }`; add `?since=<sn>` for only what is newer |
-| GET | `/dsh-doctor/api/patches` | `{ configPath, patches }`, each patch with its id, variable, state and whether this process carries it |
+| GET | `/dsh-doctor/api/patches` | `{ configPath, patches }`, each patch with its id, kind, state and, for a process patch, whether this process carries it; a `kind: "page"` patch also carries the `css` the browser half injects |
 | POST | `/dsh-doctor/api/patches` | `{ action: "toggle", id, enabled }` or `{ action: "delete", id }`, then the new list |
 
 ## Caveats

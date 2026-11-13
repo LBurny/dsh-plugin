@@ -2,7 +2,9 @@
  * dsh-doctor patches: the corrections this plugin makes to the process it runs in.
  *
  * A patch exists because a defect belongs to the running harness rather than to a file,
- * and a plugin cannot edit the harness. There is one today.
+ * and a plugin cannot edit the harness. Two kinds live here: one that edits this process's
+ * environment, and one that ships CSS for the browser half to inject, because the defect it
+ * answers is in the page rather than in the process.
  *
  * `electron-run-as-node` — the official desktop app starts its harness host as the
  * Electron executable in Node mode (`lib/main.js`'s `desktopNodeEnvironment`, used by
@@ -42,10 +44,49 @@ export const PATCHES_FILENAME = "dsh-doctor.json";
 export const RUN_AS_NODE = { id: "electron-run-as-node", variable: "ELECTRON_RUN_AS_NODE" };
 
 /**
- * The catalog, in panel order. `variable` names the environment entry the patch drops;
- * the panel keys that patch's title and description by `id`, in its own language.
+ * The corrections a browser needs, shipped as text the panel's own script injects.
+ *
+ * These are the same kind of thing as an environment patch (a workaround for a defect in
+ * the harness this plugin runs on) that simply cannot be carried out in the process: the
+ * defect is CSS. `kind: "page"` says so, and the browser half applies `css` only while the
+ * patch is enabled, so the reader can take the correction away the day dsh fixes it.
+ *
+ * `plugin-header-zoom` — dsh 0.2.2's plugin page head takes its title, intro and toolbar
+ * apart, measures them with `getBoundingClientRect` and pins each back as an absolutely
+ * placed part (`[data-plugin-header-part]`). Those numbers are viewport px, and the
+ * placement reads them as layout px, so a page zoom lands on them twice: at 114% the
+ * toolbar draws 14% too far right, which walks 刷新 out of a 933px window and collapses
+ * 添加插件 to its icon at 1152px (measured 2026-11-13 on 0.2.2-rc.1). The correction
+ * divides the placement back and anchors the toolbar to the header's own right edge,
+ * which is where its measured `left` was trying to land.
+ *
+ * It keys on `html[data-dsh-zoom-active]`, the mark dsh-zoom puts on the page while a
+ * level above or below 100% is in force. That is deliberate and it is the fourth
+ * DOM-level thing the browser halves agree on: without the mark there is no zoom to
+ * correct, so a page at 100% and a machine without dsh-zoom are both left alone.
  */
-export const PATCH_CATALOG = [RUN_AS_NODE];
+export const HEADER_ZOOM_CSS = `
+html[data-dsh-zoom-active] [data-plugin-header-part="title"],
+html[data-dsh-zoom-active] [data-plugin-header-part="intro"] {
+	left: calc(var(--plugin-part-x, 0px) / var(--dsh-zoom, 1)) !important;
+	top: calc(var(--plugin-part-y, 0px) / var(--dsh-zoom, 1)) !important;
+}
+html[data-dsh-zoom-active] [data-plugin-header-part="toolbar"] {
+	left: auto !important;
+	right: 0 !important;
+	top: calc(var(--plugin-part-y, 0px) / var(--dsh-zoom, 1)) !important;
+}
+`.trim();
+
+/** A page-level correction: applied by the browser half, never by this process. */
+export const HEADER_ZOOM = { id: "plugin-header-zoom", kind: "page", css: HEADER_ZOOM_CSS };
+
+/**
+ * The catalog, in panel order. `variable` names the environment entry the patch drops and
+ * `css` the rules a `kind: "page"` patch injects; the panel keys a patch's title and
+ * description by `id`, in its own language.
+ */
+export const PATCH_CATALOG = [RUN_AS_NODE, HEADER_ZOOM];
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -101,6 +142,8 @@ export function listPatches(state) {
 	return PATCH_CATALOG.filter((patch) => state.patches?.[patch.id]?.removed !== true).map((patch) => ({
 		id: patch.id,
 		variable: patch.variable,
+		kind: patch.kind ?? "process",
+		css: patch.css,
 		enabled: state.patches?.[patch.id]?.enabled !== false
 	}));
 }
@@ -147,8 +190,10 @@ function snapshotOf(env, variable) {
  * @returns a handle the host half keeps for the life of the plugin.
  */
 export function createPatchRuntime(env = process.env, catalog = PATCH_CATALOG) {
+	/** The environment patches: a `kind: "page"` one is the browser half's business. */
+	const processPatches = catalog.filter((patch) => patch.variable !== undefined);
 	/** What each variable held before this plugin touched it. */
-	const before = new Map(catalog.map((patch) => [patch.id, snapshotOf(env, patch.variable)]));
+	const before = new Map(processPatches.map((patch) => [patch.id, snapshotOf(env, patch.variable)]));
 	/** Patches whose decision has been carried out against this environment. */
 	const settled = new Map();
 
@@ -184,8 +229,9 @@ export function createPatchRuntime(env = process.env, catalog = PATCH_CATALOG) {
 		settle(state) {
 			const wanted = new Set(listPatches(state).filter((patch) => patch.enabled).map((patch) => patch.id));
 			const changed = [];
-			for (const patch of catalog) {
+			for (const patch of processPatches) {
 				const shot = before.get(patch.id);
+				if (shot === undefined) continue;
 				const shouldApply = wanted.has(patch.id);
 				const isApplied = settled.get(patch.id) === true;
 				if (shouldApply === isApplied) continue;

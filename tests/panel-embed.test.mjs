@@ -166,6 +166,11 @@ function makeDom() {
 			},
 			getAttribute: (key) => node.attrs[key],
 			hasAttribute: (key) => Object.hasOwn(node.attrs, key),
+			// A real element has this, and the zoom panel clears its "page is zoomed" mark
+			// when a level of exactly 100% goes back on.
+			removeAttribute(key) {
+				delete node.attrs[key];
+			},
 			listeners: {},
 			addEventListener(type, handler) {
 				node.listeners[type] = handler;
@@ -197,7 +202,10 @@ function makeDom() {
 		hasFocus: () => document.focused !== false,
 		head: { append() {} },
 		body,
-		documentElement: { style: { setProperty() {} } },
+		// A real element: the panel writes `style.zoom` plus the `data-dsh-zoom-active`
+		// mark on it, and a bare object would make the second write throw inside boot,
+		// which silently skips the sidebar watch this suite exists to exercise.
+		documentElement: makeNode("html"),
 		createElement: (tag) => makeNode(tag),
 		createTextNode: (text) => ({ nodeType: 3, textContent: String(text), children: [] }),
 		createDocumentFragment: () => makeNode("#fragment"),
