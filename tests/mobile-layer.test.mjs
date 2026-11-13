@@ -4,8 +4,8 @@
  * `dsh-remote/lib/assets/mobile.js` is injected into dsh's own page by the proxy, so no
  * package suite could evaluate it: `dsh-remote`'s own suite asserts only that the text is
  * there, and the interesting part is what it does to the DOM. It is run here for real in a
- * small DOM stub — a settings sheet from a remote origin, where upstream fails the models
- * page with `settings are unavailable in this browser` and offers a Retry that cannot work.
+ * small DOM stub against the shapes dsh 0.2.2-rc.1 actually renders: a conversation view
+ * (tab strip, composer dock carrying its per-pill stat hooks) and a settings sheet.
  *
  * Run from the repository root:
  *   node tests/mobile-layer.test.mjs
@@ -149,40 +149,6 @@ const descendants = (node, parts) => {
 const querySelector = (node, selector) => descendants(node, selector.trim().split(/\s+/u))[0] ?? null;
 const querySelectorAll = (node, selector) => descendants(node, selector.trim().split(/\s+/u));
 
-/**
- * Build a settings sheet: content > options > card(errorText, retry). `withFailure`
- * decides whether the card carries upstream's wording at all.
- */
-function makeSheet({ lang = "zh", withFailure = true } = {}) {
-	const overlay = element("div", "wCInkW_overlay");
-	const panel = element("div", "wCInkW_panel");
-	const content = element("div", "wCInkW_content");
-	const options = element("div", "wCInkW_options");
-	const card = element("div", "css-card");
-	const text = element("span", "css-error", withFailure ? "加载提供商目录失败: settings are unavailable in this browser" : "填入各提供商的 API 密钥即可使用其模型。");
-	const retry = element("button", "css-retry", "重试");
-	card.append(text, retry);
-	options.append(card);
-	content.append(options);
-	panel.append(content);
-	overlay.append(panel);
-	const body = element("body", "");
-	body.append(overlay);
-	const document = {
-		// A real element, not an attribute-less stub: the layer writes and removes the enhanced
-		// flag on it, and a stub that cannot remove would abort the whole tab branch silently.
-		documentElement: Object.assign(element("html", ""), { lang }),
-		body,
-		querySelector: (selector) => querySelector(body, selector),
-		querySelectorAll: (selector) => querySelectorAll(body, selector),
-		getElementById: () => undefined,
-		addEventListener() {},
-		removeEventListener() {},
-		createElement: (tag) => element(tag, "")
-	};
-	return { body, overlay, panel, content, options, card, text, retry, document };
-}
-
 /** Run the layer's real source against a stub sheet. */
 function run(sheet, { narrow = false } = {}) {
 	// The layer follows the phone breakpoint, so the stub has to be flippable the way a
@@ -282,9 +248,11 @@ function makeTabbedSheet({ lang = "zh", cells = [88, 62, 88, 100], navWidth = 39
 
 /**
  * A conversation view: `chatRoot > header > tablist` with the two native tabs, plus the
- * composer stats row the info panel clones. Only the shapes the tab branch matches on.
+ * composer dock the info panel clones its stats from. Only the shapes the tab branch matches
+ * on. The dock is 0.2.2's real shape: `[data-composer-dock] > [data-slot=conversation.composer.dock]
+ * > span[data-composer-stat]`, with no row container of its own.
  */
-function makeConversation() {
+function makeConversation({ pills = true } = {}) {
 	const chatRoot = element("div", "Ab12_root");
 	const header = element("header", "");
 	const tablist = element("div", "Ab12_tabs");
@@ -295,11 +263,17 @@ function makeConversation() {
 	trace.setAttribute("role", "tab");
 	tablist.append(chat, trace);
 	header.append(tablist);
-	const dock = element("div", "");
-	dock.setAttribute("data-slot", "conversation.composer.dock");
-	const stats = element("div", "");
-	stats.setAttribute("data-composer-stats", "");
-	dock.append(stats);
+	const dock = element("div", "Ab12_dock");
+	dock.setAttribute("data-composer-dock", "");
+	const slot = element("div", "");
+	slot.setAttribute("data-slot", "conversation.composer.dock");
+	const activity = element("span", "hNGZaa_anchor", "1 轮 26 步");
+	activity.setAttribute("data-composer-stat", "activity");
+	const usage = element("span", "hNGZaa_anchor", "1.1M tok");
+	usage.setAttribute("data-composer-stat", "usage");
+	slot.append(activity, usage);
+	dock.append(slot);
+	if (!pills) slot.replaceChildren();
 	chatRoot.append(header, dock);
 	const body = element("body", "");
 	body.append(chatRoot);
@@ -313,78 +287,95 @@ function makeConversation() {
 		removeEventListener() {},
 		createElement: (tag) => element(tag, "")
 	};
-	return { body, chatRoot, header, tablist, chat, trace, stats, document };
+	return { body, chatRoot, header, tablist, chat, trace, dock, slot, activity, usage, document };
 }
 
 
 /* ------------------------------------------------------------------ the checks */
 
 {
-	const sheet = makeSheet();
-	run(sheet);
-	const note = sheet.card.getAttribute("data-dshmobile-unavailable");
+	// The models page used to fail on a remote origin with "settings are unavailable in this
+	// browser", and the layer replaced that dead-end card with a sentence of its own. dsh
+	// 0.2.2-rc.1 reads settings through its own mirrored view and no longer fails, so the whole
+	// workaround is retired. This pins the retirement: a resurrected marker would be dead code
+	// that only looks harmless. Comments are exempt, since the retirement note names it.
+	const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^\s*\/\/.*$/gmu, "");
+	const stylesheet = withoutComments(readFileSync(join(root, "dsh-remote", "lib", "assets", "mobile.css"), "utf8"));
+	const layer = withoutComments(source);
 	check(
-		note !== undefined,
-		"the failed-catalog card carries the replacement wording as an attribute",
-		JSON.stringify(sheet.card.attrs)
-	);
-	check(
-		sheet.options.children.length === 1,
-		"nothing is inserted into the scroller — React owns that subtree and never removes a foreign node",
-		String(sheet.options.children.length)
-	);
-	check(
-		note !== undefined && note.includes("电脑端"),
-		"the Chinese wording says which window can actually change it",
-		note ?? ""
+		!layer.includes("data-dshmobile-unavailable") && !stylesheet.includes("data-dshmobile-unavailable"),
+		"the models-page workaround stays retired (no dead marker in the layer or its stylesheet)"
 	);
 }
 
 {
-	// An English page must not be answered in Chinese.
-	const sheet = makeSheet({ lang: "en" });
-	run(sheet);
-	const note = sheet.card.getAttribute("data-dshmobile-unavailable");
+	// The one row the stats used to live in is gone in 0.2.2: each pill carries its own
+	// `data-composer-stat`, and the slot anchor around them is the container. The info tab has
+	// to find that pair, or it opens on the empty state while the pills sit under the composer
+	// (measured on dsh 0.2.2-rc.1 before this fix).
+	const view = makeConversation();
+	run(view, { narrow: true });
+	view.tablist.querySelector("[data-dshmobile-tab]").fire("click");
+	const clone = view.chatRoot.querySelector("[data-dshmobile-empty]");
 	check(
-		note !== undefined && /desktop window/u.test(note) && !/[\u4e00-\u9fff]/u.test(note),
-		"an English page gets the English wording",
-		note ?? ""
+		clone === null && view.chatRoot.querySelector("[data-dshmobile-stats]") !== null,
+		"the info tab clones the stats from the per-pill hooks instead of showing the empty state",
+		JSON.stringify(view.chatRoot.children.map((child) => child.attrs))
 	);
 }
 
 {
-	// Switching to another settings section replaces the options' subtree. The mark must go
-	// with it — a stale one shows the note over a healthy page, which is what made every
-	// section look like it had not switched.
-	const sheet = makeSheet();
-	run(sheet);
-	sheet.options.replaceChildren(element("div", "css-other", "填入各提供商的 API 密钥即可使用其模型。"));
-	run(sheet);
+	// The empty state is still what a session with no stats gets: the pills only render once a
+	// turn has produced numbers, so finding nothing must not throw or claim there are stats.
+	const view = makeConversation({ pills: false });
+	run(view, { narrow: true });
+	view.tablist.querySelector("[data-dshmobile-tab]").fire("click");
 	check(
-		sheet.options.querySelector("[data-dshmobile-unavailable]") === null,
-		"switching sections leaves no stale mark behind",
-		JSON.stringify(sheet.options.children.map((child) => child.attrs))
-	);
-	// ...and coming back re-marks the fresh card.
-	const back = makeSheet();
-	run(back);
-	run(back);
-	check(
-		back.card.getAttribute("data-dshmobile-unavailable") !== undefined,
-		"a second run against the same card is idempotent (one mark, not a stack)",
-		JSON.stringify(back.card.attrs)
+		view.chatRoot.querySelector("[data-dshmobile-empty]") !== null && view.chatRoot.querySelector("[data-dshmobile-stats]") === null,
+		"a session with no rendered pills still gets the empty state, never an empty clone",
+		JSON.stringify(view.chatRoot.children.map((child) => child.attrs))
 	);
 }
 
 {
-	// The healthy case: a loopback page reads settings fine, so nothing may be touched.
-	const sheet = makeSheet({ withFailure: false });
-	const before = sheet.options.children.length;
-	run(sheet);
+	// CSS-only half of the same anchor move, asserted at the source for the same reason as the
+	// plugin-page rules below: the DOM stub cannot see a stylesheet. The hide rule must name the
+	// per-pill hook (an old `[data-composer-stats]` rule matches nothing now and leaves the pills
+	// under the composer), and the fallback wrap has to land on the dock, the element that is
+	// still there.
+	const stylesheet = readFileSync(join(root, "dsh-remote", "lib", "assets", "mobile.css"), "utf8")
+		.replace(/\/\*[\s\S]*?\*\//gu, "");
+	const rules = [...stylesheet.matchAll(/([^{}]+)\{([^{}]*)\}/gu)].map((match) => ({
+		selector: match[1].trim(),
+		body: match[2].replace(/\s+/gu, " ").trim()
+	}));
 	check(
-		sheet.options.children.length === before && sheet.card.hasAttribute("data-dshmobile-unavailable") === false,
-		"a sheet that loads its providers is left completely alone",
-		String(sheet.options.children.length)
+		!stylesheet.includes("data-composer-stats"),
+		"no rule hangs off the retired stats-row hook",
+		rules.filter((rule) => rule.selector.includes("data-composer-stats")).map((rule) => rule.selector).join(" | ")
+	);
+	const hide = rules.find(
+		(rule) => rule.selector === "html[data-dshmobile-enhanced] [data-composer-dock] [data-composer-stat]"
+	);
+	check(
+		hide !== undefined && hide.body.includes("display: none"),
+		"the enhanced phone page hides the stat pills by their own hook, scoped to the dock",
+		hide?.selector ?? "no hide rule"
+	);
+	// The info panel's clone carries the same hook, so an unscoped hide rule would blank the
+	// tab it feeds. Pinned because the DOM stub cannot see a stylesheet.
+	check(
+		hide === undefined || hide.selector.includes("[data-composer-dock]"),
+		"the hide rule cannot reach the info panel's clone",
+		hide?.selector ?? "no hide rule"
+	);
+	const wrap = rules.find(
+		(rule) => rule.selector.includes("data-composer-dock") && rule.body.includes("flex-wrap: wrap")
+	);
+	check(
+		wrap !== undefined,
+		"the fallback wraps the dock once enhancement has not happened",
+		wrap?.selector ?? "no wrap rule"
 	);
 }
 
@@ -432,14 +423,32 @@ function makeConversation() {
 
 {
 	// A 320px phone at zoom 1.36 leaves 219px: shrinking to that would undo the zoom the
-	// reader chose, so the CSS wrap stays in charge (two centred rows, original type size).
+	// reader chose, so the strip scrolls sideways instead: one row, every tab reachable by
+	// sliding, never three stacked rows (0.2.2's 账号与余额 made five sections, and the three
+	// rows that used to be the fallback are exactly what the reader rejected).
 	const tiny = makeTabbedSheet({ navWidth: 235 });
 	run(tiny);
 	check(
 		tiny.nav.hasAttribute("data-dshmobile-tabfit") === false &&
 			tiny.nav.style.getPropertyValue("--dshmobile-tab-scale") === "",
-		"a layout too narrow to shave leaves the centred wrap in charge",
+		"a layout too narrow to shave is not squeezed below the floor",
 		`scale=${tiny.nav.style.getPropertyValue("--dshmobile-tab-scale")}`
+	);
+	check(
+		tiny.nav.hasAttribute("data-dshmobile-tabscroll"),
+		"and the strip is switched to the sideways-scrolling form instead of wrapping",
+		JSON.stringify(tiny.nav.attrs)
+	);
+}
+
+{
+	// A strip that fits keeps neither mark: no scaling, no scrolling, the plain centred row.
+	const wide = makeTabbedSheet({ navWidth: 390 });
+	run(wide);
+	check(
+		!wide.nav.hasAttribute("data-dshmobile-tabscroll") && !wide.nav.hasAttribute("data-dshmobile-tabfit"),
+		"a strip that fits stays a plain centred row",
+		JSON.stringify(wide.nav.attrs)
 	);
 }
 
@@ -547,6 +556,21 @@ function makeConversation() {
 	check(
 		rules.some((rule) => rule.selector.includes("_showHiddenToggle") && rule.body.includes("display: none")),
 		"the hidden-entries switch is not shown on a phone"
+	);
+
+	// The sidebar drawer. dsh 0.2.2 ships its own (frame[data-sidebar-drawer]: the column
+	// becomes absolute at z-index 71 with a clickable mask at 70), and our older
+	// drawer-ification put the column at z-index 30, below that mask: a tap on any session
+	// row was eaten by the mask, so the drawer closed and the session never changed, which a
+	// reader reports as "聊天选择不上" (measured at 390px: elementFromPoint on a row's centre
+	// returned drawerMask). The rules therefore have to stand down when the frame says it is
+	// a drawer, and only the build without one gets them.
+	const drawerRules = rules.filter((rule) => rule.selector.includes("_sidebarCol") && rule.body.includes("z-index: 30"));
+	check(drawerRules.length > 0, "the fallback drawer carries a rule for the sidebar column", String(drawerRules.length));
+	check(
+		drawerRules.every((rule) => rule.selector.includes(":not([data-sidebar-drawer])")),
+		"and none of them applies to a build that already has a drawer, whose mask would swallow the taps",
+		drawerRules.map((rule) => rule.selector).join(" | ")
 	);
 }
 

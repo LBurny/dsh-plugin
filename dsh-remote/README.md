@@ -120,14 +120,18 @@ and three compensations for upstream behaviour that will not change:
   flex column whose nav becomes a centred tab strip with a safe-area inset at the top. Measured on the real
   page, four tabs are 401 px of content in a 390 px screen, so the strip centres them and wraps rather than
   scrolling — a scrollbar at that size just means the last tab is invisible and nobody discovers it.
-- **The models tab cannot read settings from a remote page at all.** Upstream loads the provider directory
-  from a settings "describe face", and a remote transport has no view for it, so the page fails with
-  `加载提供商目录失败: settings are unavailable in this browser` and Retry never helps. That boundary is
-  deliberate — it is what stops a link-holder from rewriting the host's settings and API keys — so the layer
-  does not fake a loopback origin. It only adds a line under the failure saying where to change it.
+- **The models tab used to be a dead end on a phone, and is not one any more.** Up to dsh 0.2.0 the
+  provider directory came from a settings "describe face" that a remote transport had no view for, so the
+  page failed with `加载提供商目录失败: settings are unavailable in this browser` and Retry never helped.
+  dsh 0.2.2-rc.1 reads it through a mirrored view: at a phone origin the 模型 section lists the providers
+  and its edit form saves (measured: a key saved there lands in the host's `.credentials.yaml`). The
+  layer's replacement note is retired with it, and the fact worth keeping is the new one: a link-holder
+  can now change the host's settings from the phone, which is why the link is a credential and why it
+  has a reset button.
 
-All three match on the exact upstream wording and on `[class*="_…"]` local-name substrings, so an upstream
-rename degrades to "the phone looks like it did before" rather than breaking the page.
+The preview notice still matches on upstream's exact wording and on `[class*="_…"]` local-name
+substrings, so an upstream rename degrades to "the phone looks like it did before" rather than breaking
+the page.
 
 ## Picking a folder from the phone
 

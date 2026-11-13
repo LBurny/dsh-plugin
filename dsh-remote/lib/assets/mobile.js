@@ -45,30 +45,34 @@
           : 'No turn stats yet. Finish a turn and timing/token usage shows up here.',
     }
 
-    // 统计行 = composer 里的 StatsPills 行，上游给它挂了稳定钩子 data-composer-stats
-    // （dsh-client-ui-chat，回合数/步数 + token 用量两枚药丸）。0.1.5 的分隔点"·"
-    // 在药丸 label **内部**，旧版"root 直接子代含 ≥2 个 _sep"的形状已不存在——
-    // 旧锚点会让本函数找不到行（信息页永远显示空态）且 mobile.css 的隐藏规则
-    // 一并失配（原行留在输入区下方），双双改到这个钩子上。
+    // 统计行 = composer dock 槽位里的两枚药丸（回合数/步数 + token 用量，dsh-client-ui-chat）。
+    // 0.2.2 起上游把"一行"这个容器撤了：两枚药丸各自注册进 conversation.composer.dock 插槽，
+    // 每枚自己挂 data-composer-stat="activity|usage"，整行不再有 data-composer-stats。
+    // 于是锚点变成**槽位锚 + 药丸属性**这一对：槽位锚 [data-slot="conversation.composer.dock"]
+    // 是 display:contents 的纯寻址壳（上游 SlotOutlet 的固定形状），药丸是它的直接子代。
+    // 旧钩子留着兼容：认不出药丸时，老形状的行还在就能用。
+    // 兜底：药丸一个都没渲染（steps=0 且无 token 用量时上游返回 null），返回 null 交给空态文案。
+    const DOCK_SLOT = '[data-slot="conversation.composer.dock"]'
     const findStatsRoot = (chatRoot) => {
       const row = chatRoot.querySelector('[data-composer-stats]')
       if (row) return row
-      // 兜底：统计行还没渲染（steps=0 且无 token 用量时上游返回 null），交给空态文案
+      const slot = chatRoot.querySelector(DOCK_SLOT)
+      if (slot !== null && slot.querySelector('[data-composer-stat]') !== null) return slot
       return null
     }
 
     // 上下文用量圆环 = composer dock 里的 ContextMeter 药丸（0.2.0 上游新增）：
     // 与统计行是**两条独立数据链**（一个是 StatsPills、一个是 context pressure）。
     // DOM 形状：dock 的直接子代 = 槽位锚 [data-slot="conversation.composer.dock"]
-    // （display:contents，内含统计行 div[data-composer-stats]）+ 兄弟
+    // （display:contents，0.2.2 起内含两枚 span[data-composer-stat] 药丸）+ 兄弟
     // span.JObwrW_root（药丸根，内含 button[aria-haspopup="dialog"] 与圆环 svg）。
     // 必须**先定位槽位锚再找它的兄弟**：裸选 button[aria-haspopup="dialog"] 会命中
-    // 统计行里的 TimePill/UsagePill（它们也是带 dialog 弹层的药丸），甚至别的包的
+    // 统计行里的 ActivityPill/UsagePill（它们也是带 dialog 弹层的药丸），甚至别的包的
     // 弹层按钮。药丸**仅在 context pressure 数据存在时渲染**（上游缺失时整条返回
     // null），故查不到是正常态、返回 null 交给调用方。限定在槽位锚的直接子代之间
     // 遍历（不做全局查询）。
     const findContextMeter = (chatRoot) => {
-      const slot = chatRoot.querySelector('[data-slot="conversation.composer.dock"]')
+      const slot = chatRoot.querySelector(DOCK_SLOT)
       if (!slot || !slot.parentElement) return null
       for (const child of slot.parentElement.children) {
         if (child === slot) continue
@@ -536,62 +540,20 @@
   }
 })()
 
-/**
- * 设置页「加载提供商目录失败: settings are unavailable in this browser」（手机实测：模型分区
- * 永远这一行红字 + 一个点不动的「重试」）。
+/*
+ * 退役：「加载提供商目录失败: settings are unavailable in this browser」的替换说明（0.2.2 起不再需要）。
  *
- * 上游设置页读的是 describeFace 快照，远程浏览器拿不到 view（源码分支
- * `mirrored.view === void 0` → `failLoad("settings are unavailable in this browser")`）：
- * 作用域按传输方式分，本机回环读宿主持久段，经代理/隧道的来源拿到 memory 模式、连读都不给，
- * 重试也不会成功。这是上游刻意的边界，**本层不能伪造回环**——否则拿到链接的人就能改写宿主
- * 设置与 API 密钥。
+ * 那行红字来自上游的一条传输方式边界：作用域按来源分，本机回环读宿主持久段，经代理/隧道的
+ * 来源拿到 memory 模式，设置页连读都不给，于是模型分区永远是失败卡 + 一个点不动的「重试」。
+ * 本层当时的做法是**只给那张卡打一个属性**、文案由 mobile.css 的 `content: attr(...)` 显示
+ * （绝不往 React 子树里插节点：插进去的 React 不会清，切分区时四页都显示同一句）。
  *
- * 做法：**只给那张卡打一个属性**（值是本地化后的一句说明），文案由 mobile.css 用
- * `content: attr(...)` 显示、并隐藏卡里原有的子节点。绝不往 React 的子树里插节点：
- * 插进去的节点 React 重渲染时不会清掉，切到别的设置分区它还留着——实测四分区都显示同一句
- * 说明，看起来就是"切不动了"。属性是 React 不管理的，切分区时节点本身被换掉，属性随之消失。
- *
- * 只认上游那行原话，认不出就完全不动页面；上游改文案 → 本模块静默失配，页面回到未增强状态。
+ * dsh 0.2.2-rc.1 起上游自己解决了：设置页新增 describeFace/mirrored 视图，远程来源也能读到
+ * provider 目录，而且可写（实测 phone.test 来源下 模型 分区正常显示提供商、编辑、添加提供商，
+ * 无红字、无「重试」）。锚点探针因此报 MISSING——不是改名，是问题本身没了，所以整段退役，
+ * 连 mobile.css 里的 `[data-dshmobile-unavailable]` 一起删。要恢复的只有一种情况：上游把
+ * 远程读写设置重新关掉，那时这条边界会以新的文案回来，按新文案重写即可。
  */
-;(() => {
-  try {
-    const FAILED = /settings are unavailable in this browser/u
-    const ATTR = 'data-dshmobile-unavailable'
-    const zh = () => (document.documentElement.lang || '').toLowerCase().startsWith('zh')
-    const TEXT = () =>
-      zh()
-        ? '手机端读不到模型与设置：dsh 只让本机窗口读写设置，换电脑端窗口里改即可。'
-        : 'This browser cannot read models or settings: dsh only lets the machine\u2019s own window read and write them, so change it in the desktop window.'
-    /** 给失败卡打上说明；分区切走后把属性收回。 */
-    const annotate = () => {
-      const content = document.querySelector('[class*="_overlay"] [class*="_content"]')
-      if (!content) return
-      const scroller = content.querySelector('[class*="_options"]') || content
-      const marked = scroller.querySelector(`[${ATTR}]`)
-      // 先按整段文字做一次廉价判断，再逐节点找那行（面板开着时观察器会被频繁唤醒）。
-      if (!FAILED.test(scroller.textContent || '')) {
-        // React 可能复用了同一个节点：失败文案没了就必须收回属性，否则说明句会盖在
-        // 正常内容上。
-        if (marked !== null) marked.removeAttribute(ATTR)
-        return
-      }
-      if (marked !== null) return
-      const hit = [...scroller.querySelectorAll('*')].find(
-        (item) => item.children.length === 0 && FAILED.test(item.textContent || '')
-      )
-      if (hit === undefined) return
-      // 走到滚动区下的那一层卡片：属性打在整张卡上，重试按钮随卡的子节点一起被隐藏。
-      let card = hit
-      while (card.parentElement !== null && card.parentElement !== scroller) card = card.parentElement
-      card.setAttribute(ATTR, TEXT())
-    }
-    annotate()
-    // 面板每次打开都会重挂子树：观察器长期在，卡片被换掉后说明会自动补回。
-    new MutationObserver(annotate).observe(document.documentElement, { childList: true, subtree: true })
-  } catch {
-    /* 静默：增强失败不影响页面 */
-  }
-})()
 
 /**
  * 设置页顶部标签条：一行放不下就按比例缩到刚好一行居中。
@@ -606,8 +568,9 @@
  * 上游将来多一个设置分区，都会把它吃掉。所以这里量：固宽 > 可用宽时给导航条打
  * data-dshmobile-tabfit（mobile.css 于是把标签条改成 nowrap 并按 scale 整体缩小）。
  * 下限 0.8：布局宽度低于 270px（约 1.36 倍 zoom 的 390 手机、1.18 倍的 360 小屏，
- * 或 320 屏配 1.14）就撤掉属性，交给 mobile.css 里那条居中折行兜底——两行，但字仍是
- * 原大小（放这么小来换一行，等于把用户调大 zoom 的意图抵掉了）。
+ * 或 320 屏配 1.14）就撤掉属性。此时不再折行——0.2.2 起上游多了一个「账号与余额」，
+ * 五个分区在手机上怎么都不是一行，折行就是三行堆砌（读者报"功能区不要堆砌"）。
+ * 改成 data-dshmobile-tabscroll：一行 nowrap + 横向滑动，右端一条淡出提示，滑到底撤掉。
  *
  * 只碰视觉：属性打在导航条上，React 不管它；标签条重挂时属性随节点消失，观察器补回。
  * 量宽用 offsetWidth/clientWidth（布局 px）而不是 getBoundingClientRect：页面 zoom 下
@@ -618,6 +581,8 @@
   try {
     const FIT_ATTR = 'data-dshmobile-tabfit'
     const SCALE_VAR = '--dshmobile-tab-scale'
+    const SCROLL_ATTR = 'data-dshmobile-tabscroll'
+    const SCROLL_END_ATTR = 'data-dshmobile-tabatend'
     const FLOOR = 0.8
     /** 导航条 = 设置面板的直接子节点里类名以 _nav 收尾的那个（_navList/_navCell 在更深一层）。 */
     const navOf = (panel) => {
@@ -657,7 +622,8 @@
       const avail =
         nav.clientWidth - (parseFloat(pad.paddingLeft) || 0) - (parseFloat(pad.paddingRight) || 0)
       const scale = need > 0 && avail > 0 ? avail / need : 1
-      if (need > avail && scale >= FLOOR) {
+      const fits = need <= avail
+      if (!fits && scale >= FLOOR) {
         // 缩一点就能一行放下：整条按比例缩，字视觉上小 3~15%，看不出接缝。
         nav.style.setProperty(SCALE_VAR, scale.toFixed(4))
         nav.setAttribute(FIT_ATTR, '')
@@ -665,6 +631,32 @@
         nav.removeAttribute(FIT_ATTR)
         nav.style.removeProperty(SCALE_VAR)
       }
+      // 缩也放不下（标签多到 0.8 都不够，0.2.2 起是常态）就横向滑动，绝不折行堆砌：
+      // 读者要的是"一行看全、多的滑出来"。属性只负责切换形态，滑动本身交给
+      // overflow-x（mobile.css）。末尾再给一条淡出提示，滑到底就把它撤掉。
+      if (!fits && !nav.hasAttribute(FIT_ATTR)) {
+        nav.setAttribute(SCROLL_ATTR, '')
+        watchScroll(nav, list)
+      } else {
+        nav.removeAttribute(SCROLL_ATTR)
+        nav.removeAttribute(SCROLL_END_ATTR)
+      }
+    }
+    /** 标签列表的滚动位置→末尾淡出。一张列表只挂一次监听。 */
+    let scrolled = null
+    const watchScroll = (nav, list) => {
+      if (scrolled === list) {
+        atEnd(nav, list)
+        return
+      }
+      scrolled = list
+      list.addEventListener('scroll', () => atEnd(nav, list), { passive: true })
+      atEnd(nav, list)
+    }
+    const atEnd = (nav, list) => {
+      const end = list.scrollWidth - list.clientWidth - 2
+      if (list.scrollLeft >= end) nav.setAttribute(SCROLL_END_ATTR, '')
+      else nav.removeAttribute(SCROLL_END_ATTR)
     }
     // 观察器盯整篇文档（面板开关都走这里），量宽每帧最多一次，别在流式渲染里反复强制重排。
     let queued = false

@@ -18,28 +18,11 @@
 }
 
 /*
- * 「加载提供商目录失败: settings are unavailable in this browser」——手机端把它整张换成一句
- * 说明（mobile.js 打属性，值是本地化文案）。
- * 上游设置页在非本机来源下读不到 settings 作用域（远程拿到的是 memory 模式、没有 view），
- * 红字失败卡 + 一个永远不成功的「重试」纯属噪音：它说明的是传输方式，不是用户能修的故障。
- * 只隐藏卡里原有的子节点、用伪元素显示说明——**不插节点**，插进去的 React 不会清，
- * 切到别的分区还留着（实测四个分区都显示同一句，看着像切不动了）。
+ * 退役：[data-dshmobile-unavailable]（「手机端读不到模型与设置」的整卡替换）。
+ * dsh 0.2.2-rc.1 起设置页自带 describeFace 镜像视图，远程来源也能读写提供商目录，
+ * 上游不再产出那张失败卡，于是规则和 mobile.js 里的标注器一起删（理由写在那边）。
+ * 别再按旧文案把它加回来：0.2.2 上它匹配不到任何节点，只会是死 CSS。
  */
-[data-dshmobile-unavailable] {
-  margin: 8px 0 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-3, rgba(127, 127, 127, 0.12));
-  color: var(--dsw-alias-label-secondary, inherit);
-  font-size: 13px;
-  line-height: 1.6;
-}
-[data-dshmobile-unavailable] > * {
-  display: none !important;
-}
-[data-dshmobile-unavailable]::after {
-  content: attr(data-dshmobile-unavailable);
-}
 
 /* mobile.js 注入的信息标签/面板：仅 ≤700px 生效，宽屏（含窗口拉窄后又放大）隐藏 */
 [data-dshmobile-tab],
@@ -127,20 +110,16 @@
     display: none;
   }
   /*
-   * 标签条：手机实测（390px 真机页面）四个标签 104/76/104/117px 合计 401px，
-   * 超过 390px 视口——原来左对齐一排，最后一个「Agent 预设」被屏幕右缘切掉，
-   * 看着既不居中也不整齐。这里让它居中：字号 13px、内边距 8px、零间距再加图标
-   * 间隙收窄后实测 338px，标签永远整枚可见，既不被切，也不需要横滑去够
-   * （横滑条在手机上几乎没人会发现）。
+   * 标签条：手机上一行放不下时**横滑**，绝不折行。
    *
-   * 338px 只在页面 zoom 为 1 时够用（390px 手机可用 374px，余 36px）。zoom 是桌面端
-   * 设的倍率而手机页面照抄：用户机器上 dsh-zoom.json 的 level 是 1.14，390px 手机的
-   * 可用宽度掉到 326px，差 12px，四个标签折成"三个 + 一个居中"两行——用户报的
-   * "设置里上面几个选项怎么换行了"就是这个。余量不是一个常数：机型宽度（390/393/
-   * 360/320）、zoom（dsh-zoom 每步 2%）、上游将来多一个设置分区，都会把它吃掉。
-   * 所以 mobile.js 那段量宽：缩一点就放得下时把整条按比例缩到一行居中（见下）；
-   * 下面这条居中折行只留给连缩都救不了的极窄布局（约 1.3 倍 zoom 的手机），
-   * 那时字仍是原大小、两行居中，不截断、不溢出。
+   * 390px 真机页面（0.2.0 代）四个标签 104/76/104/117px 合计 401px，原来左对齐一排、
+   * 最后一个被右缘切掉；收字号/内边距/图标间隙后压到 338px 才装进一行。0.2.2 又多了一个
+   * 「账号与余额」，五个分区在任何手机上都不是一行，折行就是三行堆砌（读者报"功能区不要
+   * 堆砌排列，做成滑动形式"）。所以：一行 nowrap + overflow-x 横滑，右端一条淡出提示，
+   * 滑到底撤掉提示（状态由 mobile.js 的 data-dshmobile-tabscroll / -tabatend 给）。
+   *
+   * 缩一点就放得下的情形仍走 mobile.js 的按比例缩放（data-dshmobile-tabfit，见下）：
+   * 那比横滑更省事，338 对 326 这种差 12px 的情况不该让读者去滑。
    *
    * 注意选择器：`[class*="_nav"]` 会同时命中 `_navList`（本地名是 wCInkW_navList），
    * 拿它当"导航条"用会给标签列表也加上内边距，标签就在条内贴下沿（实测多出 10px、
@@ -149,11 +128,10 @@
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navList"] {
     flex: 1 1 auto;
     flex-direction: row;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     justify-content: center;
     /* 标签在条内上下居中：上游把列表盒撑得比药丸高（实测 46 对 36），默认 align-content
-       stretch 会把药丸压到那一行的下沿，看着就是"没有上下居中"。两个显式居中让一行与
-       折行两种形态都对称。 */
+       stretch 会把药丸压到那一行的下沿，看着就是"没有上下居中"。 */
     align-items: center;
     align-content: center;
     gap: 0;
@@ -162,6 +140,28 @@
   }
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navList"]::-webkit-scrollbar {
     display: none;
+  }
+  /*
+   * 横滑形态（mobile.js 量到"缩到 0.8 也放不下"时打上）。居中在能横滑的盒子里会让
+   * 左侧标签滑不回去（flex 居中的经典坑），所以滑动态改成左对齐 + 两端内边距；右端
+   * 28px 淡出说明"还有更多"，滑到末尾 mobile.js 打上 -tabatend，提示随之消失。
+   * 滚动只在这一条列表内（overscroll-behavior-x: contain），不会把页面横向带着跑。
+   */
+  [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) > [class*="_nav"][data-dshmobile-tabscroll] [class*="_navList"] {
+    justify-content: flex-start;
+    padding-left: 10px;
+    padding-right: 10px;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  }
+  [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) > [class*="_nav"][data-dshmobile-tabscroll] [class*="_navCell"] {
+    scroll-snap-align: center;
+  }
+  [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) > [class*="_nav"][data-dshmobile-tabscroll][data-dshmobile-tabatend] [class*="_navList"] {
+    -webkit-mask-image: none;
+    mask-image: none;
   }
   [role="dialog"][class*="_panel"]:has(> [class*="_nav"]) [class*="_navCell"] {
     flex: 0 0 auto;
@@ -218,17 +218,24 @@
    * 网格轨，主区被压到 viewport-280（390px 手机只剩 110px，首页标语竖排）。
    * 抽屉化：轨道归零、侧栏内容溢出覆盖主区，z-index 抬到内容之上。
    * data-sidebar-collapsed 展开时不存在（React void 0 移除属性），:not 即展开态。
+   *
+   * 0.2.2 起上游自己就有抽屉了：frame[data-sidebar-drawer] 把 sidebarCol 改成
+   * position:absolute、z-index 71，另加一层 drawerMask（z-index 70、展开时可点击）。
+   * 我们的 z-index 30 压在遮罩下面，于是手机点侧栏里任何一条会话都先被遮罩吃掉：
+   * 抽屉合上、会话没换，用户报"聊天选择不上"（实测 390px：elementFromPoint 在会话行
+   * 中心返回 drawerMask）。所以整组抽屉规则只留给还没有原生抽屉的构建，认到
+   * data-sidebar-drawer 就全部让位。
    */
-  [class*="_frame"]:has(> [class*="_sidebarCol"]):not([data-sidebar-collapsed]) {
+  [class*="_frame"]:has(> [class*="_sidebarCol"]):not([data-sidebar-drawer]):not([data-sidebar-collapsed]) {
     grid-template-columns: 0 minmax(0, 1fr) 0 !important;
   }
-  [class*="_frame"]:has(> [class*="_sidebarCol"]):not([data-sidebar-collapsed]) > [class*="_sidebarCol"] {
+  [class*="_frame"]:has(> [class*="_sidebarCol"]):not([data-sidebar-drawer]):not([data-sidebar-collapsed]) > [class*="_sidebarCol"] {
     position: relative;
     z-index: 30;
     overflow: visible;
   }
-  [class*="_frame"]:has(> [class*="_sidebarCol"]):not([data-sidebar-collapsed]) > [class*="_sidebarCol"] > [class*="_root"],
-  [class*="_frame"]:has(> [class*="_sidebarCol"]):not([data-sidebar-collapsed]) > [class*="_sidebarCol"] > [data-slot="sidebar"] > [class*="_root"] {
+  [class*="_frame"]:has(> [class*="_sidebarCol"]):not([data-sidebar-drawer]):not([data-sidebar-collapsed]) > [class*="_sidebarCol"] > [class*="_root"],
+  [class*="_frame"]:has(> [class*="_sidebarCol"]):not([data-sidebar-drawer]):not([data-sidebar-collapsed]) > [class*="_sidebarCol"] > [data-slot="sidebar"] > [class*="_root"] {
     /* 0.2.0 起根节点带行内 width:280px（须 !important 才压得过），且 sidebarCol
        与根之间多了 display:contents 的槽位包装（子选择器按 DOM 树匹配，必须
        多写一层包装变体；两条变体并留以同时兼容新旧包装形态） */
@@ -388,38 +395,37 @@
     white-space: nowrap;
   }
 
-  /*
-   * 回合统计行（N 轮 N 步 | token 用量两枚药丸，dsh-client-ui-chat 的 StatsPills）
-   * 内容单行 nowrap，手机宽度必然从中截断（"38.1K tok ·…"贴着屏幕下缘）。
-   * 正常路径：mobile.js 在"对话/轨迹"旁加"信息"标签，统计行克隆进面板（见
-   * mobile.js），打 data-dshmobile-enhanced 后原行隐藏。
-   * 兜底路径（JS 失效/统计行未渲染）：信息全保留，隐藏分隔点、改弹性换行
-   * （约两行居中），条目内部不断行。
-   * 锚点：上游 0.1.5 给该行挂的稳定属性 data-composer-stats。旧锚点
-   * （composerStack 内"直接子代含分隔符的 _root"）在 0.1.5 已失配——分隔点"·"
-   * 挪进了药丸 label 内部，root 的直接子代只剩 .anchor，:has(> _sep) 永假，
-   * 原行就留在输入区下方不走了（0.5.13 手机实拍）。选择器特异性
-   * (0,2,1) 高于上游 (0,1,0)，与注入顺序无关。
-   */
-  html:not([data-dshmobile-enhanced]) [data-composer-stats] {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 2px 10px;
-    padding-left: 8px;
-    padding-right: 8px;
-    white-space: normal;
-    overflow: visible;
-  }
-  html:not([data-dshmobile-enhanced]) [data-composer-stats] [class*="_sep"] {
-    display: none;
-  }
-  html:not([data-dshmobile-enhanced]) [data-composer-stats] span {
-    white-space: nowrap;
-  }
-  html[data-dshmobile-enhanced] [data-composer-stats] {
-    display: none;
-  }
+/*
+ * 回合统计（N 轮 N 步 | token 用量两枚药丸，dsh-client-ui-chat 的 ActivityPill/UsagePill）
+ * 内容单行 nowrap，手机宽度必然从中截断。正常路径：mobile.js 在"对话/轨迹"旁加"信息"
+ * 标签，药丸克隆进面板（见 mobile.js），打 data-dshmobile-enhanced 后原药丸隐藏。
+ * 兜底路径（JS 失效/药丸未渲染）：信息全保留，隐藏分隔点、让 dock 改弹性换行（约两行居中）。
+ * 锚点（0.2.2-rc.1 实测）：上游把"一行"这个容器撤了，两枚药丸各自注册进
+ * conversation.composer.dock 插槽、各自挂 data-composer-stat="activity|usage"，
+ * 整行不再有 data-composer-stats。所以：
+ *   ① 换行/居中改到 dock 本身（[data-composer-dock]，上游 justify-content:center 不换行）
+ *   ② 隐藏只点名药丸（[data-composer-stat]），不动插槽里别的包的条目
+ * 旧锚点 data-composer-stats 已不存在——留着会让原药丸留在输入区下方不走（实测 0.2.2）。
+ * 选择器特异性 (0,2,1) 高于上游 (0,1,0)，与注入顺序无关。
+ */
+html:not([data-dshmobile-enhanced]) [data-composer-dock] {
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  padding-left: 8px;
+  padding-right: 8px;
+  white-space: normal;
+  overflow: visible;
+}
+html:not([data-dshmobile-enhanced]) [data-composer-dock] [class*="_sep"] {
+  display: none;
+}
+html:not([data-dshmobile-enhanced]) [data-composer-dock] [data-composer-stat] span {
+  white-space: nowrap;
+}
+/* 只在 dock 里隐藏原药丸：信息面板的克隆件也带着 data-composer-stat，不能一起藏掉 */
+html[data-dshmobile-enhanced] [data-composer-dock] [data-composer-stat] {
+  display: none;
+}
 
   /*
    * 上下文用量圆环药丸（ContextMeter，0.2.0 上游在 composer dock 新增）：手机端

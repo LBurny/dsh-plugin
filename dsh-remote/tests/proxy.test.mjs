@@ -604,13 +604,20 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 		const at = source.indexOf(tail);
 		return at === -1 ? "" : source.slice(at, source.indexOf("}", at));
 	};
-	// Measured on the real page: four tabs are 104/76/104/117px = 401px inside a 390px
-	// screen, so a left-packed row clipped "Agent 预设" at the right edge.
+	// Measured on the real page: five sections (0.2.2 added 账号与余额) never fit one row on a
+	// phone, so the strip is one centred row that scrolls sideways, never a stack of rows: the
+	// reader rejected the three-row fallback in as many words ("功能区不要堆砌排列，做成滑动形式").
 	const strip = block(css, '[class*="_navList"] {');
 	check(
-		/flex-wrap:\s*wrap/u.test(strip) && /justify-content:\s*center/u.test(strip),
-		"the settings tab strip centres its tabs and wraps instead of clipping the last one",
-		strip.replace(/\s+/gu, " ").slice(0, 80)
+		/flex-wrap:\s*nowrap/u.test(strip) && /justify-content:\s*center/u.test(strip) && /overflow-x:\s*auto/u.test(strip),
+		"the settings tab strip is one row that scrolls sideways instead of stacking",
+		strip.replace(/\s+/gu, " ").slice(0, 90)
+	);
+	const scrolling = block(css, '[data-dshmobile-tabscroll] [class*="_navList"] {');
+	check(
+		/justify-content:\s*flex-start/u.test(scrolling) && /mask-image:\s*linear-gradient/u.test(scrolling),
+		"and a scrolling strip left-aligns (a centred flex box cannot be scrolled back) with a fade at the far edge",
+		scrolling.replace(/\s+/gu, " ").slice(0, 110)
 	);
 	const cell = block(css, '[class*="_navCell"] {\n    flex: 0 0 auto');
 	check(
@@ -626,22 +633,15 @@ check((await readProjectFile(ws, "big.log", true)).buffer.length > 8 * 1024 * 10
 		"the tab bar pads top and bottom by the same amount (plus the safe area)",
 		bar.replace(/\s+/gu, " ").slice(0, 90)
 	);
-	// The models page cannot read settings from a remote origin (upstream: no view for a
-	// memory-mode scope). The layer must not fake loopback — it replaces the dead end, and it
-	// does so without inserting a node into React's subtree (a foreign node survives every
-	// re-render, so each settings section would show the same note and look like it had not
-	// switched).
+	// The models page used to be a dead end on a remote origin (upstream served a memory-mode
+	// settings scope with no view), and the layer replaced that failure card with a sentence of
+	// its own. dsh 0.2.2-rc.1 reads settings through a mirrored view and the models page works
+	// from a phone origin, so the workaround is retired: pin the absence, because the upstream
+	// wording it matched is gone and the markup would be dead weight nobody could see.
+	const withoutComments = (text) => text.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/^\s*\/\/.*$/gmu, "");
 	check(
-		css.includes('[data-dshmobile-unavailable] > *') &&
-			css.includes("[data-dshmobile-unavailable]::after") &&
-			css.includes("content: attr(data-dshmobile-unavailable)") &&
-			js.includes("settings are unavailable in this browser"),
-		"the failure card is replaced by an attribute + pseudo-element, matching upstream's wording",
-		""
-	);
-	check(
-		js.includes("removeAttribute") && /电脑端|desktop window/u.test(js) && !js.includes("insertAdjacentElement"),
-		"the mark is retracted when the section changes, and nothing is ever inserted",
+		!withoutComments(css).includes("data-dshmobile-unavailable") && !withoutComments(js).includes("data-dshmobile-unavailable"),
+		"the retired models-page workaround leaves no markup behind (0.2.2 reads settings remotely)",
 		""
 	);
 	// The sheet must be sized from its container: `100dvh` is resolved in device pixels and is

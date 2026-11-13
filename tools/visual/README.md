@@ -60,9 +60,10 @@ node tools/visual/shot.mjs --url "http://phone.test:29274/?token=$TOKEN" \
 
 `--no-proxy-server` matters: without it the machine's HTTP proxy swallows the fake host and the page fails to
 load. A phone viewport has no text labels on the rail's buttons, so open panels with `--eval` on an
-`aria-label` (`document.querySelector('[aria-label=设置]').click()`) rather than `--click`. At that origin the
-settings sheet's own limits show up: the models tab fails its load with
-*settings are unavailable in this browser* — upstream's transport boundary, not something a stylesheet fixes.
+`aria-label` (`document.querySelector('[aria-label=设置]').click()`) rather than `--click`. Reach the settings
+sheet through the account menu (`账号菜单`, then the `设置` menu item); at 390px the rail has no gear. Since
+dsh 0.2.2-rc.1 the models tab works at this origin, including saving (upstream's mirrored settings view),
+so a phone-origin run can write to the host: keep test edits in a sandbox home, never in the installed app.
 
 The sandbox's own proxy is the usual target, and its URL carries a token that should not be pasted into a
 command line (it lands in the shell history and in whatever transcript the run is pasted into).

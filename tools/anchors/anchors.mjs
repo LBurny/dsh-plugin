@@ -112,11 +112,11 @@ const ANCHORS = [
 
 	// --- dsh's client hooks the phone layer acts on
 	{
-		needles: ["data-composer-stats"],
+		needles: ["data-composer-stat"],
 		severity: "silent",
-		where: "dsh client (chat UI, the composer's stats row)",
-		usedBy: "lib/assets/mobile.js (the 信息 tab's turn stats)",
-		ifMissing: "the 信息 tab opens empty"
+		where: "dsh client (chat UI, the composer's per-pill hook on the stat pills)",
+		usedBy: "lib/assets/mobile.js (the 信息 tab's turn stats), lib/assets/mobile.css (hiding the pills)",
+		ifMissing: "the 信息 tab opens empty and the pills stay under the composer on the phone"
 	},
 	{
 		needles: ["conversation.composer.dock"],
@@ -171,15 +171,8 @@ const ANCHORS = [
 		needles: ["_overlay", "_content", "_options"],
 		severity: "silent",
 		where: "dsh client (the settings sheet: overlay, content, the scrolling options list)",
-		usedBy: "lib/assets/mobile.js (replacing the models page's dead-end card)",
-		ifMissing: "the 'settings are unavailable in this browser' dead end comes back, Retry and all"
-	},
-	{
-		needles: ["settings are unavailable in this browser"],
-		severity: "silent",
-		where: "dsh client (the models settings page's failure wording)",
-		usedBy: "lib/assets/mobile.js (matching the card to replace)",
-		ifMissing: "the failure card stays as upstream wrote it; the note is not shown"
+		usedBy: "lib/assets/mobile.css (the phone's settings-sheet geometry and tab strip)",
+		ifMissing: "the settings sheet loses its phone layout and the tab strip its one-row fit"
 	},
 	{
 		needles: ["Preview Notice", "预览版说明", "Continue"],
@@ -405,7 +398,7 @@ async function usedAnchors(libDir) {
 		}
 		for (const match of source.matchAll(/\[(?:class|style)\*="([^"]+)"\]/gu)) add(match[1].split(":").pop().trim(), file);
 		for (const match of source.matchAll(/\[data-slot="([^"]+)"\]/gu)) add(match[1], file);
-		for (const match of source.matchAll(/data-composer-stats|data-sidebar-collapsed|aria-haspopup|dsh\.sessions\.current/gu)) add(match[0], file);
+		for (const match of source.matchAll(/data-composer-stat|data-composer-dock|data-sidebar-collapsed|aria-haspopup|dsh\.sessions\.current/gu)) add(match[0], file);
 		for (const match of source.matchAll(/Buffer\.from\((['"])(.+?)\1/gu)) add(match[2], file);
 		for (const match of source.matchAll(/ctx\.get\("([^"]+)"\)/gu)) add(match[1], file);
 		for (const match of source.matchAll(/inject\(\[([^\]]*)\]/gu)) {
