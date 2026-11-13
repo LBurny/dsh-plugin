@@ -44,7 +44,10 @@ own DOM.
 
 Everything below was verified against the **official DeepSeek Harness desktop app**,
 `F:\Code\dsh\DeepSeek Harness.exe` (Electron). It packs its own dsh inside `resources/app.asar` at
-`0.2.0-rc.2` and ships the CLI shim `F:\Code\dsh\resources\runtime\cli\bin\dsh.cmd`.
+`0.2.2-rc.1` (app `0.2.2-rc.1`, build `c59d10af`) and ships the CLI shim
+`F:\Code\dsh\resources\runtime\cli\bin\dsh.cmd`. It was `0.2.0-rc.2` until the app updated itself; the
+anchors below were re-verified against `0.2.2-rc.1` on 2026-11-13, and `node tools/anchors/anchors.mjs`
+exits 0 against it.
 
 - `DSH_HOME` = `C:\Users\intel\.dsh`, profile `desktop` (a `web` profile sits beside it). The app owns
   that profile: `--dump-config` and a plain boot are refused with `profile "desktop" is managed
@@ -62,9 +65,9 @@ Everything below was verified against the **official DeepSeek Harness desktop ap
   when that binary is what runs.
 - The app's home resolves plugin dependencies out of somebody else's tree. The links under
   `~/.dsh/profiles/node_modules` point into `H:\My_Software\DSHDesktop\src-tauri\runtime\windows-x64\dsh\node_modules`
-  (the shell's dev tree) and none at the app itself, so that tree is load-bearing: delete or rebuild it
-  and the app's plugins fail with `Cannot find package`; edit the runtime in it and the app changes with
-  it. Remember this whenever a change seems to have no effect.
+  (the shell's dev tree) and none at the app itself (measured 2026-11-13: 434 of 620 links), so that tree
+  is load-bearing: delete or rebuild it and the app's plugins fail with `Cannot find package`; edit the
+  runtime in it and the app changes with it. Remember this whenever a change seems to have no effect.
 - DSHDesktop is the **secondary** target and nothing here depends on it: its conveniences are its own
   Svelte pages, and it preinstalls `dsh-command-init` (whose row id `init` collides with `dsh-init`'s).
 
@@ -125,7 +128,8 @@ with no build step, so `lib/` is both source and published artifact and `main` p
 - A broken row never stops dsh from booting, which is worse for an author than a crash: it costs that one
   row and says almost nothing. An import failure, a throw while the module evaluates, a throw from
   `apply`, and an unresolvable entry in `dsh.profile.bundles` each print one
-  `warning: N entries did not activate` and the boot carries on (measured on dsh 0.2.0-rc.1 and rc.2).
+  `warning: N entries did not activate` and the boot carries on (measured on dsh 0.2.0-rc.1 and rc.2,
+  and again on 0.2.2-rc.1).
   The only fatal ids are the seven in `dsh-app-boot`'s `requiredStartupEntryIds`
   (`agent-loop webserver modules connection headless-runner acp sdk-jsonrpc-server`), so never take one
   of those as a row id. Command names are first-come, first-served, and a clash degrades to a warning, so
@@ -142,10 +146,11 @@ with no build step, so `lib/` is both source and published artifact and `main` p
   `var(--dsw-..., <hardcoded fallback>)`, keep the fallback, and keep the `prefers-color-scheme` block
   beside it so a shell without those tokens still looks right. Language comes from `navigator.language`,
   deliberately not dsh's `locale`.
-- The browser halves share exactly three DOM-level things: the `#dsh-launchers` corner container, the
-  `--dsh-launcher-stack` custom property, and the `.dsh-launch` button class whose styles are duplicated
-  identically in every `client.css`. Panel styles are scoped under `#<package>-root`. Keep all three when
-  adding a package.
+- The browser halves share exactly four DOM-level things: the `#dsh-launchers` corner container, the
+  `--dsh-launcher-stack` custom property, the `.dsh-launch` button class whose styles are duplicated
+  identically in every `client.css`, and the `html[data-dsh-zoom-active]` mark `dsh-zoom` sets while a
+  level other than 100% is in force (dsh-doctor's page patch keys on it). Panel styles are scoped under
+  `#<package>-root`. Keep all four when adding a package.
 - `[class*="_nav"]` also matches `_navList`. CSS-modules substrings are not names: a rule written for the
   settings nav bar silently padded the tab *list*. Scope bar rules with `:has(> [class*="_nav"])` or a
   `>` step, and when a measurement refuses to match the CSS you wrote, suspect your own selector first.
@@ -171,6 +176,20 @@ with no build step, so `lib/` is both source and published artifact and `main` p
   replace the mark with a selector list, and keep the two halves of the string in step (the package suite
   reads both files and fails when one is renamed). Measured at 1400x900 / 114%: the context popover drew
   68px past the right edge and 83px past the bottom before the rule, `clipped` after it.
+- The same double-scaling now bites **inside** the page, on the plugin page's self-measuring header. Since
+  0.2.2 the page head measures its three parts (`[data-plugin-header-part]`: title, intro, toolbar) with
+  `getBoundingClientRect`, writes the numbers as `--plugin-part-x/y/width` plus an inline `width`, and
+  positions them absolutely. Those numbers are viewport px that are then read back as layout px, so the
+  toolbar with the reader's 刷新 button draws 14% further right than it was measured. At 1530px the slack
+  hides it; at 933px and 114% the button's right edge landed at 975 in a 933px window, and at 1152px it
+  collapsed 添加插件 to its icon (measured 2026-11-13, reader report). The correction is **not** in
+  dsh-zoom: it is a page-level CSS patch, `plugin-header-zoom` in `dsh-doctor`'s catalog, so the reader can
+  switch it off or delete it the day dsh fixes the header (诊断 → 环境补丁). It divides the placement back
+  into layout px, anchors the toolbar to the header's right edge, and is gated on the
+  `data-dsh-zoom-active` mark so a page at 100% is untouched. Correcting the frame is the whole fix: the
+  first attempt cancelled the factor on the parts the way portaled surfaces are handled, and that shrinks
+  the frame around contents still laid out at page scale, so the button was squeezed instead of moved. A
+  part the rules do not know keeps the old placement, wrong but intact.
 - Anything the reader arranges belongs on the host, not in browser storage. The hub's feature order lived
   in `localStorage`, which is per-origin, so a drag on the desktop never reached the phone (the shell
   opens dsh at `127.0.0.1:<port>`, the phone reaches it through the proxy at the tunnel's origin). It is
@@ -219,7 +238,12 @@ assume it exists)
   `#dsh-features-root`, so the hub's scope id does not keep its rules out of the panel. The contract test
   reads every selector in the hub's stylesheet and fails on one that neither carries a `hub-` class nor is
   an exemption (`#dsh-launchers`, the root itself). A row sits on the same gutter as its page's own
-  buttons, with no negative horizontal margin.
+  buttons, with no negative horizontal margin, and that gutter is one token: the hub declares
+  `--dsh-gutter` (dsh's own `clamp(24px, 4vw, 48px)` page inset, narrowed on a phone), a panel's body
+  reads `var(--dsh-gutter, 22px)` so an embedded panel inherits the page's gutter instead of carrying a
+  second copy, and the contract test fails a panel that hardcodes one. The hub's list is dsh's own list,
+  not a card grid: 48px hairline icon squares, a 14px/500 name over a 13px caption, 2px between rows.
+  The card look belongs to the panels' settings rows, which stay pinned to each other.
 - A feature probes `GET /dsh-features/api/status` at boot and skips its floating panel when the hub
   answers. Without the hub (bare dsh, or the package uninstalled) the launcher must be built exactly as
   before. The hub hides `#dsh-launchers` from its own stylesheet; do not "fix" a feature by re-showing it.
@@ -299,27 +323,41 @@ assume it exists)
   is `/dsh-remote/api/*`.
 - Never log a remote link or token. `/dsh-remote/api/status` exists precisely so there is a
   credential-free status.
-- The phone gets a rewritten page, so its fixes live in the proxy's layer, never in dsh. Three rules are
+- The phone gets a rewritten page, so its fixes live in the proxy's layer, never in dsh. Two rules are
   there because upstream will not change: the preview notice is re-shown on every remote load (upstream
   keeps its acknowledgement in a memory-mode settings scope for remote transports, so `mobile.js` clicks
-  its Continue control and hides its portal); the settings sheet's tab strip is left-packed and clips its
-  last tab at 390px (four tabs measure 401px of content in a 390px screen, so the strip centres and wraps
-  rather than scrolling, and pads top and bottom equally, since 10px top / 0 bottom reads as "the tabs are
-  not centred"); and the models page cannot read settings from a remote origin at all, so the layer hides
-  that failure card, Retry included, and puts a line in its place pointing at the desktop window.
+  its Continue control and hides its portal); and the settings sheet's tab strip is left-packed and clips
+  its last tab at 390px, so the layer keeps it one row: it is centred when it fits, shrunk a hair when
+  that is enough (up to 0.8), and otherwise **scrolls sideways** with a fade at the far edge (0.2.2's
+  账号与余额 makes five sections, which never fit; the three stacked rows that used to be the fallback
+  are what the reader rejected: "功能区不要堆砌排列，做成滑动形式"). A scrolling flex box must
+  left-align, because a centred one cannot be scrolled back to its first item. A third rule was retired
+  when 0.2.2 began reading settings from a remote origin (see below).
   `mobile.js` is injected before `</head>`, which is how it catches a modal before the first paint.
-- Never insert a node into React's subtree from the mobile layer. The models note was first a `<p>` after
-  the failed card, and React does not remove foreign nodes, so every settings section showed the same
-  sentence and a reader reports it as "I cannot switch sections any more". The layer now only sets an
-  **attribute** on the card (the localised sentence) and `mobile.css` renders it with `content: attr(...)`
-  while hiding the card's own children. Attributes are not React's business, and a section switch replaces
-  the node, so the mark leaves with it, plus a retraction path for when React reuses the node.
+- **Our drawer-ification must stand down on a build that has its own drawer.** dsh 0.2.2 renders
+  `frame[data-sidebar-drawer]`: the sidebar column becomes `position: absolute; z-index: 71` with a
+  `drawerMask` at 70 that is clickable while the drawer is open. The layer's older hack raised the column
+  to `position: relative; z-index: 30`, which put it *under* that mask, so on a phone every tap on a
+  session row was eaten by the mask: the drawer closed and the session never changed, reported as
+  "聊天选择不上" (measured at 390px, `elementFromPoint` on a row's centre answered `drawerMask`). The rules
+  now carry `:not([data-sidebar-drawer])`, so 0.2.2 uses its own drawer and the fallback survives only for
+  a build without one. The general lesson: when the layer overrides a layout the harness later adopts,
+  gate the override on the harness's own marker instead of replacing it.
+- Never insert a node into React's subtree from the mobile layer. A models note was first written as a `<p>`
+  after a failed card, and React does not remove foreign nodes, so every settings section showed the same
+  sentence and a reader reports it as "I cannot switch sections any more". That workaround is gone (below),
+  but the rule is not: when a mark is needed, set an **attribute** the stylesheet renders with
+  `content: attr(...)`. Attributes are not React's business, and a section switch replaces the node, so the
+  mark leaves with it, plus a retraction path for when React reuses the node.
 - Reproduce the phone's origin instead of guessing what a phone does. **The proxy always rewrites `Host`
-  to the loopback authority**, so the server cannot tell the two apart: dsh decides the settings scope from
-  the client's own `location.hostname`. A loopback run shows a working models page and a phone-origin run
-  shows `加载提供商目录失败: settings are unavailable in this browser`, which is exactly what a remote
-  transport gets. **Never make a remote page look like loopback to fix that**: the same scope is what stops
-  a link-holder from rewriting host settings and API keys. Explain it in the layer; nothing else.
+  to the loopback authority**, so the server cannot tell the two apart: dsh decides what a page may read
+  from the client's own `location.hostname`. The old consequence was a models page that failed only on a
+  phone origin (`settings are unavailable in this browser`, Retry and all). dsh 0.2.2-rc.1 removed that
+  boundary: a phone origin reads and **writes** settings through a mirrored view (measured 2026-11-13: a
+  key saved from `phone.test` landed in the host's `.credentials.yaml`), so the layer's replacement note
+  was retired rather than re-pointed. Two things still hold: never make a remote page look like loopback
+  to change what dsh offers it, and the link is now a settings-writing credential, which is what the
+  panel's reset button exists for.
 - **Adding a workspace from the phone is a picker problem, not a proxy problem.** dsh resolves its
   directory chooser once at boot from its own bind host, and a loopback bind (which tunnel mode is)
   means the `native` backend, whose chooser is an OS dialog on the PC's screen that a phone can never
@@ -356,16 +394,22 @@ assume it exists)
   `id`, `options` (the module `name`), `disabled` and `fiber.state`, the numeric `FiberState`
   (`0 pending, 1 loading, 2 active, 3 failed, 4 disposed, 5 unloading`). A disabled row has no fiber, so
   its state cannot be read the same way. This is the half the ready line cannot give.
-- `dsh-doctor` also carries the **patches**: corrections to the dsh process a plugin runs in, each with a
-  switch and a delete control in the panel (诊断 → 环境补丁), the decisions in `<DSH_HOME>/dsh-doctor.json`.
-  The one entry, `electron-run-as-node`, deletes `ELECTRON_RUN_AS_NODE` from `process.env`, because the
-  harness is started as the Electron binary in Node mode (`lib/main.js`'s `desktopNodeEnvironment`, and
-  `dsh.cmd`'s `set "ELECTRON_RUN_AS_NODE=1"`) and `scrubbedParentEnv()` keeps that name, so every Electron
-  editor the open-in-app feature launches starts as plain Node and exits non-zero: 打开 > VS Code answers
-  打开失败，请重试 while the file managers work. Measured, upstream's bug, and the reader must be able to take
-  it back, which is why the switch reverts `process.env` to exactly what the process found. Reading another
-  process's environment to verify it needs a PEB walk, not `wmic`: `ProcessParameters` at PEB `+0x20`, and
-  inside it `Environment` at `+0x80` is a plain pointer, not a `UNICODE_STRING`.
+- `dsh-doctor` also carries the **patches**: corrections to the harness a plugin runs in, each with a
+  switch and a delete control in the panel (诊断 → 环境补丁), the decisions in
+  `<DSH_HOME>/dsh-doctor.json`. There are two kinds, and the kind decides which half carries the patch
+  out. A **process** patch (`kind` absent, `variable` named) edits `process.env`; the one entry,
+  `electron-run-as-node`, deletes `ELECTRON_RUN_AS_NODE`, because the harness is started as the Electron
+  binary in Node mode (`lib/main.js`'s `desktopNodeEnvironment`, and `dsh.cmd`'s
+  `set "ELECTRON_RUN_AS_NODE=1"`) and `scrubbedParentEnv()` keeps that name, so every Electron editor the
+  open-in-app feature launches starts as plain Node and exits non-zero: 打开 > VS Code answers
+  打开失败，请重试 while the file managers work. Measured, upstream's bug, and the reader must be able to
+  take it back, which is why the switch reverts `process.env` to exactly what the process found. Reading
+  another process's environment to verify it needs a PEB walk, not `wmic`: `ProcessParameters` at PEB
+  `+0x20`, and inside it `Environment` at `+0x80` is a plain pointer, not a `UNICODE_STRING`. A **page**
+  patch (`kind: "page"`, `css` instead of `variable`) ships stylesheet text the browser half injects on
+  load and re-syncs after every toggle, because the defect it answers is in the page: that is
+  `plugin-header-zoom` (see the zoom bullets above). `createPatchRuntime` must only ever see the process
+  patches, and `normalizePatchState` treats both kinds the same, so one decisions file covers both.
 - The official app's own dsh is inside `app.asar`. When a fix must target the build the phone actually
   runs (hashes and local-name prefixes differ per build), read it without Electron:
   `node tools/visual/asar.mjs <app.asar> --list|--cat|--grep <text>`. `--grep` names the packed file that
@@ -411,7 +455,7 @@ sandbox in the section above is for *verifying* a change, never a substitute for
 
 Offline suites need `@deepseek-ai/*` (and `yaml` for dsh-mcp) to resolve. Run them from an installed copy,
 or make the packages resolvable in the package's `node_modules`: they are published on npm under the
-`next` tag at the version the official app ships (0.2.0-rc.2), so
+`next` tag at the version the official app ships (0.2.2-rc.1 on 2026-11-13), so
 `npm i --no-save @deepseek-ai/dsh-atomic-write@next @deepseek-ai/dsh-llm@next
 @deepseek-ai/dsh-session-format-v3-to-v4@next` is enough, and junctions into a runtime also work.
 
