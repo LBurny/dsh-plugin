@@ -337,9 +337,11 @@ for (const pkg of PACKAGES) {
 
 /* ------------- dsh-doctor: the patch route is a real write, onto one file */
 
-// The patch list is the one place this plugin changes the process it runs in, so the route
+// The patch list is the one place this plugin changes the harness it runs in, so the route
 // behind it is driven end to end here: a decision has to land in `<DSH home>/dsh-doctor.json`,
-// a refusal has to leave that file alone, and removing a patch has to stick.
+// a refusal has to leave that file alone, and removing a patch has to stick. The catalog is
+// page-only now: the process patch that dropped ELECTRON_RUN_AS_NODE was removed because the
+// Windows Job runner inherits that variable to start as Node.
 const doctor = await mountHostHalf("dsh-doctor");
 const doctorRoute = doctor.registered.prefixes[0];
 const patchFile = join(doctor.home, "dsh-doctor.json");
@@ -369,38 +371,32 @@ const listed = JSON.parse((await call(doctorRoute, "/dsh-doctor/api/patches")).b
 const pagePatch = listed.patches.find((patch) => patch.kind === "page");
 check(
 	listed.ok === true &&
-		listed.patches.length === 2 &&
-		listed.patches[0].id === "electron-run-as-node" &&
-		listed.patches[0].enabled === true &&
+		listed.patches.length === 1 &&
 		pagePatch?.id === "plugin-header-zoom" &&
 		pagePatch.enabled === true &&
-		pagePatch.applicable === true,
-	"dsh-doctor: the patch route lists the catalog, enabled by default",
+		pagePatch.applicable === true &&
+		listed.patches.every((patch) => patch.kind === "page"),
+	"dsh-doctor: the patch route lists the page catalog, enabled by default",
 	JSON.stringify(listed.patches.map((patch) => patch.id))
 );
 check(listed.configPath === patchFile, "dsh-doctor: the decisions file sits in the active DSH home", String(listed.configPath));
-check(
-	listed.patches[0].applicable === Object.prototype.hasOwnProperty.call(process.env, "ELECTRON_RUN_AS_NODE"),
-	"dsh-doctor: applicability reports what this process carried, not what the patch intends",
-	String(listed.patches[0].applicable)
-);
 
-const switchedOff = await postPatches({ action: "toggle", id: "electron-run-as-node", enabled: false });
+const switchedOff = await postPatches({ action: "toggle", id: "plugin-header-zoom", enabled: false });
 check(switchedOff.status === 200 && switchedOff.parsed.patches[0].enabled === false, "dsh-doctor: a toggle answers with the new state", `${String(switchedOff.status)} ${JSON.stringify(switchedOff.parsed?.patches)}`);
 check(readFileSync(patchFile, "utf8").includes('"enabled": false'), "dsh-doctor: the decision is written to the file", readFileSync(patchFile, "utf8").trim());
-const switchedOn = await postPatches({ action: "toggle", id: "electron-run-as-node", enabled: true });
+const switchedOn = await postPatches({ action: "toggle", id: "plugin-header-zoom", enabled: true });
 check(switchedOn.parsed.patches[0].enabled === true, "dsh-doctor: switching it back on is recorded too");
-check(!readFileSync(patchFile, "utf8").includes("electron-run-as-node"), "dsh-doctor: the default is the absence of an entry, so the file stays readable by hand", readFileSync(patchFile, "utf8").trim());
+check(!readFileSync(patchFile, "utf8").includes("plugin-header-zoom"), "dsh-doctor: the default is the absence of an entry, so the file stays readable by hand", readFileSync(patchFile, "utf8").trim());
 
-const refusedAction = await postPatches({ action: "nonsense", id: "electron-run-as-node" });
+const refusedAction = await postPatches({ action: "nonsense", id: "plugin-header-zoom" });
 check(refusedAction.status === 500 && String(refusedAction.parsed?.error).includes("unknown patch action"), "dsh-doctor: an unknown patch action is refused", `${String(refusedAction.status)} ${String(refusedAction.parsed?.error)}`);
 check((await postPatches({ action: "toggle", id: "not-a-patch" })).status === 500, "dsh-doctor: an unknown patch id is refused");
 check(!readFileSync(patchFile, "utf8").includes("not-a-patch"), "dsh-doctor: a refused action leaves the file alone", readFileSync(patchFile, "utf8").trim());
 
-const removed = await postPatches({ action: "delete", id: "electron-run-as-node" });
-check(removed.status === 200 && !removed.parsed.patches.some((patch) => patch.id === "electron-run-as-node"), "dsh-doctor: deleting a patch takes it off the list", JSON.stringify(removed.parsed?.patches?.map((patch) => patch.id)));
+const removed = await postPatches({ action: "delete", id: "plugin-header-zoom" });
+check(removed.status === 200 && !removed.parsed.patches.some((patch) => patch.id === "plugin-header-zoom"), "dsh-doctor: deleting a patch takes it off the list", JSON.stringify(removed.parsed?.patches?.map((patch) => patch.id)));
 check(readFileSync(patchFile, "utf8").includes('"removed": true'), "dsh-doctor: a deletion is recorded as removed", readFileSync(patchFile, "utf8").trim());
-check(!JSON.parse((await call(doctorRoute, "/dsh-doctor/api/patches")).body).patches.some((patch) => patch.id === "electron-run-as-node"), "dsh-doctor: a removed patch stays gone on the next read");
+check(!JSON.parse((await call(doctorRoute, "/dsh-doctor/api/patches")).body).patches.some((patch) => patch.id === "plugin-header-zoom"), "dsh-doctor: a removed patch stays gone on the next read");
 doctor.rm();
 
 // The host half is the only half that can see an approval or a question, and it learns about

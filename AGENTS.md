@@ -396,20 +396,20 @@ assume it exists)
   its state cannot be read the same way. This is the half the ready line cannot give.
 - `dsh-doctor` also carries the **patches**: corrections to the harness a plugin runs in, each with a
   switch and a delete control in the panel (诊断 → 环境补丁), the decisions in
-  `<DSH_HOME>/dsh-doctor.json`. There are two kinds, and the kind decides which half carries the patch
-  out. A **process** patch (`kind` absent, `variable` named) edits `process.env`; the one entry,
-  `electron-run-as-node`, deletes `ELECTRON_RUN_AS_NODE`, because the harness is started as the Electron
-  binary in Node mode (`lib/main.js`'s `desktopNodeEnvironment`, and `dsh.cmd`'s
-  `set "ELECTRON_RUN_AS_NODE=1"`) and `scrubbedParentEnv()` keeps that name, so every Electron editor the
-  open-in-app feature launches starts as plain Node and exits non-zero: 打开 > VS Code answers
-  打开失败，请重试 while the file managers work. Measured, upstream's bug, and the reader must be able to
-  take it back, which is why the switch reverts `process.env` to exactly what the process found. Reading
-  another process's environment to verify it needs a PEB walk, not `wmic`: `ProcessParameters` at PEB
-  `+0x20`, and inside it `Environment` at `+0x80` is a plain pointer, not a `UNICODE_STRING`. A **page**
-  patch (`kind: "page"`, `css` instead of `variable`) ships stylesheet text the browser half injects on
-  load and re-syncs after every toggle, because the defect it answers is in the page: that is
-  `plugin-header-zoom` (see the zoom bullets above). `createPatchRuntime` must only ever see the process
-  patches, and `normalizePatchState` treats both kinds the same, so one decisions file covers both.
+  `<DSH_HOME>/dsh-doctor.json`. What remains is a **page** patch (`kind: "page"`, `css` instead of
+  `variable`): it ships stylesheet text the browser half injects on load and re-syncs after every toggle,
+  because the defect it answers is in the page. That is `plugin-header-zoom` (see the zoom bullets above).
+  A **process** patch (`kind` absent, `variable` named) edits `process.env`; `createPatchRuntime` still
+  supports one, and `normalizePatchState` treats both kinds the same, so one decisions file covers both.
+  The one process entry, `electron-run-as-node`, was removed: it deleted `ELECTRON_RUN_AS_NODE`, but DSH's
+  Windows Job runner (`@deepseek-ai/dsh-subprocess-local`) is spawned as `process.execPath` — the Electron
+  binary in the desktop app — and only starts as Node because it inherits that variable. With the patch
+  on, every managed subprocess (the Bash tool, terminals) became a second desktop app that lost the
+  single-instance lock, exited 0 without IPC, and surfaced as `Windows Job runner exited with exit code 0
+  before proving its managed range empty`. It can return once the runner sets the variable for itself.
+  Reading another process's environment to verify a process patch needs a PEB walk, not `wmic`:
+  `ProcessParameters` at PEB `+0x20`, and inside it `Environment` at `+0x80` is a plain pointer, not a
+  `UNICODE_STRING`.
 - The official app's own dsh is inside `app.asar`. When a fix must target the build the phone actually
   runs (hashes and local-name prefixes differ per build), read it without Electron:
   `node tools/visual/asar.mjs <app.asar> --list|--cat|--grep <text>`. `--grep` names the packed file that

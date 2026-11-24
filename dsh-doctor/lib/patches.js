@@ -1,35 +1,22 @@
 /**
- * dsh-doctor patches: the corrections this plugin makes to the process it runs in.
+ * dsh-doctor patches: the corrections this plugin makes to the harness it runs on.
  *
  * A patch exists because a defect belongs to the running harness rather than to a file,
- * and a plugin cannot edit the harness. Two kinds live here: one that edits this process's
- * environment, and one that ships CSS for the browser half to inject, because the defect it
- * answers is in the page rather than in the process.
+ * and a plugin cannot edit the harness. What remains is a page-level correction that ships
+ * CSS for the browser half to inject. Its defect is in the page, not in the process.
  *
- * `electron-run-as-node` — the official desktop app starts its harness host as the
- * Electron executable in Node mode (`lib/main.js`'s `desktopNodeEnvironment`, used by
- * `DesktopHostProcess.start`), so `ELECTRON_RUN_AS_NODE=1` sits in the host's own
- * environment. The harness scrubs a child environment of credential-shaped names and of
- * `DSH_*`, which leaves that one in place, so every application the open-in-app feature
- * launches inherits it. An Electron editor (VS Code, Cursor, Windsurf) then starts as
- * plain Node, is handed the workspace directory as a script, and exits non-zero, which
- * dsh reports as `failed to launch <app>` — the panel's 打开失败，请重试. The file
- * managers are unaffected because explorer.exe is not Electron.
+ * A process-level patch used to live here: `electron-run-as-node` dropped
+ * `ELECTRON_RUN_AS_NODE` from the harness host so the open-in-app feature could start
+ * Electron editors. It was removed because the Windows Job runner in
+ * `@deepseek-ai/dsh-subprocess-local` is spawned as `process.execPath` — the Electron
+ * binary in the desktop app — and only runs as Node because it inherits that variable.
+ * Dropping it turned every managed subprocess (the Bash tool, terminals) into a second
+ * desktop app that lost the single-instance lock, exited 0 without IPC, and surfaced as
+ * `Windows Job runner exited with exit code 0 before proving its managed range empty`.
  *
- * Dropping the name is what dsh itself does where it matters: `dsh-ptc-runtime-node`
- * filters `ELECTRON_RUN_AS_NODE` out of the environment it builds for its child, and the
- * two places that want Electron in Node mode (the desktop host's package manager, the
- * GitHub Desktop adapter) set it explicitly for that child instead of inheriting it.
- *
- * One dsh child does depend on inheriting it, and a pick made from a browser that is not
- * the app's own window is where that shows: the Win32 folder chooser runs in a worker
- * spawned as this very executable with `env: { ...process.env }`, so the variable this
- * patch drops is the only thing that starts it as Node (see `./picker-worker.js`, which
- * lends it back for that one call). Nothing reads the variable back in this process.
- *
- * The decision lives in `<DSH_HOME>/dsh-doctor.json`, so a patch can be switched off or
- * taken off the list from the panel at any time, and that one file is the whole record of
- * it. Reverting puts the environment back exactly as this process found it.
+ * The decision file and runtime below still support a process patch, so one can be added
+ * back once the runner no longer depends on the inherited variable. Decisions live in
+ * `<DSH_HOME>/dsh-doctor.json`, so a patch can be switched off or removed from the panel.
  *
  * @module dsh-doctor/lib/patches
  */
@@ -40,14 +27,11 @@ import { writeFileAtomic } from "@deepseek-ai/dsh-atomic-write";
 /** The decision file, inside the active DSH home. Nothing else in this plugin writes it. */
 export const PATCHES_FILENAME = "dsh-doctor.json";
 
-/** The one patch, named so the module that gives its variable back for one spawn shares it. */
-export const RUN_AS_NODE = { id: "electron-run-as-node", variable: "ELECTRON_RUN_AS_NODE" };
-
 /**
  * The corrections a browser needs, shipped as text the panel's own script injects.
  *
- * These are the same kind of thing as an environment patch (a workaround for a defect in
- * the harness this plugin runs on) that simply cannot be carried out in the process: the
+ * These are the same kind of thing as a process patch (a workaround for a defect in the
+ * harness this plugin runs on) that simply cannot be carried out in the process: the
  * defect is CSS. `kind: "page"` says so, and the browser half applies `css` only while the
  * patch is enabled, so the reader can take the correction away the day dsh fixes it.
  *
@@ -82,11 +66,11 @@ html[data-dsh-zoom-active] [data-plugin-header-part="toolbar"] {
 export const HEADER_ZOOM = { id: "plugin-header-zoom", kind: "page", css: HEADER_ZOOM_CSS };
 
 /**
- * The catalog, in panel order. `variable` names the environment entry the patch drops and
- * `css` the rules a `kind: "page"` patch injects; the panel keys a patch's title and
- * description by `id`, in its own language.
+ * The catalog, in panel order. `variable` names the environment entry a process patch
+ * would drop and `css` the rules a `kind: "page"` patch injects; the panel keys a patch's
+ * title and description by `id`, in its own language.
  */
-export const PATCH_CATALOG = [RUN_AS_NODE, HEADER_ZOOM];
+export const PATCH_CATALOG = [HEADER_ZOOM];
 
 const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 

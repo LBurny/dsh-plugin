@@ -23,7 +23,6 @@ import {
 	savePatchState,
 	setPatchEnabled
 } from "../lib/patches.js";
-import { createPickerWorkerNode } from "../lib/picker-worker.js";
 import { collectRows, packageOf, REQUIRED_ROW_IDS, summarizeRows } from "../lib/rows.js";
 
 const results = [];
@@ -258,22 +257,15 @@ check(bare.capture === undefined, "a missing capture is reported as undefined, n
 
 /* ------------------------------------------------------------ patches */
 
-// The catalog is the fix itself, so it is pinned here: the variable the desktop app leaks
-// into the harness host, and the page correction the zoom interaction needs. A third entry,
-// a different variable or a different stylesheet has to be a deliberate change to this suite
-// rather than a quiet one.
-check(PATCH_CATALOG.length === 2, "the catalog carries two patches", String(PATCH_CATALOG.length));
-const processPatch = PATCH_CATALOG.find((patch) => patch.kind !== "page");
-const pagePatch = PATCH_CATALOG.find((patch) => patch.kind === "page");
+// The catalog is pinned: one page-level patch. The process-level patch that used to drop
+// ELECTRON_RUN_AS_NODE is gone because DSH's Windows Job runner is spawned as the Electron
+// binary and only starts as Node when it inherits that variable.
+check(PATCH_CATALOG.length === 1, "the catalog carries one patch", String(PATCH_CATALOG.length));
+const pagePatch = PATCH_CATALOG[0];
 check(
-	processPatch?.id === "electron-run-as-node" && processPatch.variable === "ELECTRON_RUN_AS_NODE",
-	"one patch drops ELECTRON_RUN_AS_NODE",
-	processPatch?.variable
-);
-check(
-	pagePatch?.id === "plugin-header-zoom" && pagePatch.variable === undefined,
-	"the other is a page patch, with no environment variable to settle",
-	JSON.stringify({ id: pagePatch?.id, variable: pagePatch?.variable })
+	pagePatch?.id === "plugin-header-zoom" && pagePatch.kind === "page" && pagePatch.variable === undefined,
+	"the patch is the page-level header correction",
+	JSON.stringify({ id: pagePatch?.id, kind: pagePatch?.kind, variable: pagePatch?.variable })
 );
 check(
 	typeof pagePatch?.css === "string" &&
@@ -285,138 +277,48 @@ check(
 );
 
 const byId = (state, id) => listPatches(state).find((patch) => patch.id === id);
-const envPatch = (state) => byId(state, "electron-run-as-node");
 
 // Installing the plugin is the decision to fix the defect: a patch with no entry is on,
 // and only a deliberate `enabled: false` turns it off.
 const fresh = normalizePatchState(undefined);
 check(
-	listPatches(fresh).length === 2 && envPatch(fresh).enabled === true && byId(fresh, "plugin-header-zoom").enabled === true,
+	listPatches(fresh).length === 1 && byId(fresh, "plugin-header-zoom").enabled === true,
 	"a patch with no decision is enabled",
 	JSON.stringify(listPatches(fresh).map((patch) => `${patch.id}:${String(patch.enabled)}`))
 );
-const off = normalizePatchState({ patches: { "electron-run-as-node": { enabled: false } } });
-check(envPatch(off).enabled === false, "a recorded off survives normalization");
-check(Object.keys(normalizePatchState({ patches: { "electron-run-as-node": { enabled: true } } }).patches).length === 0, "an explicit on is stored as the default, not as an entry");
-check(byId(normalizePatchState({ patches: { "electron-run-as-node": { removed: true } } }), "electron-run-as-node") === undefined, "a removed patch leaves the list");
+const off = normalizePatchState({ patches: { "plugin-header-zoom": { enabled: false } } });
+check(byId(off, "plugin-header-zoom").enabled === false, "a recorded off survives normalization");
+check(Object.keys(normalizePatchState({ patches: { "plugin-header-zoom": { enabled: true } } }).patches).length === 0, "an explicit on is stored as the default, not as an entry");
+check(byId(normalizePatchState({ patches: { "plugin-header-zoom": { removed: true } } }), "plugin-header-zoom") === undefined, "a removed patch leaves the list");
+check(Object.keys(normalizePatchState({ patches: { "electron-run-as-node": { enabled: false } } }).patches).length === 0, "a decision for the removed process patch is dropped");
 check(Object.keys(normalizePatchState({ patches: { gone: { enabled: false } } }).patches).length === 0, "an entry for an id no longer in the catalog is dropped");
-check(envPatch(normalizePatchState({ patches: [] })).enabled === true, "a malformed file falls back to the defaults", JSON.stringify(normalizePatchState({ patches: [] })));
-check(envPatch(normalizePatchState("nonsense")).enabled === true, "a file that is not an object falls back to the defaults");
+check(byId(normalizePatchState({ patches: [] }), "plugin-header-zoom").enabled === true, "a malformed file falls back to the defaults", JSON.stringify(normalizePatchState({ patches: [] })));
+check(byId(normalizePatchState("nonsense"), "plugin-header-zoom").enabled === true, "a file that is not an object falls back to the defaults");
 
-const toggledOff = setPatchEnabled(fresh, "electron-run-as-node", false);
-check(envPatch(toggledOff).enabled === false, "toggling off is recorded");
-const pageOff = setPatchEnabled(fresh, "plugin-header-zoom", false);
-check(
-	byId(pageOff, "plugin-header-zoom").enabled === false && envPatch(pageOff).enabled === true,
-	"a page patch is switched by the same decision shape",
-	JSON.stringify(pageOff.patches)
-);
-const toggledBack = setPatchEnabled(toggledOff, "electron-run-as-node", true);
+const toggledOff = setPatchEnabled(fresh, "plugin-header-zoom", false);
+check(byId(toggledOff, "plugin-header-zoom").enabled === false, "toggling off is recorded");
+const toggledBack = setPatchEnabled(toggledOff, "plugin-header-zoom", true);
 check(Object.keys(toggledBack.patches).length === 0, "toggling back on clears the record");
-check(byId(setPatchEnabled(removePatch(fresh, "electron-run-as-node"), "electron-run-as-node", true), "electron-run-as-node") === undefined, "a removed patch has no switch to press");
+check(byId(setPatchEnabled(removePatch(fresh, "plugin-header-zoom"), "plugin-header-zoom", true), "plugin-header-zoom") === undefined, "a removed patch has no switch to press");
 check(Object.keys(setPatchEnabled(fresh, "not-a-patch", false).patches).length === 0, "an unknown id changes nothing");
 
-const patchFile = join(dir, "dsh-doctor.json");
+const patchDir = await mkdtemp(join(tmpdir(), "dsh-doctor-patch-"));
+const patchFile = join(patchDir, "dsh-doctor.json");
 const saved = await savePatchState(patchFile, off);
-check(saved.patches["electron-run-as-node"].enabled === false, "saving reports the normalized state");
-check(envPatch(await loadPatchState(patchFile)).enabled === false, "a decision survives a round trip");
+check(saved.patches["plugin-header-zoom"].enabled === false, "saving reports the normalized state");
+check(byId(await loadPatchState(patchFile), "plugin-header-zoom").enabled === false, "a decision survives a round trip");
 await writeFile(patchFile, "{ not json", "utf8");
-check(envPatch(await loadPatchState(patchFile)).enabled === true, "a corrupt decision file falls back to the defaults");
-check(envPatch(await loadPatchState(join(dir, "absent.json"))).enabled === true, "a missing decision file falls back to the defaults");
+check(byId(await loadPatchState(patchFile), "plugin-header-zoom").enabled === true, "a corrupt decision file falls back to the defaults");
+check(byId(await loadPatchState(join(patchDir, "absent.json")), "plugin-header-zoom").enabled === true, "a missing decision file falls back to the defaults");
 
-// The runtime edits an environment. `PATH` rides along to prove nothing else is touched.
+// The runtime must leave the environment alone: ELECTRON_RUN_AS_NODE is what starts
+// subprocess-local's private Windows Job runner as Node.
 const env = { ELECTRON_RUN_AS_NODE: "1", PATH: "C:\\Windows" };
 const runtime = createPatchRuntime(env);
-check(runtime.present("electron-run-as-node") === true, "a process that carried the variable is reported as affected");
-check(runtime.settle(fresh).join(",") === "electron-run-as-node", "settling applies the patch", runtime.settle(fresh).join(","));
-check(!("ELECTRON_RUN_AS_NODE" in env) && env.PATH === "C:\\Windows", "applying drops the variable and leaves the rest alone", JSON.stringify(env));
-check(runtime.settle(fresh).length === 0, "settling twice changes nothing", "second settle reported a change");
-const restored = runtime.settle(off);
-check(restored.join(",") === "electron-run-as-node", "disabling the patch reverts it", restored.join(","));
-check(env.ELECTRON_RUN_AS_NODE === "1", "reverting puts the value back as this process found it", JSON.stringify(env));
-runtime.settle(fresh);
-check(runtime.settle(removePatch(fresh, "electron-run-as-node")).join(",") === "electron-run-as-node", "removing a patch reverts it too");
-check(env.ELECTRON_RUN_AS_NODE === "1", "a removed patch leaves no trace", JSON.stringify(env));
-
-// A bare CLI harness (and the sandbox) never sets the variable, so the patch has nothing
-// to drop there. The panel says that out loud instead of offering a fix that does nothing.
-const clean = { PATH: "C:\\Windows" };
-const cleanRuntime = createPatchRuntime(clean);
-check(cleanRuntime.present("electron-run-as-node") === false, "an environment that never carried the variable is reported as unaffected");
-check(cleanRuntime.settle(fresh).length === 0, "settling against a clean environment changes nothing");
-check(cleanRuntime.settle(off).length === 0, "reverting a patch that never applied changes nothing");
-
-/* ------------------------------------------- the folder-dialog worker */
-
-// The patch drops ELECTRON_RUN_AS_NODE for the whole process. The Win32 folder chooser that
-// a phone or LAN browser asks for is the one child that needs it: dsh spawns that worker as
-// this same executable with `env: { ...process.env }`, measured on the app at 277ms to exit
-// with no result once the variable is gone (it boots a second copy of the desktop app, loses
-// the single-instance lock and quits), which the pick answers as "win32 folder dialog worker
-// exited before reporting a result". The wrap lends the variable for that call alone.
-const workerEnv = { ELECTRON_RUN_AS_NODE: "1", PATH: "C:\\Windows" };
-const workerPatches = createPatchRuntime(workerEnv);
-workerPatches.settle(fresh);
-check(workerPatches.applied("electron-run-as-node") === true, "the runtime reports a patch it carried out", String(workerPatches.applied("electron-run-as-node")));
-check(workerPatches.carried("electron-run-as-node") === "1", "and remembers the value it took", String(workerPatches.carried("electron-run-as-node")));
-
-let spawned;
-const nativeCapability = { kind: "native", pick: () => { spawned = workerEnv.ELECTRON_RUN_AS_NODE; return Promise.resolve("C:\\picked"); } };
-const picker = { capability: () => nativeCapability };
-const workerNode = createPickerWorkerNode(workerPatches, { env: workerEnv });
-const detach = workerNode.attach(picker);
-check(typeof detach === "function", "the wrap attaches to a mounted picker", typeof detach);
-check(await picker.capability().pick() === "C:\\picked", "the wrapped pick still returns the backend's answer");
-check(spawned === "1", "the dialog worker is spawned with the variable the patch took", String(spawned));
-check(picker.capability() === nativeCapability, "the capability the controller reads is still the backend's own object");
-check(!("ELECTRON_RUN_AS_NODE" in workerEnv) && workerEnv.PATH === "C:\\Windows", "and the environment is patched again the moment the call returns", JSON.stringify(workerEnv));
-
-// The window has to close on the failure path too, or one refused pick would leave the
-// variable in place for every later spawn.
-const failing = { kind: "native", pick: () => { throw new Error("no chooser"); } };
-const failingPicker = { capability: () => failing };
-workerNode.attach(failingPicker);
-let threw = false;
-try {
-	failingPicker.capability().pick();
-} catch {
-	threw = true;
-}
-check(threw, "a pick that fails still throws to its caller");
-check(!("ELECTRON_RUN_AS_NODE" in workerEnv), "and the environment is put back after the failure as well", JSON.stringify(workerEnv));
-
-// A bare CLI harness never carried the variable, so the patch has nothing to drop and the
-// wrap must not put anything into this process's environment.
-const cleanEnv = { PATH: "C:\\Windows" };
-const cleanPatches = createPatchRuntime(cleanEnv);
-cleanPatches.settle(fresh);
-let cleanSpawned;
-const cleanPicker = { capability: () => ({ kind: "native", pick: () => { cleanSpawned = "ELECTRON_RUN_AS_NODE" in cleanEnv; return Promise.resolve(null); } }) };
-createPickerWorkerNode(cleanPatches, { env: cleanEnv }).attach(cleanPicker);
-check(await cleanPicker.capability().pick() === null, "a cancel still resolves as null through the wrap");
-check(cleanSpawned === false && !("ELECTRON_RUN_AS_NODE" in cleanEnv), "a process the patch never applied to lends nothing", JSON.stringify(cleanEnv));
-
-// Switching the patch off puts the variable back and stops the wrap from touching anything.
-workerPatches.settle(off);
-check(workerPatches.applied("electron-run-as-node") === false, "and reports it as no longer in force once the reader switches it off");
-
-// Shapes a patch has to survive: nothing mounted, no pick to wrap, and a sealed capability.
-check(createPickerWorkerNode(workerPatches, { env: workerEnv }).attach(undefined) === undefined, "a profile with no picker is nothing to wrap");
-check(createPickerWorkerNode(workerPatches, { env: workerEnv }).attach({ capability: 5 }) === undefined, "a service with no capability method is nothing to wrap");
-const browsePicker = { capability: () => ({ kind: "browse" }) };
-check(typeof createPickerWorkerNode(workerPatches, { env: workerEnv }).attach(browsePicker) === "function" && browsePicker.capability().pick === undefined, "a browse capability has no pick to wrap");
-const sealed = Object.freeze({ kind: "native", pick: () => "sealed" });
-const sealedPicker = { capability: () => sealed };
-createPickerWorkerNode(workerPatches, { env: workerEnv }).attach(sealedPicker);
-check(sealedPicker.capability().pick() === "sealed", "a sealed capability keeps working, just without the correction");
-
-// Attaching is tied to the service's lifetime, so a reloaded picker does not stay wrapped.
-const reloaded = { capability: () => ({ kind: "native", pick: () => null }) };
-const reloadedOriginal = reloaded.capability;
-const reloadDetach = createPickerWorkerNode(workerPatches, { env: workerEnv }).attach(reloaded);
-check(reloaded.capability !== reloadedOriginal, "attaching takes over the service's capability");
-reloadDetach();
-check(reloaded.capability === reloadedOriginal, "detaching puts the backend's own capability back");
+check(runtime.present("electron-run-as-node") === false, "the removed process patch no longer affects this process");
+check(runtime.settle(fresh).length === 0, "settling the page-only catalog changes no environment");
+check(env.ELECTRON_RUN_AS_NODE === "1" && env.PATH === "C:\\Windows", "ELECTRON_RUN_AS_NODE is left for the Windows Job runner", JSON.stringify(env));
+await rm(patchDir, { recursive: true, force: true });
 
 /* ------------------------------------------------------------ reporting */
 

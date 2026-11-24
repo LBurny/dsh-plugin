@@ -28,12 +28,11 @@ import {
 	savePatchState,
 	setPatchEnabled
 } from "./patches.js";
-import { createPickerWorkerNode } from "./picker-worker.js";
 
 const name = "doctor";
 const inject = ["commands"];
 /** Shown in the panel and /api/diagnostics; bump alongside package.json. */
-const VERSION = "0.2.0";
+const VERSION = "0.2.1";
 
 /** Every route this plugin owns hangs off this prefix. */
 const ROUTE_PREFIX = "/dsh-doctor";
@@ -76,8 +75,6 @@ function createState(ctx) {
 			ctx.logger.info(`[dsh-doctor] ${message}`);
 		}
 	};
-	// Built after the object exists, because what it logs goes through `state.log`.
-	state.pickerWorker = createPickerWorkerNode(patchRuntime, { log: (message) => state.log(message) });
 	return state;
 }
 
@@ -331,21 +328,6 @@ function mount(ready, state) {
 }
 
 /**
- * Wrap the profile's directory picker, when it mounts one, so a pick from a browser that
- * is not the app's own window can still start its folder-dialog worker. The adaptive
- * picker creates its backend after boot (`dsh-host-directory-picker-auto` mounts the
- * resolved interaction through the loader), and a bare profile mounts none, so this waits
- * for the service instead of reading it at load.
- * @param ctx - plugin context.
- * @param state - plugin state.
- */
-function watchPicker(ctx, state) {
-	ctx.inject(["directoryPicker"], (ready) => {
-		ready.effect(() => state.pickerWorker.attach(ready.directoryPicker), "dsh-doctor picker worker node mode");
-	});
-}
-
-/**
  * Plugin entry point.
  * @param ctx - plugin context (declares `commands`).
  */
@@ -358,7 +340,6 @@ function apply(ctx) {
 	if (changed.length > 0) state.log(`patches applied on load: ${changed.join(", ")}`);
 	attachCapture(ctx, state);
 	registerCommands(ctx, state);
-	watchPicker(ctx, state);
 	// Read the decisions as soon as the home is known, which is earlier than the web
 	// server needs to be: a reader who disabled a patch must not keep the default.
 	ctx.inject(["configEditor"], () => {

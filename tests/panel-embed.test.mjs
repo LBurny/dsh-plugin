@@ -55,7 +55,7 @@ const PAYLOADS = {
 		// The patch route's real shape: the panel reads `patches` as a list and `configPath`
 		// as where the decisions are kept, so a thinner payload would render an empty section
 		// and every assertion about it would pass without checking anything.
-		patches: [{ id: "electron-run-as-node", variable: "ELECTRON_RUN_AS_NODE", enabled: true, applicable: true }],
+		patches: [{ id: "plugin-header-zoom", kind: "page", css: 'html[data-dsh-zoom-active] [data-plugin-header-part="toolbar"] { right: 0 !important; }', enabled: true, applicable: true }],
 		configPath: "/tmp/dsh-doctor.json"
 	},
 	"dsh-zoom": {
@@ -664,12 +664,12 @@ check(
 
 /* ------------ dsh-doctor: a patch is offered as a control, not as a fact */
 
-// This plugin applies one fix to its own process (it drops the variable the desktop app
-// leaks, which is what makes an Electron editor fail to open). The panel has to render it
-// as something a reader can take back: a switch and a delete control that reach the host.
+// This plugin applies one fix to the page (the zoom-corrected plugin page header). The panel
+// has to render it as something a reader can take back: a switch and a delete control that
+// reach the host.
 const doctorPatch = await bootPanel("dsh-doctor");
 const patchText = textOf(doctorPatch.host);
-check(patchText.includes("环境补丁") && patchText.includes("Electron 变量泄漏"), "dsh-doctor: the patch section names its patch in the page's language", patchText.slice(0, 200));
+check(patchText.includes("环境补丁") && patchText.includes("缩放挤掉插件页页头"), "dsh-doctor: the patch section names its patch in the page's language", patchText.slice(0, 200));
 check(patchText.includes("/tmp/dsh-doctor.json"), "dsh-doctor: the decisions file is named, so the state is findable by hand", patchText.slice(-200));
 
 const patchSwitch = nodesWithClass(doctorPatch.host, "switch")[0];
@@ -677,7 +677,7 @@ check(patchSwitch !== undefined, "dsh-doctor: the patch carries a switch, so it 
 await patchSwitch.listeners.click();
 const patchToggle = doctorPatch.requests.find((request) => request.method === "POST" && String(request.body).includes("toggle"));
 check(
-	patchToggle !== undefined && patchToggle.path.includes("/dsh-doctor/api/patches") && JSON.parse(patchToggle.body).enabled === false && JSON.parse(patchToggle.body).id === "electron-run-as-node",
+	patchToggle !== undefined && patchToggle.path.includes("/dsh-doctor/api/patches") && JSON.parse(patchToggle.body).enabled === false && JSON.parse(patchToggle.body).id === "plugin-header-zoom",
 	"dsh-doctor: the switch posts the decision to the host",
 	String(patchToggle?.body)
 );
@@ -686,16 +686,16 @@ const doctorRemove = await bootPanel("dsh-doctor");
 await nodesWithClass(doctorRemove.host, "danger")[0].listeners.click();
 const patchDelete = doctorRemove.requests.find((request) => request.method === "POST" && String(request.body).includes("delete"));
 check(
-	patchDelete !== undefined && JSON.parse(patchDelete.body).action === "delete" && JSON.parse(patchDelete.body).id === "electron-run-as-node",
+	patchDelete !== undefined && JSON.parse(patchDelete.body).action === "delete" && JSON.parse(patchDelete.body).id === "plugin-header-zoom",
 	"dsh-doctor: the delete control takes the patch off the list",
 	String(patchDelete?.body)
 );
 
-// A patch that cannot change anything here (a bare CLI harness never sets that variable)
-// says so, instead of presenting a fix that does nothing; and a patch the host knows but
-// this panel has no copy for still lists, under its id, rather than vanishing.
+// A process patch that cannot change anything here (a bare CLI harness never sets that
+// variable) says so, instead of presenting a fix that does nothing; and a patch the host
+// knows but this panel has no copy for still lists, under its id, rather than vanishing.
 const doctorInert = await bootPanel("dsh-doctor", {
-	payload: { ...PAYLOADS["dsh-doctor"], patches: [{ id: "electron-run-as-node", variable: "ELECTRON_RUN_AS_NODE", enabled: true, applicable: false }] }
+	payload: { ...PAYLOADS["dsh-doctor"], patches: [{ id: "some-process-patch", variable: "SOMETHING", enabled: true, applicable: false }] }
 });
 check(textOf(doctorInert.host).includes("本进程本来就没有这个变量"), "dsh-doctor: an inert patch says it changes nothing here", textOf(doctorInert.host).slice(0, 200));
 const doctorUnknown = await bootPanel("dsh-doctor", {

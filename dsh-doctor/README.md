@@ -32,41 +32,9 @@ to tail at all: the child dsh's stdout goes to the Electron process and its stde
 ## Patches
 
 A patch is a correction to the harness this plugin runs inside, for a defect a plugin cannot fix by
-writing a file. There are two, and they are carried out in the two places such a defect can live: the
-process, and the reader's page.
+writing a file. One remains, carried out in the place its defect lives: the reader's page.
 
-**`electron-run-as-node`** drops `ELECTRON_RUN_AS_NODE` from the harness's own environment. The
-official desktop app starts its harness host as the Electron executable in Node mode (`lib/main.js`'s
-`desktopNodeEnvironment`, used by `DesktopHostProcess.start`), so that variable sits in the host's
-environment. The harness scrubs a child environment of credential-shaped names and of `DSH_*`, which
-leaves it in place, so every application the open-in-app feature launches inherits it. An Electron
-editor (VS Code, Cursor, Windsurf) then starts as plain Node, is handed the workspace folder as a
-script, and exits non-zero, which dsh reports as `failed to launch <app>` and the button shows as
-打开失败，请重试. The file managers are unaffected, because `explorer.exe` is not Electron.
-
-Dropping the name is what dsh itself does where it matters: `dsh-ptc-runtime-node` filters it out of
-the environment it builds for its child, and the two places that genuinely want Electron in Node mode
-(the desktop host's package manager, the GitHub Desktop adapter) set it explicitly for that child
-instead of inheriting it.
-
-One dsh child does depend on inheriting it, and this patch has to give it back. The Win32 folder
-chooser behind `dsh-host-directory-picker-native` runs in a worker spawned as `process.execPath`,
-which in the desktop app is the Electron binary itself, with `env: { ...process.env }` and no mention
-of Node mode (`spawnDialogWorker`), so the inherited variable is the only thing that starts that child
-as Node. Without it the child boots a second copy of the desktop app, loses the single-instance lock,
-quits in about 300ms, and the pick answers `win32 folder dialog worker exited before reporting a
-result`, which a phone shows as 无法打开文件夹. Only a browser that is not the app's own window ever
-gets there: that window carries `__DSH_DIRECTORY_PICKER__` from the app's preload and picks through
-Electron instead.
-
-The correction sits on the one seam a plugin can reach, because two consumers want opposite things
-from one process-wide variable and dsh reads its environment when it spawns: `lib/picker-worker.js`
-wraps `ctx.directoryPicker.capability().pick`, which `dsh-api-workspace-controller` resolves again on
-every call, and lends the variable for that call's synchronous prefix, where the worker is spawned,
-taking it back in the same tick. A patch that is switched off, or a process that never carried the
-variable, lends nothing and leaves the environment alone.
-
-**`plugin-header-zoom`** is the other kind. dsh 0.2.2's plugin page head takes its title, intro and
+**`plugin-header-zoom`** — dsh 0.2.2's plugin page head takes its title, intro and
 toolbar apart, measures them with `getBoundingClientRect()` and pins each back as an absolutely placed
 part (`[data-plugin-header-part]`). Those numbers carry the page zoom and the placement applies it
 again, so with the page at 114% the toolbar draws 14% too far right: the 刷新 button leaves a 933px
@@ -78,17 +46,28 @@ level other than 100% is in force, so a page at 100% and a machine without `dsh-
 Decisions live in `<DSH_HOME>/dsh-doctor.json`:
 
 ```json
-{ "patches": { "electron-run-as-node": { "enabled": false } } }
+{ "patches": { "plugin-header-zoom": { "enabled": false } } }
 ```
 
 An entry is written only when a patch is switched off (`{ "enabled": false }`) or deleted
 (`{ "removed": true }`), so the default is the absence of an entry and the file stays readable by
 hand. Deleting the file brings the whole catalog back, which is also how a deleted patch returns:
-the list has no add control, like the skills page's. A patch is applied as soon as the plugin loads,
-and the file corrects that a moment later, so the fix is in force before anything is spawned.
+the list has no add control, like the skills page's. The browser half applies a page patch on load
+while it is enabled, and the decision file corrects that a moment later.
 
-The switch is honest about where it cannot help: on a bare CLI harness (and in the sandbox) the
-variable is never set, and the row says so instead of offering a fix that changes nothing.
+### Removed: `electron-run-as-node`
+
+A process-level patch used to drop `ELECTRON_RUN_AS_NODE` from the harness host so the open-in-app
+feature could start Electron editors. It was removed because DSH's Windows Job runner
+(`@deepseek-ai/dsh-subprocess-local`) is spawned as `process.execPath` — the Electron binary in the
+desktop app — and only starts as Node because it inherits that variable. With the patch on, every
+managed subprocess (the Bash tool, terminals) became a second desktop app that lost the
+single-instance lock, exited 0 without IPC, and surfaced as `Windows Job runner exited with exit code
+0 before proving its managed range empty`.
+
+The decision file and runtime remain, so the patch can return once the runner no longer depends on
+the inherited variable. Until then, Electron editors launched through open-in-app may report
+`failed to launch <app>` again.
 
 ## How the log is read
 
