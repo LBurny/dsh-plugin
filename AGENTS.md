@@ -44,9 +44,9 @@ own DOM.
 
 Everything below was verified against the **official DeepSeek Harness desktop app**,
 `F:\Code\dsh\DeepSeek Harness.exe` (Electron). It packs its own dsh inside `resources/app.asar` at
-`0.2.2-rc.1` (app `0.2.2-rc.1`, build `c59d10af`) and ships the CLI shim
+`0.2.2-rc.5` (app `0.2.2-rc.5`, build `3f85d888`) and ships the CLI shim
 `F:\Code\dsh\resources\runtime\cli\bin\dsh.cmd`. It was `0.2.0-rc.2` until the app updated itself; the
-anchors below were re-verified against `0.2.2-rc.1` on 2026-11-13, and `node tools/anchors/anchors.mjs`
+anchors below were re-verified against `0.2.2-rc.5` on 2026-11-24, and `node tools/anchors/anchors.mjs`
 exits 0 against it.
 
 - `DSH_HOME` = `C:\Users\intel\.dsh`, profile `desktop` (a `web` profile sits beside it). The app owns
@@ -455,7 +455,7 @@ sandbox in the section above is for *verifying* a change, never a substitute for
 
 Offline suites need `@deepseek-ai/*` (and `yaml` for dsh-mcp) to resolve. Run them from an installed copy,
 or make the packages resolvable in the package's `node_modules`: they are published on npm under the
-`next` tag at the version the official app ships (0.2.2-rc.1 on 2026-11-13), so
+`next` tag at the version the official app ships (0.2.2-rc.5 on 2026-11-24), so
 `npm i --no-save @deepseek-ai/dsh-atomic-write@next @deepseek-ai/dsh-llm@next
 @deepseek-ai/dsh-session-format-v3-to-v4@next` is enough, and junctions into a runtime also work.
 
